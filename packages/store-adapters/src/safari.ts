@@ -45,15 +45,15 @@ async function getState(credentials: SafariCredentials, appId: string, fetchImpl
     data?: { attributes?: { versionString?: string; appVersionState?: string } }[]
   }
 
-  let liveVersion: string | null = null
-  let inReviewVersion: string | null = null
+  let liveVersion: string | undefined
+  let inReviewVersion: string | undefined
   let reviewStatus: 'pending' | 'rejected' | undefined
   for (const version of body.data ?? []) {
     const state = version.attributes?.appVersionState
     const versionString = version.attributes?.versionString
     if (!state || !versionString) continue
-    if (liveVersion === null && LIVE_STATES.has(state)) liveVersion = versionString
-    if (inReviewVersion === null && IN_REVIEW_STATES.has(state)) {
+    if (liveVersion === undefined && LIVE_STATES.has(state)) liveVersion = versionString
+    if (inReviewVersion === undefined && IN_REVIEW_STATES.has(state)) {
       inReviewVersion = versionString
       reviewStatus = 'pending'
     }
@@ -61,8 +61,8 @@ async function getState(credentials: SafariCredentials, appId: string, fetchImpl
   }
 
   return {
-    live: { known: true, version: liveVersion ?? undefined },
-    inReview: { known: true, version: inReviewVersion ?? undefined },
+    live: { known: true, version: liveVersion },
+    inReview: { known: true, version: inReviewVersion },
     reviewStatus,
     rejectionReason: reviewStatus === 'rejected' ? 'Check App Store Connect → Activity for Apple’s rejection notes.' : undefined,
   }
