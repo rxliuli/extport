@@ -7,7 +7,7 @@ as external tenants.
 Two independent per-extension modules:
 
 - **Publishing** (Phase 1, in progress) — reconciliation-loop based store publishing
-  (Chrome / Firefox / Edge / Apple), latest-wins versioning, status matrix, notifications.
+  (Chrome / Firefox / Edge / Safari), latest-wins versioning, status matrix, notifications.
 - **Licensing** (Phase 2, schema pre-defined) — BYO-Stripe activation codes with
   offline verification (Ed25519), seat decay, buyer magic-link pages.
 
@@ -68,7 +68,7 @@ Only the last four characters are ever displayed again.
 | Chrome | Web Store Publish API **v2** service account: Publisher ID + service account email + private key (JSON key from GCP, no OAuth consent screen) |
 | Firefox | AMO JWT issuer + secret |
 | Edge | Partner Center Client ID + API key (expires every ~72 days → rotation reminders) |
-| Apple | App Store Connect .p8 key + Key ID + Issuer ID (App Manager role) |
+| Safari | App Store Connect .p8 key + Key ID + Issuer ID (App Manager role) |
 
 Chrome intentionally skips OAuth entirely — the Web Store API v2 (the v1.1
 API it replaces sunsets 2026-10-15) authenticates with a GCP service account,

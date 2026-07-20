@@ -17,7 +17,7 @@ describe('parseCredentials', () => {
   })
 
   it('lists every missing field', () => {
-    expect(() => parseCredentials('apple', { keyId: 'k' })).toThrow(
+    expect(() => parseCredentials('safari', { keyId: 'k' })).toThrow(
       /missing or empty credential fields: issuerId, privateKeyP8/,
     )
     expect(() => parseCredentials('chrome', { publisherId: 'p' })).toThrow(
@@ -38,6 +38,6 @@ describe('credentialHint', () => {
     ).toBe('0001')
     expect(credentialHint('firefox', { jwtIssuer: 'i', jwtSecret: 'secret99' })).toBe('et99')
     expect(credentialHint('edge', { clientId: 'c', apiKey: 'edgekey123' })).toBe('y123')
-    expect(credentialHint('apple', { keyId: 'AB12CD34', issuerId: 'i', privateKeyP8: 'p' })).toBe('CD34')
+    expect(credentialHint('safari', { keyId: 'AB12CD34', issuerId: 'i', privateKeyP8: 'p' })).toBe('CD34')
   })
 })

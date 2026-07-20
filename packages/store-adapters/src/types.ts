@@ -7,12 +7,12 @@ export interface StoreState {
    * store's API cannot report this field at all — the reconciler must
    * preserve whatever it already knew instead of overwriting with a false
    * "nothing here." Edge always omits both fields (confirmed API gap);
-   * Chrome/Firefox/Apple return a real string or an authoritative null.
+   * Chrome/Firefox/Safari return a real string or an authoritative null.
    */
   liveVersion?: string | null
   inReviewVersion?: string | null
   reviewStatus?: 'pending' | 'rejected'
-  /** Only Firefox/Apple can say anything useful here; Chrome/Edge never expose review text via API. */
+  /** Only Firefox/Safari can say anything useful here; Chrome/Edge never expose review text via API. */
   rejectionReason?: string
 }
 
@@ -26,7 +26,7 @@ export interface SubmissionResult {
 }
 
 /**
- * One implementation per store (chrome | firefox | edge | apple).
+ * One implementation per store (chrome | firefox | edge | safari).
  * Credentials arrive already decrypted (tenant DEK) and must never be logged.
  */
 export interface StoreAdapter<TCredentials = unknown> {
@@ -38,7 +38,7 @@ export interface StoreAdapter<TCredentials = unknown> {
     storeItemId: string,
     artifact: ArrayBuffer,
   ): Promise<SubmissionResult>
-  /** Only stores that can cancel an in-review submission implement this (Chrome, Apple). */
+  /** Only stores that can cancel an in-review submission implement this (Chrome, Safari). */
   withdraw?(credentials: TCredentials, storeItemId: string): Promise<void>
 }
 
@@ -69,7 +69,7 @@ export interface EdgeCredentials {
   apiKey: string
 }
 
-export interface AppleCredentials {
+export interface SafariCredentials {
   keyId: string
   issuerId: string
   privateKeyP8: string

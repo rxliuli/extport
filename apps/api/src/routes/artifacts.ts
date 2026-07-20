@@ -1,8 +1,10 @@
 import { isValidExtensionVersion, newId, sha256Hex, STORES, type Store } from '@extport/shared'
 import { and, desc, eq, isNull, or } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
-import { artifacts, extensions, type Extension } from '../db'
+import { artifacts, extensions, publishTargets, type Extension } from '../db'
 import { requireAuth, type AppEnv } from '../middleware/auth'
+import { isVersionRegression, queueLatestArtifact } from '../reconcile/queue'
+import { runReconciliation } from '../reconcile/run'
 
 const MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
 
@@ -80,6 +82,19 @@ route.post('/', async (c) => {
     )
   }
 
+  // A genuinely new artifact — figure out which store(s) it's relevant to
+  // (the one it was pushed for, or every currently-configured target if it's
+  // a universal build) and refuse it outright if it would move any of them
+  // backward. No silent "accepted but ignored" — a bad push should fail loudly.
+  const targetStores = store
+    ? [store]
+    : (await db.select({ store: publishTargets.store }).from(publishTargets).where(eq(publishTargets.extensionId, extension.id))).map((t) => t.store)
+  for (const s of targetStores) {
+    if (await isVersionRegression(db, extension.id, s, version)) {
+      return c.json({ error: `version ${version} is not newer than the version already queued/in review/live on ${s}` }, 409)
+    }
+  }
+
   const key = r2Key(tenant.id, extension.id, version, store)
   await c.env.ARTIFACTS.put(key, bytes, {
     httpMetadata: { contentType: 'application/zip' },
@@ -100,6 +115,14 @@ route.post('/', async (c) => {
     size: bytes.length,
   })
   const [created] = await db.select().from(artifacts).where(eq(artifacts.id, id))
+
+  for (const s of targetStores) {
+    await queueLatestArtifact(db, tenant.id, extension.id, s)
+  }
+  if (targetStores.length > 0) {
+    c.executionCtx.waitUntil(runReconciliation(c.env, db, { tenantId: tenant.id, extensionId: extension.id }))
+  }
+
   return c.json({ artifact: created }, 201)
 })
 

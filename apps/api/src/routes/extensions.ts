@@ -1,9 +1,11 @@
 import { newId, PLAN_LIMITS, STORES, type Store } from '@extport/shared'
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
-import { artifacts, deploymentStates, extensions, products, publishEvents, publishTargets, storeCredentials, type Db } from '../db'
+import { artifacts, deploymentVersions, extensions, products, publishEvents, publishTargets, storeCredentials, type Db } from '../db'
 import { requireAuth, type AppEnv } from '../middleware/auth'
+import { queueLatestArtifact } from '../reconcile/queue'
 import { runReconciliation } from '../reconcile/run'
+import { deriveTargetStatus } from '../reconcile/status'
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/
 
@@ -41,29 +43,33 @@ route.get('/matrix', async (c) => {
     .orderBy(extensions.slug)
 
   const targetRows = await db
-    .select({ target: publishTargets, credential: storeCredentials, deploymentState: deploymentStates })
+    .select({ target: publishTargets, credential: storeCredentials })
     .from(publishTargets)
     .innerJoin(storeCredentials, eq(publishTargets.credentialId, storeCredentials.id))
-    .leftJoin(
-      deploymentStates,
-      and(eq(deploymentStates.extensionId, publishTargets.extensionId), eq(deploymentStates.store, publishTargets.store)),
-    )
     .where(eq(publishTargets.tenantId, tenant.id))
+
+  const extensionIds = [...new Set(targetRows.map((r) => r.target.extensionId))]
+  const versionRows = extensionIds.length > 0 ? await db.select().from(deploymentVersions).where(inArray(deploymentVersions.extensionId, extensionIds)) : []
+  const versionsByExtStore = new Map<string, typeof versionRows>()
+  for (const v of versionRows) {
+    const key = `${v.extensionId}:${v.store}`
+    const list = versionsByExtStore.get(key)
+    if (list) list.push(v)
+    else versionsByExtStore.set(key, [v])
+  }
 
   const targetsByExtension = new Map<string, unknown[]>()
   for (const row of targetRows) {
+    const rows = versionsByExtStore.get(`${row.target.extensionId}:${row.target.store}`) ?? []
+    const derived = deriveTargetStatus(rows, row.target.lastErrorDetail)
     const entry = {
       targetId: row.target.id,
       store: row.target.store,
       enabled: row.target.enabled,
       credentialLabel: row.credential.label,
       credentialStatus: row.credential.status,
-      status: row.deploymentState?.status ?? 'synced',
-      liveVersion: row.deploymentState?.liveVersion ?? null,
-      inReviewVersion: row.deploymentState?.inReviewVersion ?? null,
-      statusDetail: row.deploymentState?.statusDetail ?? null,
-      submittedAt: row.deploymentState?.submittedAt ?? null,
-      lastReconciledAt: row.deploymentState?.lastReconciledAt ?? null,
+      ...derived,
+      lastReconciledAt: row.target.lastReconciledAt,
     }
     const list = targetsByExtension.get(row.target.extensionId)
     if (list) list.push(entry)
@@ -123,13 +129,8 @@ route.get('/:id', async (c) => {
     .from(extensions)
     .where(and(eq(extensions.tenantId, tenant.id), eq(extensions.id, c.req.param('id'))))
   if (!extension) return c.json({ error: 'not found' }, 404)
-  const recentArtifacts = await db
-    .select()
-    .from(artifacts)
-    .where(eq(artifacts.extensionId, extension.id))
-    .orderBy(desc(artifacts.createdAt))
-    .limit(10)
-  return c.json({ extension, artifacts: recentArtifacts })
+
+  return c.json({ extension })
 })
 
 route.patch('/:id', async (c) => {
@@ -166,7 +167,7 @@ route.delete('/:id', async (c) => {
   }
 
   await db.delete(publishEvents).where(eq(publishEvents.extensionId, extension.id))
-  await db.delete(deploymentStates).where(eq(deploymentStates.extensionId, extension.id))
+  await db.delete(deploymentVersions).where(eq(deploymentVersions.extensionId, extension.id))
   await db.delete(artifacts).where(eq(artifacts.extensionId, extension.id))
   await db.delete(publishTargets).where(eq(publishTargets.extensionId, extension.id))
   await db.delete(products).where(eq(products.extensionId, extension.id)) // Phase 2, always empty today
@@ -188,7 +189,11 @@ route.post('/:id/reconcile', async (c) => {
   return c.json({ summary })
 })
 
-route.get('/:id/events', async (c) => {
+// The Timeline is deployment_versions (every push, and what happened to it)
+// plus publish_events (error/stale_review — the two things that aren't about
+// a specific version) merged by the caller; each has a different shape so
+// they're returned as two arrays rather than forced into one.
+route.get('/:id/timeline', async (c) => {
   const db = c.get('db')
   const tenant = c.get('tenant')
   const [extension] = await db
@@ -197,13 +202,11 @@ route.get('/:id/events', async (c) => {
     .where(and(eq(extensions.tenantId, tenant.id), eq(extensions.id, c.req.param('id'))))
   if (!extension) return c.json({ error: 'not found' }, 404)
 
-  const events = await db
-    .select()
-    .from(publishEvents)
-    .where(eq(publishEvents.extensionId, extension.id))
-    .orderBy(desc(publishEvents.createdAt))
-    .limit(50)
-  return c.json({ events })
+  const [versions, events] = await Promise.all([
+    db.select().from(deploymentVersions).where(eq(deploymentVersions.extensionId, extension.id)).orderBy(desc(deploymentVersions.createdAt)).limit(50),
+    db.select().from(publishEvents).where(eq(publishEvents.extensionId, extension.id)).orderBy(desc(publishEvents.createdAt)).limit(50),
+  ])
+  return c.json({ versions, events })
 })
 
 async function ownedExtension(db: Db, tenantId: string, extensionId: string) {
@@ -225,6 +228,15 @@ route.get('/:id/targets', async (c) => {
     .from(publishTargets)
     .innerJoin(storeCredentials, eq(publishTargets.credentialId, storeCredentials.id))
     .where(eq(publishTargets.extensionId, extension.id))
+
+  const versionRows = rows.length > 0 ? await db.select().from(deploymentVersions).where(eq(deploymentVersions.extensionId, extension.id)) : []
+  const versionsByStore = new Map<Store, typeof versionRows>()
+  for (const v of versionRows) {
+    const list = versionsByStore.get(v.store)
+    if (list) list.push(v)
+    else versionsByStore.set(v.store, [v])
+  }
+
   return c.json({
     targets: rows.map((r) => ({
       id: r.target.id,
@@ -234,6 +246,7 @@ route.get('/:id/targets', async (c) => {
       credentialId: r.credential.id,
       credentialLabel: r.credential.label,
       credentialStatus: r.credential.status,
+      ...deriveTargetStatus(versionsByStore.get(r.target.store) ?? [], r.target.lastErrorDetail),
     })),
   })
 })
@@ -291,6 +304,14 @@ route.post('/:id/targets', async (c) => {
     credentialId: credential.id,
   })
   const [created] = await db.select().from(publishTargets).where(eq(publishTargets.id, id))
+
+  // Pick up anything already pushed before this target existed to receive it,
+  // then reconcile immediately — this also discovers the store's current
+  // live version as a baseline, instead of waiting up to 30 minutes for it
+  // to show up anywhere.
+  await queueLatestArtifact(db, tenant.id, extension.id, store)
+  c.executionCtx.waitUntil(runReconciliation(c.env, db, { tenantId: tenant.id, extensionId: extension.id }))
+
   return c.json({ target: created }, 201)
 })
 

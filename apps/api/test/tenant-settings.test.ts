@@ -7,7 +7,7 @@ describe('GET /v1/tenant/settings', () => {
     const res = await request('/v1/tenant/settings', { headers: { cookie: sessionCookie } })
     expect(res.status).toBe(200)
     const body = (await res.json()) as { staleReviewDays: Record<string, number> }
-    expect(body.staleReviewDays).toEqual({ chrome: 3, firefox: 3, edge: 10, apple: 3 })
+    expect(body.staleReviewDays).toEqual({ chrome: 3, firefox: 3, edge: 10, safari: 3 })
   })
 
   it('requires a session — an API key cannot read tenant settings', async () => {
@@ -28,7 +28,7 @@ describe('PATCH /v1/tenant/settings', () => {
     })
     const res = await request('/v1/tenant/settings', { headers: { cookie: sessionCookie } })
     const body = (await res.json()) as { staleReviewDays: Record<string, number> }
-    expect(body.staleReviewDays).toEqual({ chrome: 3, firefox: 3, edge: 21, apple: 3 })
+    expect(body.staleReviewDays).toEqual({ chrome: 3, firefox: 3, edge: 21, safari: 3 })
   })
 
   it('rejects an unknown store key', async () => {

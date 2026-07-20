@@ -1,8 +1,17 @@
 import { useEffect, useState } from 'react'
-import { api, ApiError, type CredentialRow, type Extension, type PublishEvent, type PublishTarget, type Store } from './api'
-import { STATUS_COLOR } from './status'
+import {
+  api,
+  ApiError,
+  type CredentialRow,
+  type DeploymentVersion,
+  type Extension,
+  type PublishEvent,
+  type PublishTarget,
+  type Store,
+} from './api'
+import { ageDays, STATUS_COLOR, STATUS_LABEL } from './status'
 
-const STORES: Store[] = ['chrome', 'firefox', 'edge', 'apple']
+const STORES: Store[] = ['chrome', 'firefox', 'edge', 'safari']
 
 function relativeTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime()
@@ -12,55 +21,6 @@ function relativeTime(iso: string): string {
   const hours = Math.floor(minutes / 60)
   if (hours < 24) return `${hours}h ago`
   return `${Math.floor(hours / 24)}d ago`
-}
-
-const EVENT_LABEL: Record<PublishEvent['type'], string> = {
-  submitted: 'submitted',
-  approved: 'live',
-  rejected: 'rejected',
-  withdrawn: 'withdrawn',
-  blocked: 'blocked',
-  error: 'error',
-  stale_review: 'stale review',
-}
-
-const EVENT_COLOR: Record<PublishEvent['type'], string> = {
-  submitted: '#9a6700',
-  approved: '#1a7f37',
-  rejected: '#cf222e',
-  withdrawn: '#6e7781',
-  blocked: '#6e7781',
-  error: '#cf222e',
-  stale_review: '#9a6700',
-}
-
-function eventPayload(event: PublishEvent): Record<string, unknown> {
-  return JSON.parse(event.payloadJson) as Record<string, unknown>
-}
-
-function eventVersion(event: PublishEvent): string | null {
-  const payload = eventPayload(event)
-  const version = payload.version ?? payload.desiredVersion
-  return typeof version === 'string' ? version : null
-}
-
-function eventDetail(event: PublishEvent): string | null {
-  const payload = eventPayload(event)
-  switch (event.type) {
-    case 'rejected':
-      return typeof payload.reason === 'string' ? payload.reason : null
-    case 'error':
-      return typeof payload.message === 'string' ? payload.message : null
-    case 'submitted':
-      return typeof payload.detail === 'string' ? payload.detail : null
-    case 'stale_review':
-      return `${payload.status} for ${payload.ageDays}+ days`
-    case 'blocked':
-      return typeof payload.inReviewVersion === 'string' ? `waiting behind v${payload.inReviewVersion}` : null
-    case 'approved':
-    case 'withdrawn':
-      return null
-  }
 }
 
 function TargetsSection({ extensionId }: { extensionId: string }) {
@@ -114,24 +74,48 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
     <section>
       <h3>Store targets</h3>
       <table cellPadding={6} style={{ borderCollapse: 'collapse', width: '100%' }}>
+        <thead>
+          <tr style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>
+            <th>Store</th>
+            <th>Item ID</th>
+            <th>Credential</th>
+            <th>Version</th>
+            <th>Enabled</th>
+            <th></th>
+          </tr>
+        </thead>
         <tbody>
-          {targets.map((t) => (
-            <tr key={t.id} style={{ borderBottom: '1px solid #eee' }}>
-              <td>{t.store}</td>
-              <td>
-                <code>{t.storeItemId}</code>
-              </td>
-              <td>
-                {t.credentialLabel}{' '}
-                {t.credentialStatus !== 'active' && <span style={{ color: 'crimson' }}>({t.credentialStatus})</span>}
-              </td>
-              <td>{t.enabled ? 'enabled' : 'disabled'}</td>
-              <td>
-                <button onClick={() => void toggle(t)}>{t.enabled ? 'Disable' : 'Enable'}</button>{' '}
-                <button onClick={() => void remove(t)}>Remove</button>
-              </td>
-            </tr>
-          ))}
+          {targets.map((t) => {
+            const days = ageDays(t.submittedAt)
+            const suffix = t.status === 'in_review' && days !== null ? ` (${days}d)` : ''
+            return (
+              <tr key={t.id} style={{ borderBottom: '1px solid #eee' }}>
+                <td>{t.store}</td>
+                <td>
+                  <code>{t.storeItemId}</code>
+                </td>
+                <td>
+                  {t.credentialLabel}{' '}
+                  {t.credentialStatus !== 'active' && <span style={{ color: 'crimson' }}>({t.credentialStatus})</span>}
+                </td>
+                <td title={t.statusDetail ?? undefined}>
+                  <span style={{ color: STATUS_COLOR[t.status], fontWeight: 600 }}>
+                    {t.version ?? '—'} · {STATUS_LABEL[t.status]}
+                    {suffix}
+                  </span>
+                  {t.liveVersion && t.liveVersion !== t.version && (
+                    <div style={{ color: '#666', fontSize: 12 }}>live: {t.liveVersion}</div>
+                  )}
+                  {t.queuedVersion && <div style={{ color: '#9a6700', fontSize: 12 }}>→ {t.queuedVersion} queued</div>}
+                </td>
+                <td>{t.enabled ? 'enabled' : 'disabled'}</td>
+                <td>
+                  <button onClick={() => void toggle(t)}>{t.enabled ? 'Disable' : 'Enable'}</button>{' '}
+                  <button onClick={() => void remove(t)}>Remove</button>
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
       {targets.length === 0 && <p>No stores configured yet.</p>}
@@ -185,42 +169,99 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
   )
 }
 
-function EventsSection({ extensionId }: { extensionId: string }) {
-  const [events, setEvents] = useState<PublishEvent[]>([])
+const VERSION_STATUS_LABEL: Record<DeploymentVersion['status'], string> = {
+  queued: 'queued',
+  in_review: 'in review',
+  online: 'live',
+  rejected: 'rejected',
+  skipped: 'skipped',
+}
+
+const VERSION_STATUS_COLOR: Record<DeploymentVersion['status'], string> = {
+  queued: '#9a6700',
+  in_review: '#9a6700',
+  online: '#1a7f37',
+  rejected: '#cf222e',
+  skipped: '#6e7781',
+}
+
+const EVENT_LABEL: Record<PublishEvent['type'], string> = {
+  error: 'error',
+  stale_review: 'stale review',
+}
+
+const EVENT_COLOR: Record<PublishEvent['type'], string> = {
+  error: '#cf222e',
+  stale_review: '#9a6700',
+}
+
+function eventDetail(event: PublishEvent): string | null {
+  const payload = JSON.parse(event.payloadJson) as Record<string, unknown>
+  if (event.type === 'error') return typeof payload.message === 'string' ? payload.message : null
+  const version = typeof payload.version === 'string' ? ` v${payload.version}` : ''
+  return `${payload.ageDays}+ days${version}`
+}
+
+// The Timeline is deployment_versions (every push, and what happened to it —
+// queued/in_review/online/rejected/skipped all live on one row that mutates
+// in place) merged with publish_events (only error/stale_review, which
+// aren't about any one version) and sorted by time. "Current state" lives
+// entirely in the Store targets table above; this is purely history.
+type TimelineRow =
+  | { kind: 'version'; id: string; store: Store; createdAt: string; version: DeploymentVersion }
+  | { kind: 'event'; id: string; store: Store; createdAt: string; event: PublishEvent }
+
+function TimelineSection({ extensionId }: { extensionId: string }) {
+  const [rows, setRows] = useState<TimelineRow[]>([])
 
   useEffect(() => {
-    void api<{ events: PublishEvent[] }>(`/v1/extensions/${extensionId}/events`).then((r) => setEvents(r.events))
+    void api<{ versions: DeploymentVersion[]; events: PublishEvent[] }>(`/v1/extensions/${extensionId}/timeline`).then((r) => {
+      const merged: TimelineRow[] = [
+        ...r.versions.map((v): TimelineRow => ({ kind: 'version', id: v.id, store: v.store, createdAt: v.createdAt, version: v })),
+        ...r.events.map((e): TimelineRow => ({ kind: 'event', id: e.id, store: e.store, createdAt: e.createdAt, event: e })),
+      ]
+      merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      setRows(merged)
+    })
   }, [extensionId])
 
   return (
     <section>
       <h3>Timeline</h3>
-      {events.length === 0 && <p>No events yet.</p>}
-      {events.length > 0 && (
+      {rows.length === 0 && <p>No activity yet.</p>}
+      {rows.length > 0 && (
         <table cellPadding={6} style={{ borderCollapse: 'collapse', width: '100%' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>
               <th>Time</th>
               <th>Store</th>
               <th>Version</th>
-              <th>Event</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>
-            {events.map((e) => {
-              const detail = eventDetail(e)
-              return (
-                <tr key={e.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                  <td style={{ color: '#666', fontSize: 12, whiteSpace: 'nowrap' }}>{relativeTime(e.createdAt)}</td>
-                  <td>{e.store}</td>
-                  <td>{eventVersion(e) ? <code>{eventVersion(e)}</code> : '—'}</td>
-                  <td>
-                    <span style={{ color: EVENT_COLOR[e.type], fontWeight: 600 }}>{EVENT_LABEL[e.type]}</span>
-                    {detail && <div style={{ fontSize: 12, color: '#666' }}>{detail}</div>}
-                  </td>
-                </tr>
-              )
-            })}
+            {rows.map((row) => (
+              <tr key={row.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                <td style={{ color: '#666', fontSize: 12, whiteSpace: 'nowrap' }}>{relativeTime(row.createdAt)}</td>
+                <td>{row.store}</td>
+                <td>{row.kind === 'version' ? <code>{row.version.version}</code> : '—'}</td>
+                <td>
+                  {row.kind === 'version' ? (
+                    <>
+                      <span style={{ color: VERSION_STATUS_COLOR[row.version.status], fontWeight: 600 }}>
+                        {VERSION_STATUS_LABEL[row.version.status]}
+                      </span>
+                      {row.version.statusDetail && <div style={{ fontSize: 12, color: '#666' }}>{row.version.statusDetail}</div>}
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ color: EVENT_COLOR[row.event.type], fontWeight: 600 }}>{EVENT_LABEL[row.event.type]}</span>
+                      <div style={{ fontSize: 12, color: '#666' }}>{eventDetail(row.event)}</div>
+                    </>
+                  )}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       )}
@@ -323,7 +364,7 @@ export function ExtensionDetailPage({ extensionId, onBack }: { extensionId: stri
       {tab === 'publishing' ? (
         <div key={refreshKey}>
           <TargetsSection extensionId={extensionId} />
-          <EventsSection extensionId={extensionId} />
+          <TimelineSection extensionId={extensionId} />
         </div>
       ) : (
         <p style={{ color: STATUS_COLOR.blocked }}>

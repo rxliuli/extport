@@ -1,4 +1,4 @@
-import type { AppleCredentials, CredentialCheck, StoreAdapter, StoreState } from './types'
+import type { SafariCredentials, CredentialCheck, StoreAdapter, StoreState } from './types'
 import { signJwtES256 } from './jwt'
 import { truncate, type FetchLike } from './util'
 
@@ -20,7 +20,7 @@ const LIVE_STATES = new Set([
 ])
 
 /** App Store Connect: ES256 JWT from a .p8 key (App Manager role recommended). */
-export async function ascAuthHeader(credentials: AppleCredentials): Promise<string> {
+export async function ascAuthHeader(credentials: SafariCredentials): Promise<string> {
   const now = Math.floor(Date.now() / 1000)
   const jwt = await signJwtES256(
     {
@@ -34,7 +34,7 @@ export async function ascAuthHeader(credentials: AppleCredentials): Promise<stri
   return `Bearer ${jwt}`
 }
 
-async function getState(credentials: AppleCredentials, appId: string, fetchImpl: FetchLike): Promise<StoreState> {
+async function getState(credentials: SafariCredentials, appId: string, fetchImpl: FetchLike): Promise<StoreState> {
   const authorization = await ascAuthHeader(credentials)
   const res = await fetchImpl(
     `${API_BASE}/v1/apps/${appId}/appStoreVersions?limit=5&sort=-createdDate&fields[appStoreVersions]=versionString,appVersionState`,
@@ -68,7 +68,7 @@ async function getState(credentials: AppleCredentials, appId: string, fetchImpl:
   }
 }
 
-async function withdraw(credentials: AppleCredentials, appId: string, fetchImpl: FetchLike): Promise<void> {
+async function withdraw(credentials: SafariCredentials, appId: string, fetchImpl: FetchLike): Promise<void> {
   const authorization = await ascAuthHeader(credentials)
   const lookupRes = await fetchImpl(
     `${API_BASE}/v1/apps/${appId}/reviewSubmissions?filter[state]=WAITING_FOR_REVIEW,IN_REVIEW&limit=1`,
@@ -100,9 +100,9 @@ async function withdraw(credentials: AppleCredentials, appId: string, fetchImpl:
  * not yet built. `getState`/`withdraw` are pure REST and work today against
  * any app/build the tenant already manages manually.
  */
-export function createAppleAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o)): StoreAdapter<AppleCredentials> {
+export function createSafariAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o)): StoreAdapter<SafariCredentials> {
   return {
-    store: 'apple',
+    store: 'safari',
     async verifyCredentials(credentials): Promise<CredentialCheck> {
       let authorization: string
       try {
@@ -119,7 +119,7 @@ export function createAppleAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o))
     submit: () =>
       Promise.reject(
         new Error(
-          'apple.submit is not implemented: the App Store Connect API cannot upload a binary — a build must be ' +
+          'safari.submit is not implemented: the App Store Connect API cannot upload a binary — a build must be ' +
             'produced by an external macOS pipeline (Xcode/Transporter) first. See spec §8 (Safari conversion pipeline).',
         ),
       ),

@@ -1,23 +1,23 @@
 import type { Store } from '@extport/shared'
 import type {
-  AppleCredentials,
   ChromeCredentials,
   EdgeCredentials,
   FirefoxCredentials,
+  SafariCredentials,
 } from './types'
 
 export interface CredentialsByStore {
   chrome: ChromeCredentials
   firefox: FirefoxCredentials
   edge: EdgeCredentials
-  apple: AppleCredentials
+  safari: SafariCredentials
 }
 
 export const CREDENTIAL_FIELDS: { [S in Store]: (keyof CredentialsByStore[S])[] } = {
   chrome: ['publisherId', 'clientEmail', 'privateKey'],
   firefox: ['jwtIssuer', 'jwtSecret'],
   edge: ['clientId', 'apiKey'],
-  apple: ['keyId', 'issuerId', 'privateKeyP8'],
+  safari: ['keyId', 'issuerId', 'privateKeyP8'],
 }
 
 export class CredentialValidationError extends Error {}
@@ -52,7 +52,7 @@ export function credentialHint<S extends Store>(store: S, credentials: Credentia
     chrome: (credentials as ChromeCredentials).publisherId ?? '',
     firefox: (credentials as FirefoxCredentials).jwtSecret ?? '',
     edge: (credentials as EdgeCredentials).apiKey ?? '',
-    apple: (credentials as AppleCredentials).keyId ?? '',
+    safari: (credentials as SafariCredentials).keyId ?? '',
   }
   return field[store].slice(-4)
 }

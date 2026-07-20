@@ -2,7 +2,7 @@ import { newId } from '@extport/shared'
 import { env } from 'cloudflare:test'
 import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
-import { artifacts, deploymentStates, publishEvents, publishTargets, storeCredentials } from '../src/db'
+import { artifacts, deploymentVersions, publishEvents, publishTargets, storeCredentials } from '../src/db'
 import { createExtension, fakeZip, request, seedTenantWithUser } from './helpers'
 
 function upload(key: string, extensionSlug: string, version: string, body: Uint8Array): Promise<Response> {
@@ -32,19 +32,19 @@ describe('DELETE /v1/extensions/:id', () => {
 
     // Seed rows in every table that references this extension, so deletion is
     // actually exercised across all of them, not just the happy path (artifacts).
-    await db.insert(deploymentStates).values({
-      id: newId('deploymentState'),
+    await db.insert(deploymentVersions).values({
+      id: newId('deploymentVersion'),
       tenantId,
       extensionId: extension.id,
       store: 'chrome',
-      status: 'synced',
+      version: '1.0.0',
     })
     await db.insert(publishEvents).values({
       id: newId('publishEvent'),
       tenantId,
       extensionId: extension.id,
       store: 'chrome',
-      type: 'submitted',
+      type: 'error',
       payloadJson: '{}',
     })
     const credentialId = newId('storeCredential')
@@ -75,7 +75,7 @@ describe('DELETE /v1/extensions/:id', () => {
     expect((await request(`/v1/extensions/${extension.id}`, { headers: { cookie: sessionCookie } })).status).toBe(404)
     expect(await env.ARTIFACTS.get(artifact.r2Key)).toBeNull()
     expect(await db.select().from(artifacts).where(eq(artifacts.extensionId, extension.id))).toHaveLength(0)
-    expect(await db.select().from(deploymentStates).where(eq(deploymentStates.extensionId, extension.id))).toHaveLength(0)
+    expect(await db.select().from(deploymentVersions).where(eq(deploymentVersions.extensionId, extension.id))).toHaveLength(0)
     expect(await db.select().from(publishEvents).where(eq(publishEvents.extensionId, extension.id))).toHaveLength(0)
     expect(await db.select().from(publishTargets).where(eq(publishTargets.extensionId, extension.id))).toHaveLength(0)
     // The credential itself belongs to the tenant, not the extension — deleting the extension must not touch it.

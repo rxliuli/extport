@@ -12,21 +12,29 @@ export interface Extension {
   licensingEnabled: boolean
 }
 
-export type Store = 'chrome' | 'firefox' | 'edge' | 'apple'
-export type DeploymentStatus = 'synced' | 'submitting' | 'in_review' | 'rejected' | 'blocked' | 'error'
+export type Store = 'chrome' | 'firefox' | 'edge' | 'safari'
+/** The current, derived status for a (extension, store) target — see apps/api's reconcile/status.ts. */
+export type DeploymentStatus = 'synced' | 'queued' | 'in_review' | 'blocked' | 'rejected' | 'error'
 
-export interface MatrixTarget {
+interface DerivedTargetStatus {
+  status: DeploymentStatus
+  /** The version `status` is actually describing — always pair these two together when rendering. */
+  version: string | null
+  /** MAX version currently live — shown as ambient context even when `version` describes something else. */
+  liveVersion: string | null
+  /** Only set when `status` is 'blocked': the version waiting behind `version`. */
+  queuedVersion: string | null
+  statusDetail: string | null
+  /** ISO date string (Date -> JSON) */
+  submittedAt: string | null
+}
+
+export interface MatrixTarget extends DerivedTargetStatus {
   targetId: string
   store: Store
   enabled: boolean
   credentialLabel: string
   credentialStatus: 'active' | 'invalid' | 'expiring'
-  status: DeploymentStatus
-  liveVersion: string | null
-  inReviewVersion: string | null
-  statusDetail: string | null
-  /** ISO date string (Date -> JSON) */
-  submittedAt: string | null
   /** ISO date string (Date -> JSON) */
   lastReconciledAt: string | null
 }
@@ -39,7 +47,7 @@ export interface MatrixExtension {
   targets: MatrixTarget[]
 }
 
-export interface PublishTarget {
+export interface PublishTarget extends DerivedTargetStatus {
   id: string
   store: Store
   storeItemId: string
@@ -49,10 +57,24 @@ export interface PublishTarget {
   credentialStatus: 'active' | 'invalid' | 'expiring'
 }
 
+/** One row per (extension, store, version) push — the Timeline's main content. See apps/api's deployment_versions table. */
+export interface DeploymentVersion {
+  id: string
+  store: Store
+  version: string
+  status: 'queued' | 'in_review' | 'online' | 'rejected' | 'skipped'
+  statusDetail: string | null
+  /** ISO date string (Date -> JSON) */
+  submittedAt: string | null
+  /** ISO date string (Date -> JSON) */
+  createdAt: string
+}
+
+/** Only things that aren't about a specific version's lifecycle. */
 export interface PublishEvent {
   id: string
   store: Store
-  type: 'submitted' | 'approved' | 'rejected' | 'withdrawn' | 'blocked' | 'error' | 'stale_review'
+  type: 'error' | 'stale_review'
   payloadJson: string
   /** ISO date string (Date -> JSON) */
   createdAt: string

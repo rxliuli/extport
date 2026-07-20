@@ -95,7 +95,7 @@ export const storeCredentials = sqliteTable(
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull().references(() => tenants.id),
-    store: text('store', { enum: ['chrome', 'firefox', 'edge', 'apple'] }).notNull(),
+    store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
     label: text('label').notNull().default(''),
     // Last four characters of the most identifying secret field — the only
     // plaintext-derived value ever stored; the UI shows nothing else.
@@ -118,10 +118,15 @@ export const publishTargets = sqliteTable(
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull().references(() => tenants.id),
     extensionId: text('extension_id').notNull().references(() => extensions.id),
-    store: text('store', { enum: ['chrome', 'firefox', 'edge', 'apple'] }).notNull(),
+    store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
     storeItemId: text('store_item_id').notNull(),
     credentialId: text('credential_id').notNull().references(() => storeCredentials.id),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    // Operational health, not business state — never touches a specific
+    // version's lifecycle. Cleared on the next tick that gets past getState().
+    lastReconciledAt: integer('last_reconciled_at', { mode: 'timestamp_ms' }),
+    lastErrorDetail: text('last_error_detail'),
+    lastErrorAt: integer('last_error_at', { mode: 'timestamp_ms' }),
     ...timestamps,
   },
   (t) => [
@@ -138,7 +143,7 @@ export const artifacts = sqliteTable(
     extensionId: text('extension_id').notNull().references(() => extensions.id),
     version: text('version').notNull(),
     // null = universal zip for all stores; set = store-specific build.
-    store: text('store', { enum: ['chrome', 'firefox', 'edge', 'apple'] }),
+    store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }),
     source: text('source', { enum: ['github_release', 'cli_upload'] }).notNull(),
     r2Key: text('r2_key').notNull(),
     sha256: text('sha256').notNull(),
@@ -152,40 +157,61 @@ export const artifacts = sqliteTable(
   ],
 )
 
-export const deploymentStates = sqliteTable(
-  'deployment_states',
+// One row per (extension, store, version) push — the row's status moves
+// through its lifecycle in place instead of being reconstructed from a
+// separate event log. At most one 'queued' and one 'in_review' row may be
+// active at a time per (extension, store); that invariant is enforced by the
+// write path (see routes/artifacts.ts and reconcile/run.ts), not by SQLite.
+//
+//   queued ──submit succeeds──▶ in_review ──store confirms live──▶ online
+//     │                            │
+//     │                            └──store rejects──▶ rejected
+//     │
+//     └──superseded by a newer push, or already older than what's
+//        live/in-review at push time──▶ skipped
+//
+// This table is the single source of truth for both "what's happening now"
+// (query the active rows) and "what happened" (the Timeline is just this
+// table ordered by time) — there is no separate current-state cache to keep
+// in sync.
+export const deploymentVersions = sqliteTable(
+  'deployment_versions',
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull().references(() => tenants.id),
     extensionId: text('extension_id').notNull().references(() => extensions.id),
-    store: text('store', { enum: ['chrome', 'firefox', 'edge', 'apple'] }).notNull(),
-    desiredVersion: text('desired_version'),
-    liveVersion: text('live_version'),
-    inReviewVersion: text('in_review_version'),
+    store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
+    version: text('version').notNull(),
+    // null = this row wasn't pushed through extport — it's a baseline the
+    // reconciler observed already live when a store target was first added
+    // (or a manual publish that happened outside extport).
+    artifactId: text('artifact_id').references(() => artifacts.id),
     status: text('status', {
-      enum: ['synced', 'submitting', 'in_review', 'rejected', 'blocked', 'error'],
-    }).notNull().default('synced'),
+      enum: ['queued', 'in_review', 'online', 'rejected', 'skipped'],
+    }).notNull().default('queued'),
     statusDetail: text('status_detail'),
-    lastReconciledAt: integer('last_reconciled_at', { mode: 'timestamp_ms' }),
+    // Set once, when the row enters in_review — drives the stale_review
+    // threshold and is never overwritten by later transitions.
     submittedAt: integer('submitted_at', { mode: 'timestamp_ms' }),
     ...timestamps,
   },
   (t) => [
-    uniqueIndex('deployment_states_ext_store_idx').on(t.extensionId, t.store),
-    index('deployment_states_tenant_idx').on(t.tenantId),
+    index('deployment_versions_ext_store_idx').on(t.extensionId, t.store),
+    index('deployment_versions_ext_store_status_idx').on(t.extensionId, t.store, t.status),
+    index('deployment_versions_tenant_idx').on(t.tenantId),
   ],
 )
 
+// Everything that's NOT about a specific version's lifecycle — that lives on
+// deployment_versions.status instead. Only two things are left here.
 export const publishEvents = sqliteTable(
   'publish_events',
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull().references(() => tenants.id),
     extensionId: text('extension_id').notNull().references(() => extensions.id),
-    store: text('store', { enum: ['chrome', 'firefox', 'edge', 'apple'] }).notNull(),
-    type: text('type', {
-      enum: ['submitted', 'approved', 'rejected', 'withdrawn', 'blocked', 'error', 'stale_review'],
-    }).notNull(),
+    store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
+    type: text('type', { enum: ['error', 'stale_review'] }).notNull(),
     payloadJson: text('payload_json').notNull().default('{}'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(now),
   },
@@ -295,5 +321,5 @@ export type Extension = typeof extensions.$inferSelect
 export type StoreCredential = typeof storeCredentials.$inferSelect
 export type PublishTarget = typeof publishTargets.$inferSelect
 export type Artifact = typeof artifacts.$inferSelect
-export type DeploymentState = typeof deploymentStates.$inferSelect
+export type DeploymentVersion = typeof deploymentVersions.$inferSelect
 export type PublishEvent = typeof publishEvents.$inferSelect

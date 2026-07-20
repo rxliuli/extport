@@ -1,22 +1,23 @@
-export const STORES = ['chrome', 'firefox', 'edge', 'apple'] as const
+export const STORES = ['chrome', 'firefox', 'edge', 'safari'] as const
 export type Store = (typeof STORES)[number]
 
+/**
+ * The current, derived-at-read-time status for a (extension, store) target.
+ * Not stored anywhere — computed from deployment_versions' active rows (see
+ * apps/api's reconcile/status derivation) plus publish_targets.lastErrorDetail,
+ * which takes priority over everything else since it means reconcile couldn't
+ * even get far enough to know what a version is doing.
+ */
 export type DeploymentStatus =
   | 'synced'
-  | 'submitting'
+  | 'queued'
   | 'in_review'
-  | 'rejected'
   | 'blocked'
+  | 'rejected'
   | 'error'
 
-export type PublishEventType =
-  | 'submitted'
-  | 'approved'
-  | 'rejected'
-  | 'withdrawn'
-  | 'blocked'
-  | 'error'
-  | 'stale_review'
+/** Only things that aren't about a specific version's lifecycle — see deployment_versions.status for that. */
+export type PublishEventType = 'error' | 'stale_review'
 
 export type CredentialHealth = 'active' | 'invalid' | 'expiring'
 
@@ -48,5 +49,5 @@ export const DEFAULT_STALE_REVIEW_DAYS: Record<Store, number> = {
   chrome: 3,
   firefox: 3,
   edge: 10,
-  apple: 3,
+  safari: 3,
 }

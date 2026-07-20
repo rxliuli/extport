@@ -126,7 +126,7 @@ describe('credentials', () => {
     const { sessionCookie } = await seedTenantWithUser()
     const res = await post(
       sessionCookie,
-      JSON.stringify({ store: 'apple', credentials: { keyId: 'K' } }),
+      JSON.stringify({ store: 'safari', credentials: { keyId: 'K' } }),
     )
     expect(res.status).toBe(400)
     expect(((await res.json()) as { error: string }).error).toContain('issuerId')

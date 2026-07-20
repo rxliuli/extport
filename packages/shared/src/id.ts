@@ -12,7 +12,7 @@ export const ID_PREFIXES = {
   storeCredential: 'cred',
   publishTarget: 'tgt',
   artifact: 'art',
-  deploymentState: 'dep',
+  deploymentVersion: 'dep',
   publishEvent: 'pev',
   product: 'prod',
   license: 'lic',

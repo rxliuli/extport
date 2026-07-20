@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createAppleAdapter } from '../src/apple'
+import { createSafariAdapter } from '../src/safari'
 import { queueFetch, unreachableFetch } from './fetch-stub'
 
 const APP_ID = 'app-123'
@@ -20,7 +20,7 @@ function version(versionString: string, appVersionState: string) {
   return { attributes: { versionString, appVersionState } }
 }
 
-describe('apple adapter — getState', () => {
+describe('safari adapter — getState', () => {
   it('picks the live version and a pending-review version separately', async () => {
     const { fetch, calls } = queueFetch([
       {
@@ -28,7 +28,7 @@ describe('apple adapter — getState', () => {
         body: { data: [version('1.1.0', 'WAITING_FOR_REVIEW'), version('1.0.0', 'READY_FOR_DISTRIBUTION')] },
       },
     ])
-    const state = await createAppleAdapter(fetch).getState(await creds(), APP_ID)
+    const state = await createSafariAdapter(fetch).getState(await creds(), APP_ID)
     expect(state).toEqual({ liveVersion: '1.0.0', inReviewVersion: '1.1.0', reviewStatus: 'pending', rejectionReason: undefined })
     expect(calls[0]!.url).toContain(`/v1/apps/${APP_ID}/appStoreVersions`)
   })
@@ -37,30 +37,30 @@ describe('apple adapter — getState', () => {
     const { fetch } = queueFetch([
       { status: 200, body: { data: [version('1.1.0', 'REJECTED'), version('1.0.0', 'READY_FOR_DISTRIBUTION')] } },
     ])
-    const state = await createAppleAdapter(fetch).getState(await creds(), APP_ID)
+    const state = await createSafariAdapter(fetch).getState(await creds(), APP_ID)
     expect(state.reviewStatus).toBe('rejected')
     expect(state.rejectionReason).toMatch(/App Store Connect/)
   })
 
   it('handles an app with no versions at all', async () => {
     const { fetch } = queueFetch([{ status: 200, body: { data: [] } }])
-    const state = await createAppleAdapter(fetch).getState(await creds(), APP_ID)
+    const state = await createSafariAdapter(fetch).getState(await creds(), APP_ID)
     expect(state).toEqual({ liveVersion: null, inReviewVersion: null, reviewStatus: undefined, rejectionReason: undefined })
   })
 
   it('throws on a lookup failure', async () => {
     const { fetch } = queueFetch([{ status: 500, body: 'oops' }])
-    await expect(createAppleAdapter(fetch).getState(await creds(), APP_ID)).rejects.toThrow(/versions lookup failed/)
+    await expect(createSafariAdapter(fetch).getState(await creds(), APP_ID)).rejects.toThrow(/versions lookup failed/)
   })
 })
 
-describe('apple adapter — withdraw', () => {
+describe('safari adapter — withdraw', () => {
   it('cancels the in-flight review submission', async () => {
     const { fetch, calls } = queueFetch([
       { status: 200, body: { data: [{ id: 'sub-1' }] } },
       { status: 200, body: {} },
     ])
-    await createAppleAdapter(fetch).withdraw!(await creds(), APP_ID)
+    await createSafariAdapter(fetch).withdraw!(await creds(), APP_ID)
     expect(calls[1]!.url).toBe('https://api.appstoreconnect.apple.com/v1/reviewSubmissions/sub-1')
     expect(calls[1]!.init?.method).toBe('PATCH')
     const body = JSON.parse(String(calls[1]!.init?.body))
@@ -69,19 +69,19 @@ describe('apple adapter — withdraw', () => {
 
   it('is a no-op when nothing is in review', async () => {
     const { fetch, calls } = queueFetch([{ status: 200, body: { data: [] } }])
-    await createAppleAdapter(fetch).withdraw!(await creds(), APP_ID)
+    await createSafariAdapter(fetch).withdraw!(await creds(), APP_ID)
     expect(calls).toHaveLength(1)
   })
 
   it('throws if the cancel patch fails', async () => {
     const { fetch } = queueFetch([{ status: 200, body: { data: [{ id: 'sub-1' }] } }, { status: 409, body: 'conflict' }])
-    await expect(createAppleAdapter(fetch).withdraw!(await creds(), APP_ID)).rejects.toThrow(/cancel failed/)
+    await expect(createSafariAdapter(fetch).withdraw!(await creds(), APP_ID)).rejects.toThrow(/cancel failed/)
   })
 })
 
-describe('apple adapter — submit', () => {
+describe('safari adapter — submit', () => {
   it('is documented as unimplemented rather than silently failing', async () => {
-    await expect(createAppleAdapter(unreachableFetch).submit(await creds(), APP_ID, new ArrayBuffer(8))).rejects.toThrow(
+    await expect(createSafariAdapter(unreachableFetch).submit(await creds(), APP_ID, new ArrayBuffer(8))).rejects.toThrow(
       /App Store Connect API cannot upload a binary/,
     )
   })

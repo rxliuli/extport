@@ -15,7 +15,7 @@ const CREDENTIAL_FIELDS: Record<CredentialRow['store'], { key: string; label: st
     { key: 'clientId', label: 'Client ID' },
     { key: 'apiKey', label: 'API Key' },
   ],
-  apple: [
+  safari: [
     { key: 'keyId', label: 'Key ID' },
     { key: 'issuerId', label: 'Issuer ID' },
     { key: 'privateKeyP8', label: '.p8 Private Key', textarea: true },
@@ -175,7 +175,7 @@ function CredentialsSection() {
           <option value="chrome">Chrome Web Store</option>
           <option value="firefox">Firefox AMO</option>
           <option value="edge">Edge Partner Center</option>
-          <option value="apple">App Store Connect</option>
+          <option value="safari">App Store Connect</option>
         </select>
         <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label (optional)" />
         {CREDENTIAL_FIELDS[store].map((f) =>

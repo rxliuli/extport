@@ -1,6 +1,6 @@
 import { newId } from '@extport/shared'
 import { describe, expect, it } from 'vitest'
-import { publishEvents } from '../src/db'
+import { deploymentVersions, publishEvents } from '../src/db'
 import { createExtension, request, seedTenantWithUser } from './helpers'
 
 const realFetch = globalThis.fetch
@@ -196,25 +196,29 @@ describe('GET /v1/extensions/matrix', () => {
   })
 })
 
-describe('GET /v1/extensions/:id/events', () => {
-  it('returns events newest-first, scoped to the extension and tenant', async () => {
+describe('GET /v1/extensions/:id/timeline', () => {
+  it('returns deployment_versions and publish_events newest-first, scoped to the extension and tenant', async () => {
     const { db, sessionCookie, tenantId } = await seedTenantWithUser()
     const extension = await createExtension(sessionCookie)
+    await db.insert(deploymentVersions).values([
+      { id: newId('deploymentVersion'), tenantId, extensionId: extension.id, store: 'chrome', version: '1.0.0', status: 'online' },
+      { id: newId('deploymentVersion'), tenantId, extensionId: extension.id, store: 'chrome', version: '1.1.0', status: 'in_review' },
+    ])
     await db.insert(publishEvents).values([
-      { id: newId('publishEvent'), tenantId, extensionId: extension.id, store: 'chrome', type: 'submitted', payloadJson: '{"version":"1.0.0"}' },
-      { id: newId('publishEvent'), tenantId, extensionId: extension.id, store: 'chrome', type: 'approved', payloadJson: '{"version":"1.0.0"}' },
+      { id: newId('publishEvent'), tenantId, extensionId: extension.id, store: 'chrome', type: 'stale_review', payloadJson: '{}' },
     ])
 
-    const res = await request(`/v1/extensions/${extension.id}/events`, { headers: { cookie: sessionCookie } })
-    const body = (await res.json()) as { events: Array<{ type: string }> }
-    expect(body.events.map((e) => e.type)).toEqual(['approved', 'submitted'])
+    const res = await request(`/v1/extensions/${extension.id}/timeline`, { headers: { cookie: sessionCookie } })
+    const body = (await res.json()) as { versions: Array<{ version: string }>; events: Array<{ type: string }> }
+    expect(body.versions.map((v) => v.version)).toEqual(['1.1.0', '1.0.0'])
+    expect(body.events.map((e) => e.type)).toEqual(['stale_review'])
   })
 
   it('404s for another tenant\'s extension', async () => {
     const a = await seedTenantWithUser()
     const b = await seedTenantWithUser()
     const extension = await createExtension(a.sessionCookie)
-    const res = await request(`/v1/extensions/${extension.id}/events`, { headers: { cookie: b.sessionCookie } })
+    const res = await request(`/v1/extensions/${extension.id}/timeline`, { headers: { cookie: b.sessionCookie } })
     expect(res.status).toBe(404)
   })
 })

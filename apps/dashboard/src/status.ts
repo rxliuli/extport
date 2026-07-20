@@ -1,21 +1,21 @@
 import type { DeploymentStatus } from './api'
 
-// synced 绿 / in_review 黄 / rejected 红 / blocked 灰 / error 红 (spec §3.6)
+// synced 绿 / queued+in_review 黄 / rejected 红 / blocked 灰 / error 红
 export const STATUS_COLOR: Record<DeploymentStatus, string> = {
   synced: '#1a7f37',
-  submitting: '#9a6700',
+  queued: '#9a6700',
   in_review: '#9a6700',
-  rejected: '#cf222e',
   blocked: '#6e7781',
+  rejected: '#cf222e',
   error: '#cf222e',
 }
 
 export const STATUS_LABEL: Record<DeploymentStatus, string> = {
   synced: 'synced',
-  submitting: 'submitting',
+  queued: 'queued',
   in_review: 'in review',
-  rejected: 'rejected',
   blocked: 'blocked',
+  rejected: 'rejected',
   error: 'error',
 }
 

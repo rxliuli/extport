@@ -15,6 +15,13 @@
       "when": 1784529740893,
       "tag": "0001_melted_tusk",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784554457280,
+      "tag": "0002_deployment_versions",
+      "breakpoints": true
     }
   ]
 }
