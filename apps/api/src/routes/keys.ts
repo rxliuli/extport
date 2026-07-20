@@ -55,7 +55,7 @@ keys.delete('/:id', async (c) => {
   const tenant = c.get('tenant')
   const result = await db
     .update(apiKeys)
-    .set({ revokedAt: new Date() })
+    .set({ revokedAt: new Date().toISOString() })
     .where(
       and(
         eq(apiKeys.id, c.req.param('id')),

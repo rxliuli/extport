@@ -52,10 +52,11 @@ route.post('/', async (c) => {
   }
   const store = body.store as Store
 
-  let expiresAt: Date | null = null
+  let expiresAt: string | null = null
   if (body.expiresAt) {
-    expiresAt = new Date(body.expiresAt)
-    if (Number.isNaN(expiresAt.getTime())) return c.json({ error: 'expiresAt must be an ISO date' }, 400)
+    const parsedExpiresAt = new Date(body.expiresAt)
+    if (Number.isNaN(parsedExpiresAt.getTime())) return c.json({ error: 'expiresAt must be an ISO date' }, 400)
+    expiresAt = parsedExpiresAt.toISOString()
   }
 
   let parsed
@@ -78,6 +79,7 @@ route.post('/', async (c) => {
 
   const dek = await tenantDek(c.env, tenant)
   const encryptedPayload = await encryptJson(dek, parsed)
+  const finalExpiresAt = check.expiresAt ? check.expiresAt.toISOString() : expiresAt
 
   const id = newId('storeCredential')
   await db.insert(storeCredentials).values({
@@ -88,9 +90,9 @@ route.post('/', async (c) => {
     hint: credentialHint(store, parsed),
     encryptedPayload,
     keyVersion: tenant.dekKeyVersion,
-    expiresAt: check.expiresAt ?? expiresAt,
-    lastVerifiedAt: new Date(),
-    status: statusFor(true, check.expiresAt ?? expiresAt),
+    expiresAt: finalExpiresAt,
+    lastVerifiedAt: new Date().toISOString(),
+    status: statusFor(true, finalExpiresAt),
   })
   const [created] = await db.select().from(storeCredentials).where(eq(storeCredentials.id, id))
   return c.json({ credential: publicView(created!) }, 201)
@@ -118,7 +120,7 @@ route.post('/:id/verify', async (c) => {
   const status = statusFor(check.ok, row.expiresAt)
   await db
     .update(storeCredentials)
-    .set({ status, lastVerifiedAt: new Date() })
+    .set({ status, lastVerifiedAt: new Date().toISOString() })
     .where(eq(storeCredentials.id, row.id))
   const [updated] = await db.select().from(storeCredentials).where(eq(storeCredentials.id, row.id))
   return c.json({ credential: publicView(updated!), reason: check.ok ? undefined : check.reason })

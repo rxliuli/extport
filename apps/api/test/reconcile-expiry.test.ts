@@ -13,7 +13,7 @@ function recordingNotifier(): { notifier: Notifier; sent: Notification[] } {
 }
 
 async function seedCredential(opts: {
-  expiresAt: Date | null
+  expiresAt: string | null
   status: 'active' | 'invalid' | 'expiring'
   email?: string
 }) {
@@ -42,8 +42,8 @@ async function seedCredential(opts: {
   return { db, tenantId, credentialId }
 }
 
-function daysFromNow(days: number): Date {
-  return new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+function daysFromNow(days: number): string {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
 }
 
 describe('checkCredentialExpiry', () => {

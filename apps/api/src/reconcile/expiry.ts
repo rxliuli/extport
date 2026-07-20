@@ -26,7 +26,7 @@ export async function checkCredentialExpiry(db: Db, notifier: Notifier): Promise
     await notifier.send({
       to: tenant.email,
       subject: `🔑 "${credential.label}" (${credential.store}) expires soon`,
-      text: `Your ${credential.store} credential "${credential.label}" expires on ${credential.expiresAt!.toISOString().slice(0, 10)}. Rotate it in Settings before then, or publishing to ${credential.store} will start failing.`,
+      text: `Your ${credential.store} credential "${credential.label}" expires on ${credential.expiresAt!.slice(0, 10)}. Rotate it in Settings before then, or publishing to ${credential.store} will start failing.`,
     })
   }
 }

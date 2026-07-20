@@ -13,7 +13,7 @@ export interface DerivedTargetStatus {
   /** The most recently rejected version, only shown while nothing newer has been pushed since. */
   rejectedVersion: string | null
   statusDetail: string | null
-  submittedAt: Date | null
+  submittedAt: string | null
 }
 
 /**
@@ -39,7 +39,7 @@ export function deriveTargetStatus(rows: DeploymentVersion[], lastErrorDetail: s
   // "rejected persists until a new artifact arrives" behavior).
   const mostRecentTerminal = rows
     .filter((r) => r.status === 'rejected' || r.status === 'online')
-    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0]
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0]
   const rejectedVersion = !queued && !inReview && mostRecentTerminal?.status === 'rejected' ? mostRecentTerminal.version : null
 
   const status: DeploymentStatus = lastErrorDetail

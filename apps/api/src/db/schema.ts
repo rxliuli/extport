@@ -1,10 +1,10 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
-const now = () => new Date()
+const now = () => new Date().toISOString()
 
 const timestamps = {
-  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(now),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(now).$onUpdateFn(now),
+  createdAt: text('created_at').notNull().$defaultFn(now),
+  updatedAt: text('updated_at').notNull().$defaultFn(now).$onUpdateFn(now),
 }
 
 // ===== 租户与账户 =====
@@ -13,11 +13,11 @@ export const tenants = sqliteTable('tenants', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   email: text('email').notNull(),
-  plan: text('plan', { enum: ['free', 'starter', 'pro'] }).notNull().default('free'),
-  settingsJson: text('settings_json').notNull().default('{}'),
+  plan: text('plan', { enum: ['free', 'starter', 'pro'] }).notNull().$defaultFn(() => 'free'),
+  settingsJson: text('settings_json').notNull().$defaultFn(() => '{}'),
   // Envelope encryption: per-tenant DEK, wrapped by the versioned master KEK.
   dekEncrypted: text('dek_encrypted').notNull(),
-  dekKeyVersion: integer('dek_key_version').notNull().default(1),
+  dekKeyVersion: integer('dek_key_version').notNull().$defaultFn(() => 1),
   ...timestamps,
 })
 
@@ -44,8 +44,8 @@ export const sessions = sqliteTable(
     id: text('id').primaryKey(),
     userId: text('user_id').notNull().references(() => users.id),
     tokenHash: text('token_hash').notNull(),
-    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(now),
+    expiresAt: text('expires_at').notNull(),
+    createdAt: text('created_at').notNull().$defaultFn(now),
   },
   (t) => [uniqueIndex('sessions_token_idx').on(t.tokenHash)],
 )
@@ -58,8 +58,8 @@ export const apiKeys = sqliteTable(
     name: text('name').notNull(),
     keyHash: text('key_hash').notNull(),
     last4: text('last4').notNull(),
-    lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
-    revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
+    lastUsedAt: text('last_used_at'),
+    revokedAt: text('revoked_at'),
     ...timestamps,
   },
   (t) => [
@@ -78,8 +78,8 @@ export const extensions = sqliteTable(
     name: text('name').notNull(),
     slug: text('slug').notNull(),
     iconUrl: text('icon_url'),
-    publishingEnabled: integer('publishing_enabled', { mode: 'boolean' }).notNull().default(false),
-    licensingEnabled: integer('licensing_enabled', { mode: 'boolean' }).notNull().default(false),
+    publishingEnabled: integer('publishing_enabled', { mode: 'boolean' }).notNull().$defaultFn(() => false),
+    licensingEnabled: integer('licensing_enabled', { mode: 'boolean' }).notNull().$defaultFn(() => false),
     ...timestamps,
   },
   (t) => [
@@ -96,17 +96,17 @@ export const storeCredentials = sqliteTable(
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull().references(() => tenants.id),
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
-    label: text('label').notNull().default(''),
+    label: text('label').notNull().$defaultFn(() => ''),
     // Last four characters of the most identifying secret field — the only
     // plaintext-derived value ever stored; the UI shows nothing else.
-    hint: text('hint').notNull().default(''),
+    hint: text('hint').notNull().$defaultFn(() => ''),
     // Credential JSON encrypted with the tenant DEK; plaintext never touches D1.
     encryptedPayload: text('encrypted_payload').notNull(),
-    keyVersion: integer('key_version').notNull().default(1),
+    keyVersion: integer('key_version').notNull().$defaultFn(() => 1),
     // Edge API keys expire — used to drive rotation reminders.
-    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
-    lastVerifiedAt: integer('last_verified_at', { mode: 'timestamp_ms' }),
-    status: text('status', { enum: ['active', 'invalid', 'expiring'] }).notNull().default('active'),
+    expiresAt: text('expires_at'),
+    lastVerifiedAt: text('last_verified_at'),
+    status: text('status', { enum: ['active', 'invalid', 'expiring'] }).notNull().$defaultFn(() => 'active'),
     ...timestamps,
   },
   (t) => [index('store_credentials_tenant_idx').on(t.tenantId)],
@@ -121,12 +121,12 @@ export const publishTargets = sqliteTable(
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
     storeItemId: text('store_item_id').notNull(),
     credentialId: text('credential_id').notNull().references(() => storeCredentials.id),
-    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().$defaultFn(() => true),
     // Operational health, not business state — never touches a specific
     // version's lifecycle. Cleared on the next tick that gets past getState().
-    lastReconciledAt: integer('last_reconciled_at', { mode: 'timestamp_ms' }),
+    lastReconciledAt: text('last_reconciled_at'),
     lastErrorDetail: text('last_error_detail'),
-    lastErrorAt: integer('last_error_at', { mode: 'timestamp_ms' }),
+    lastErrorAt: text('last_error_at'),
     ...timestamps,
   },
   (t) => [
@@ -188,11 +188,11 @@ export const deploymentVersions = sqliteTable(
     artifactId: text('artifact_id').references(() => artifacts.id),
     status: text('status', {
       enum: ['queued', 'in_review', 'online', 'rejected', 'skipped'],
-    }).notNull().default('queued'),
+    }).notNull().$defaultFn(() => 'queued'),
     statusDetail: text('status_detail'),
     // Set once, when the row enters in_review — drives the stale_review
     // threshold and is never overwritten by later transitions.
-    submittedAt: integer('submitted_at', { mode: 'timestamp_ms' }),
+    submittedAt: text('submitted_at'),
     ...timestamps,
   },
   (t) => [
@@ -212,8 +212,8 @@ export const publishEvents = sqliteTable(
     extensionId: text('extension_id').notNull().references(() => extensions.id),
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
     type: text('type', { enum: ['error', 'stale_review'] }).notNull(),
-    payloadJson: text('payload_json').notNull().default('{}'),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(now),
+    payloadJson: text('payload_json').notNull().$defaultFn(() => '{}'),
+    createdAt: text('created_at').notNull().$defaultFn(now),
   },
   (t) => [
     index('publish_events_tenant_idx').on(t.tenantId),
@@ -232,8 +232,8 @@ export const products = sqliteTable(
     name: text('name').notNull(),
     entitlementType: text('entitlement_type', {
       enum: ['perpetual', 'balance', 'recurring'],
-    }).notNull().default('perpetual'),
-    maxActivations: integer('max_activations').notNull().default(3),
+    }).notNull().$defaultFn(() => 'perpetual'),
+    maxActivations: integer('max_activations').notNull().$defaultFn(() => 3),
     stripeMetadataKey: text('stripe_metadata_key'),
     ...timestamps,
   },
@@ -250,9 +250,9 @@ export const licenses = sqliteTable(
     buyerEmail: text('buyer_email').notNull(),
     entitlementType: text('entitlement_type', {
       enum: ['perpetual', 'balance', 'recurring'],
-    }).notNull().default('perpetual'),
+    }).notNull().$defaultFn(() => 'perpetual'),
     balance: integer('balance'),
-    status: text('status', { enum: ['active', 'locked', 'refunded'] }).notNull().default('active'),
+    status: text('status', { enum: ['active', 'locked', 'refunded'] }).notNull().$defaultFn(() => 'active'),
     source: text('source', { enum: ['stripe_webhook', 'manual', 'imported'] }).notNull(),
     sourceRef: text('source_ref'),
     ...timestamps,
@@ -271,9 +271,9 @@ export const activations = sqliteTable(
     tenantId: text('tenant_id').notNull().references(() => tenants.id),
     licenseId: text('license_id').notNull().references(() => licenses.id),
     deviceFingerprint: text('device_fingerprint').notNull(),
-    lastHeartbeatAt: integer('last_heartbeat_at', { mode: 'timestamp_ms' }),
-    activatedAt: integer('activated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(now),
-    releasedAt: integer('released_at', { mode: 'timestamp_ms' }),
+    lastHeartbeatAt: text('last_heartbeat_at'),
+    activatedAt: text('activated_at').notNull().$defaultFn(now),
+    releasedAt: text('released_at'),
     ipHint: text('ip_hint'),
     uaHint: text('ua_hint'),
     ...timestamps,
@@ -293,8 +293,8 @@ export const licenseEvents = sqliteTable(
     type: text('type', {
       enum: ['issued', 'activated', 'reset', 'locked', 'heartbeat_expired'],
     }).notNull(),
-    payloadJson: text('payload_json').notNull().default('{}'),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(now),
+    payloadJson: text('payload_json').notNull().$defaultFn(() => '{}'),
+    createdAt: text('created_at').notNull().$defaultFn(now),
   },
   (t) => [index('license_events_license_idx').on(t.licenseId, t.createdAt)],
 )
@@ -306,8 +306,8 @@ export const tenantSigningKeys = sqliteTable(
     tenantId: text('tenant_id').notNull().references(() => tenants.id),
     privateKeyEncrypted: text('private_key_encrypted').notNull(),
     publicKey: text('public_key').notNull(),
-    keyVersion: integer('key_version').notNull().default(1),
-    status: text('status', { enum: ['active', 'retired'] }).notNull().default('active'),
+    keyVersion: integer('key_version').notNull().$defaultFn(() => 1),
+    status: text('status', { enum: ['active', 'retired'] }).notNull().$defaultFn(() => 'active'),
     ...timestamps,
   },
   (t) => [index('tenant_signing_keys_tenant_idx').on(t.tenantId)],

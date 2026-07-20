@@ -42,7 +42,7 @@ async function tryApiKey(c: Context<AppEnv>): Promise<boolean> {
   c.set('user', null)
   c.set('authType', 'api_key')
   c.executionCtx.waitUntil(
-    db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, row.apiKey.id)),
+    db.update(apiKeys).set({ lastUsedAt: new Date().toISOString() }).where(eq(apiKeys.id, row.apiKey.id)),
   )
   return true
 }

@@ -125,7 +125,7 @@ async function persistError(db: Db, notifier: Notifier, row: JoinedRow, message:
   const detail = truncate(message)
   await db
     .update(publishTargets)
-    .set({ lastErrorDetail: detail, lastErrorAt: new Date() })
+    .set({ lastErrorDetail: detail, lastErrorAt: new Date().toISOString() })
     .where(eq(publishTargets.id, row.target.id))
   await db.insert(publishEvents).values({
     id: newId('publishEvent'),
@@ -146,7 +146,7 @@ function staleReviewThresholdDays(tenant: Tenant, store: Store): number {
 async function maybeEmitStaleReview(db: Db, notifier: Notifier, row: JoinedRow, inReview: DeploymentVersion | null): Promise<void> {
   if (!inReview || !inReview.submittedAt) return
   const thresholdMs = staleReviewThresholdDays(row.tenant, row.target.store) * 24 * 60 * 60 * 1000
-  const ageMs = Date.now() - inReview.submittedAt.getTime()
+  const ageMs = Date.now() - new Date(inReview.submittedAt).getTime()
   if (ageMs < thresholdMs) return
 
   const recent = await db
@@ -157,7 +157,7 @@ async function maybeEmitStaleReview(db: Db, notifier: Notifier, row: JoinedRow, 
         eq(publishEvents.extensionId, row.extension.id),
         eq(publishEvents.store, row.target.store),
         eq(publishEvents.type, 'stale_review'),
-        gt(publishEvents.createdAt, new Date(Date.now() - STALE_REVIEW_DEDUPE_MS)),
+        gt(publishEvents.createdAt, new Date(Date.now() - STALE_REVIEW_DEDUPE_MS).toISOString()),
       ),
     )
     .limit(1)
@@ -258,7 +258,7 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
   if (target.lastErrorDetail) {
     await db.update(publishTargets).set({ lastErrorDetail: null, lastErrorAt: null }).where(eq(publishTargets.id, target.id))
   }
-  await db.update(publishTargets).set({ lastReconciledAt: new Date() }).where(eq(publishTargets.id, target.id))
+  await db.update(publishTargets).set({ lastReconciledAt: new Date().toISOString() }).where(eq(publishTargets.id, target.id))
 
   await maybeEmitStaleReview(db, notifier, row, inReview)
 
@@ -279,7 +279,7 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
 
   await db
     .update(deploymentVersions)
-    .set({ status: 'in_review', statusDetail: result.detail ?? null, submittedAt: new Date() })
+    .set({ status: 'in_review', statusDetail: result.detail ?? null, submittedAt: new Date().toISOString() })
     .where(eq(deploymentVersions.id, queued!.id))
   await notify(notifier, row, 'submitted', { version: queued!.version, detail: result.detail })
   return 'submitted'

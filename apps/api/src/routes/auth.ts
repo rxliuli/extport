@@ -129,7 +129,7 @@ auth.get('/github/callback', async (c) => {
     secure: new URL(c.req.url).protocol === 'https:',
     sameSite: 'Lax',
     path: '/',
-    expires: session.expiresAt,
+    expires: new Date(session.expiresAt),
   })
   return c.redirect(c.env.DASHBOARD_URL)
 })

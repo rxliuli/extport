@@ -14,9 +14,9 @@ function base64url(bytes: Uint8Array): string {
 export async function createSession(
   db: Db,
   userId: string,
-): Promise<{ token: string; expiresAt: Date }> {
+): Promise<{ token: string; expiresAt: string }> {
   const token = base64url(randomBytes(32))
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS)
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString()
   await db.insert(sessions).values({
     id: newId('session'),
     userId,
@@ -36,7 +36,7 @@ export async function resolveSession(
     .from(sessions)
     .innerJoin(users, eq(sessions.userId, users.id))
     .innerJoin(tenants, eq(users.tenantId, tenants.id))
-    .where(and(eq(sessions.tokenHash, tokenHash), gt(sessions.expiresAt, new Date())))
+    .where(and(eq(sessions.tokenHash, tokenHash), gt(sessions.expiresAt, new Date().toISOString())))
     .limit(1)
   return rows[0] ?? null
 }

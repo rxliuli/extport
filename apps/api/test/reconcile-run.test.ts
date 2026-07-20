@@ -52,7 +52,7 @@ interface ScenarioOptions {
   settingsJson?: string
   credentialStatus?: 'active' | 'invalid'
   artifacts?: { version: string; store?: Store | null }[]
-  versions?: { version: string; status: DeploymentVersion['status']; submittedAt?: Date }[]
+  versions?: { version: string; status: DeploymentVersion['status']; submittedAt?: string }[]
 }
 
 async function setupChromeScenario(opts: ScenarioOptions = {}) {
@@ -284,7 +284,7 @@ describe('runReconciliation — baseline discovery', () => {
 describe('runReconciliation — waiting on the exact version already in review', () => {
   it('stays in_review without resubmitting', async () => {
     const { db, tenantId, extensionId } = await setupChromeScenario({
-      versions: [{ version: '1.1.0', status: 'in_review', submittedAt: new Date() }],
+      versions: [{ version: '1.1.0', status: 'in_review', submittedAt: new Date().toISOString() }],
     })
     globalThis.fetch = routedFetch(
       chromeRoutes({ fetchStatus: { submittedItemRevisionStatus: { state: 'PENDING_REVIEW', distributionChannels: [{ crxVersion: '1.1.0' }] } } }),
@@ -301,7 +301,7 @@ describe('runReconciliation — waiting on the exact version already in review',
 describe('runReconciliation — approval', () => {
   it('flips the in-review row to online and notifies', async () => {
     const { db, tenantId, extensionId } = await setupChromeScenario({
-      versions: [{ version: '1.1.0', status: 'in_review', submittedAt: new Date() }],
+      versions: [{ version: '1.1.0', status: 'in_review', submittedAt: new Date().toISOString() }],
     })
     globalThis.fetch = routedFetch(
       chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.1.0' }] } } }),
@@ -322,7 +322,7 @@ describe('runReconciliation — rejection frees the slot for a newer version', (
     const { db, tenantId, extensionId } = await setupChromeScenario({
       artifacts: [{ version: '1.1.0' }, { version: '1.2.0' }],
       versions: [
-        { version: '1.1.0', status: 'in_review', submittedAt: new Date() },
+        { version: '1.1.0', status: 'in_review', submittedAt: new Date().toISOString() },
         { version: '1.2.0', status: 'queued' },
       ],
     })
@@ -350,7 +350,7 @@ describe('runReconciliation — blocked (no auto-withdraw)', () => {
   const scenario = {
     artifacts: [{ version: '1.0.0' }, { version: '1.1.0' }],
     versions: [
-      { version: '1.0.0', status: 'in_review' as const, submittedAt: new Date() },
+      { version: '1.0.0', status: 'in_review' as const, submittedAt: new Date().toISOString() },
       { version: '1.1.0', status: 'queued' as const },
     ],
   }
@@ -382,8 +382,8 @@ describe('runReconciliation — blocked (no auto-withdraw)', () => {
     await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
     const second = await versionsFor(db, extensionId)
 
-    expect(second.map((v) => ({ version: v.version, status: v.status, updatedAt: v.updatedAt.getTime() }))).toEqual(
-      first.map((v) => ({ version: v.version, status: v.status, updatedAt: v.updatedAt.getTime() })),
+    expect(second.map((v) => ({ version: v.version, status: v.status, updatedAt: v.updatedAt }))).toEqual(
+      first.map((v) => ({ version: v.version, status: v.status, updatedAt: v.updatedAt })),
     )
   })
 })
