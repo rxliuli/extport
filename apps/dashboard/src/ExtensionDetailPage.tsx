@@ -218,6 +218,15 @@ export function ExtensionDetailPage({ extensionId, onBack }: { extensionId: stri
     }
   }
 
+  const deleteExtension = async () => {
+    if (!extension) return
+    if (!confirm(`Delete "${extension.name}"? This removes all its artifacts, store targets, and history. This can't be undone.`)) {
+      return
+    }
+    await api(`/v1/extensions/${extensionId}`, { method: 'DELETE' })
+    onBack()
+  }
+
   if (!extension) return <p>Loading…</p>
 
   return (
@@ -236,6 +245,9 @@ export function ExtensionDetailPage({ extensionId, onBack }: { extensionId: stri
         </button>
         <button onClick={() => void reconcileNow()} disabled={reconciling}>
           {reconciling ? 'Reconciling…' : 'Reconcile now'}
+        </button>
+        <button onClick={() => void deleteExtension()} style={{ marginLeft: 'auto', color: '#cf222e' }}>
+          Delete extension
         </button>
       </div>
       {reconcileResult && <p style={{ fontSize: 13 }}>{reconcileResult}</p>}

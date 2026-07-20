@@ -1,7 +1,7 @@
 import { newId, PLAN_LIMITS, STORES, type Store } from '@extport/shared'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
-import { artifacts, deploymentStates, extensions, publishEvents, publishTargets, storeCredentials, type Db } from '../db'
+import { artifacts, deploymentStates, extensions, products, publishEvents, publishTargets, storeCredentials, type Db } from '../db'
 import { requireAuth, type AppEnv } from '../middleware/auth'
 import { runReconciliation } from '../reconcile/run'
 
@@ -150,6 +150,29 @@ route.patch('/:id', async (c) => {
   if (result.meta.changes === 0) return c.json({ error: 'not found' }, 404)
   const [updated] = await db.select().from(extensions).where(eq(extensions.id, c.req.param('id')))
   return c.json({ extension: updated })
+})
+
+route.delete('/:id', async (c) => {
+  const db = c.get('db')
+  const tenant = c.get('tenant')
+  const extension = await ownedExtension(db, tenant.id, c.req.param('id'))
+  if (!extension) return c.json({ error: 'not found' }, 404)
+
+  // No DB-level cascade (D1 doesn't enforce FKs) — clean up dependents ourselves,
+  // R2 objects first since an orphaned artifact row can be re-derived from nothing.
+  const artifactRows = await db.select({ r2Key: artifacts.r2Key }).from(artifacts).where(eq(artifacts.extensionId, extension.id))
+  if (artifactRows.length > 0) {
+    await c.env.ARTIFACTS.delete(artifactRows.map((a) => a.r2Key))
+  }
+
+  await db.delete(publishEvents).where(eq(publishEvents.extensionId, extension.id))
+  await db.delete(deploymentStates).where(eq(deploymentStates.extensionId, extension.id))
+  await db.delete(artifacts).where(eq(artifacts.extensionId, extension.id))
+  await db.delete(publishTargets).where(eq(publishTargets.extensionId, extension.id))
+  await db.delete(products).where(eq(products.extensionId, extension.id)) // Phase 2, always empty today
+  await db.delete(extensions).where(eq(extensions.id, extension.id))
+
+  return c.json({ ok: true })
 })
 
 route.post('/:id/reconcile', async (c) => {
