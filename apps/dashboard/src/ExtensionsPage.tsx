@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, ApiError, type MatrixExtension, type Store } from './api'
-import { ageDays, STATUS_COLOR, STATUS_LABEL } from './status'
+import { VersionSummary } from './VersionSummary'
 
 const STORES: Store[] = ['chrome', 'firefox', 'edge', 'safari']
 const STORE_LABEL: Record<Store, string> = { chrome: 'Chrome', firefox: 'Firefox', edge: 'Edge', safari: 'Safari' }
@@ -9,20 +9,7 @@ function Cell({ target }: { target: MatrixExtension['targets'][number] | undefin
   if (!target) {
     return <span style={{ color: '#aaa' }}>—</span>
   }
-  const days = ageDays(target.submittedAt)
-  const suffix = target.status === 'in_review' && days !== null ? ` (${days}d)` : ''
-  return (
-    <span title={target.statusDetail ?? undefined}>
-      <span style={{ color: STATUS_COLOR[target.status], fontWeight: 600 }}>
-        {target.version ?? '—'} · {STATUS_LABEL[target.status]}
-        {suffix}
-      </span>
-      {target.liveVersion && target.liveVersion !== target.version && (
-        <span style={{ color: '#666', fontSize: 12 }}> (live: {target.liveVersion})</span>
-      )}
-      {target.queuedVersion && <span style={{ color: '#9a6700', fontSize: 12 }}> → {target.queuedVersion} queued</span>}
-    </span>
-  )
+  return <VersionSummary target={target} />
 }
 
 export function ExtensionsPage({ onSelect }: { onSelect: (id: string) => void }) {

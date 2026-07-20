@@ -17,13 +17,14 @@ export type Store = 'chrome' | 'firefox' | 'edge' | 'safari'
 export type DeploymentStatus = 'synced' | 'queued' | 'in_review' | 'blocked' | 'rejected' | 'error'
 
 interface DerivedTargetStatus {
+  /** Coarse summary — for at-a-glance color/priority only, never paired with a single version for display. */
   status: DeploymentStatus
-  /** The version `status` is actually describing — always pair these two together when rendering. */
-  version: string | null
-  /** MAX version currently live — shown as ambient context even when `version` describes something else. */
   liveVersion: string | null
-  /** Only set when `status` is 'blocked': the version waiting behind `version`. */
+  inReviewVersion: string | null
+  /** Only coexists with inReviewVersion when status is 'blocked'. */
   queuedVersion: string | null
+  /** Only set while nothing newer has been pushed since the rejection. */
+  rejectedVersion: string | null
   statusDetail: string | null
   /** ISO date string (Date -> JSON) */
   submittedAt: string | null

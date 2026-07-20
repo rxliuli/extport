@@ -79,19 +79,54 @@ account.
 
 ## Reconciliation loop
 
-Every 30 minutes (Cron Trigger) `apps/api/src/reconcile/run.ts` compares each
-enabled `(extension, store)` target's latest artifact against the store's
-actual state and submits, withdraws-then-submits, or blocks — see spec §3.1–3.2
-and Appendix A for the policy. `apps/api/src/reconcile/decide.ts` is the pure
-decision core (fully unit tested); `mergeState()` there encodes the contract
-every `StoreAdapter.getState()` follows: an explicit `null` field means the
-store *confirmed* nothing is live/pending, an *omitted* field means the store
-can't tell us at all (Edge always omits both — it has no status-query
-endpoint) and the reconciler must keep whatever it last knew instead of
-overwriting real state with a false "nothing here."
+`deployment_versions` holds one row per `(extension, store, version)` ever
+pushed. Its `status` moves in place through a single lifecycle instead of
+being reconstructed from a separate event log:
 
-Trigger a reconcile early instead of waiting for the next tick — e.g. right
-after a CI push — with `POST /v1/extensions/:id/reconcile` (session or API key).
+```
+queued ──submit succeeds──▶ in_review ──store confirms live──▶ online
+  │                            │
+  │                            └──store rejects──▶ rejected
+  │
+  └──superseded by a newer push, or already older than what's
+     live/in-review at push time──▶ skipped
+```
+
+At most one `queued` and one `in_review` row may be active per
+`(extension, store)` at a time — that invariant is enforced on the write
+path, not by a DB constraint:
+
+- **Pushing an artifact** (`POST /v1/artifacts`) rejects outright (409) if the
+  version isn't strictly newer than whatever's already queued/in-review/live
+  for its target store(s) — no silent "accepted but ignored". Otherwise it
+  marks any existing `queued` row `skipped` (an `in_review` row is never
+  touched — see below) and inserts the new one as `queued`.
+- **Adding a store target** backfills any artifact pushed before the target
+  existed to receive it, using the same logic.
+- Either action then triggers a scoped reconcile immediately
+  (`ctx.waitUntil`) instead of waiting for the next cron tick.
+
+`apps/api/src/reconcile/run.ts`'s `reconcileOne` then does two things per
+tick, per target: **resolve** (reflect whatever `StoreAdapter.getState()`
+reports this tick onto the active `in_review` row — online, rejected, or a
+previously-unknown in-review version discovered as a baseline) and **decide**
+(`apps/api/src/reconcile/decide.ts`, pure and fully unit tested — just two
+booleans, `hasQueued` and `stillInReview`, since version ordering is already
+guaranteed by the write path). No auto-withdraw: an in-review row is never
+cancelled to make room for a newer queued one — that livelocks on stores
+whose review latency exceeds the push cadence (Edge's ~week-long queue), since
+every tick would reset the review clock and nothing would ever finish.
+
+`getState()`'s contract: an explicit `null` field means the store *confirmed*
+nothing is live/pending, an *omitted* field means the store can't tell us at
+all (Edge always omits both — no status-query endpoint) and the reconciler
+must leave the row alone instead of overwriting real state with a false
+"nothing here."
+
+The Cron Trigger runs this every 30 minutes with no filter. Trigger it early
+instead of waiting for the next tick with `POST /v1/extensions/:id/reconcile`
+(session or API key) — though in practice a push or a new target already does
+this automatically.
 
 ## Notifications
 
@@ -104,12 +139,17 @@ third-party vendor. The `from` domain must be onboarded once with
 `wrangler email sending enable yourdomain.com`; set `NOTIFICATION_FROM_EMAIL`
 to an address on that domain.
 
-Every `publish_events` row except `withdrawn` (audit-trail only — always
-immediately followed by a `submitted` event that does notify) triggers an
-email: `rejected`/`error` are the urgent tier, `approved`/`submitted` are
-routine, `stale_review` is a once-per-day digest (deduped by the same
-20-hour window that already gates the event itself, see M3). Credential
-expiry is a separate check (`apps/api/src/reconcile/expiry.ts`, also run
+Submitted/approved/rejected fire an email inline whenever `reconcileOne`
+transitions a `deployment_versions` row — they aren't persisted as their own
+event (the row's status *is* the record); `error`/`stale_review` are the only
+two `publish_events` types left, since they're the only things that aren't
+about one specific version. `rejected`/`error` are the urgent tier,
+`approved`/`submitted` are routine, `stale_review` is a once-per-day digest
+(deduped by the same 20-hour window that already gates the event itself, see
+M3). Entering `queued` or `blocked` (waiting behind an in-review row) is
+deliberately silent — steady state, not worth an email; check the dashboard
+Timeline for that. Credential expiry is a separate check
+(`apps/api/src/reconcile/expiry.ts`, also run
 every cron tick): one advance-warning email exactly on the `active` →
 `expiring` transition — a deliberate simplification of the spec's 30/7/1-day
 reminder ladder, since the natural `error` notification once a credential

@@ -9,7 +9,8 @@ import {
   type PublishTarget,
   type Store,
 } from './api'
-import { ageDays, STATUS_COLOR, STATUS_LABEL } from './status'
+import { STATUS_COLOR } from './status'
+import { VersionSummary } from './VersionSummary'
 
 const STORES: Store[] = ['chrome', 'firefox', 'edge', 'safari']
 
@@ -86,8 +87,6 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
         </thead>
         <tbody>
           {targets.map((t) => {
-            const days = ageDays(t.submittedAt)
-            const suffix = t.status === 'in_review' && days !== null ? ` (${days}d)` : ''
             return (
               <tr key={t.id} style={{ borderBottom: '1px solid #eee' }}>
                 <td>{t.store}</td>
@@ -98,15 +97,8 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
                   {t.credentialLabel}{' '}
                   {t.credentialStatus !== 'active' && <span style={{ color: 'crimson' }}>({t.credentialStatus})</span>}
                 </td>
-                <td title={t.statusDetail ?? undefined}>
-                  <span style={{ color: STATUS_COLOR[t.status], fontWeight: 600 }}>
-                    {t.version ?? '—'} · {STATUS_LABEL[t.status]}
-                    {suffix}
-                  </span>
-                  {t.liveVersion && t.liveVersion !== t.version && (
-                    <div style={{ color: '#666', fontSize: 12 }}>live: {t.liveVersion}</div>
-                  )}
-                  {t.queuedVersion && <div style={{ color: '#9a6700', fontSize: 12 }}>→ {t.queuedVersion} queued</div>}
+                <td>
+                  <VersionSummary target={t} />
                 </td>
                 <td>{t.enabled ? 'enabled' : 'disabled'}</td>
                 <td>
