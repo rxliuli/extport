@@ -1,0 +1,4 @@
+# Copy to .dev.vars (gitignored) for local development.
+# Generate a KEK with: openssl rand -base64 32
+KEK_V1=""
+GITHUB_CLIENT_SECRET=""

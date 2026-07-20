@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "extport-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "extport",
+      // Replace with the real id from `wrangler d1 create extport` before deploying.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS",
+      "bucket_name": "extport-artifacts"
+    }
+  ],
+  "vars": {
+    // Non-secret config. Secrets (KEK_V1, GITHUB_CLIENT_SECRET) go in
+    // .dev.vars locally and `wrangler secret put` in production.
+    "CURRENT_KEK_VERSION": "1",
+    "DASHBOARD_URL": "http://localhost:5173",
+    "GITHUB_CLIENT_ID": ""
+  }
+}
