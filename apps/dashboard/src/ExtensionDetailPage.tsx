@@ -14,21 +14,52 @@ function relativeTime(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
-function eventSummary(event: PublishEvent): string {
-  const payload = JSON.parse(event.payloadJson) as Record<string, unknown>
+const EVENT_LABEL: Record<PublishEvent['type'], string> = {
+  submitted: 'submitted',
+  approved: 'live',
+  rejected: 'rejected',
+  withdrawn: 'withdrawn',
+  blocked: 'blocked',
+  error: 'error',
+  stale_review: 'stale review',
+}
+
+const EVENT_COLOR: Record<PublishEvent['type'], string> = {
+  submitted: '#9a6700',
+  approved: '#1a7f37',
+  rejected: '#cf222e',
+  withdrawn: '#6e7781',
+  blocked: '#6e7781',
+  error: '#cf222e',
+  stale_review: '#9a6700',
+}
+
+function eventPayload(event: PublishEvent): Record<string, unknown> {
+  return JSON.parse(event.payloadJson) as Record<string, unknown>
+}
+
+function eventVersion(event: PublishEvent): string | null {
+  const payload = eventPayload(event)
+  const version = payload.version ?? payload.desiredVersion
+  return typeof version === 'string' ? version : null
+}
+
+function eventDetail(event: PublishEvent): string | null {
+  const payload = eventPayload(event)
   switch (event.type) {
-    case 'submitted':
-      return `submitted v${payload.version}`
-    case 'approved':
-      return `v${payload.version} went live`
     case 'rejected':
-      return `v${payload.version ?? '?'} rejected${payload.reason ? `: ${payload.reason}` : ''}`
-    case 'withdrawn':
-      return `withdrew v${payload.version}`
+      return typeof payload.reason === 'string' ? payload.reason : null
     case 'error':
-      return String(payload.message ?? 'error')
+      return typeof payload.message === 'string' ? payload.message : null
+    case 'submitted':
+      return typeof payload.detail === 'string' ? payload.detail : null
     case 'stale_review':
-      return `still ${payload.status} after ${payload.ageDays}+ days`
+      return `${payload.status} for ${payload.ageDays}+ days`
+    case 'blocked':
+      return typeof payload.inReviewVersion === 'string' ? `waiting behind v${payload.inReviewVersion}` : null
+    case 'approved':
+    case 'withdrawn':
+      return null
   }
 }
 
@@ -165,14 +196,34 @@ function EventsSection({ extensionId }: { extensionId: string }) {
     <section>
       <h3>Timeline</h3>
       {events.length === 0 && <p>No events yet.</p>}
-      <ul style={{ listStyle: 'none', padding: 0 }}>
-        {events.map((e) => (
-          <li key={e.id} style={{ padding: '4px 0', borderBottom: '1px solid #f0f0f0' }}>
-            <span style={{ color: '#666', fontSize: 12 }}>{relativeTime(e.createdAt)}</span> ·{' '}
-            <strong>{e.store}</strong> · {eventSummary(e)}
-          </li>
-        ))}
-      </ul>
+      {events.length > 0 && (
+        <table cellPadding={6} style={{ borderCollapse: 'collapse', width: '100%' }}>
+          <thead>
+            <tr style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>
+              <th>Time</th>
+              <th>Store</th>
+              <th>Version</th>
+              <th>Event</th>
+            </tr>
+          </thead>
+          <tbody>
+            {events.map((e) => {
+              const detail = eventDetail(e)
+              return (
+                <tr key={e.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                  <td style={{ color: '#666', fontSize: 12, whiteSpace: 'nowrap' }}>{relativeTime(e.createdAt)}</td>
+                  <td>{e.store}</td>
+                  <td>{eventVersion(e) ? <code>{eventVersion(e)}</code> : '—'}</td>
+                  <td>
+                    <span style={{ color: EVENT_COLOR[e.type], fontWeight: 600 }}>{EVENT_LABEL[e.type]}</span>
+                    {detail && <div style={{ fontSize: 12, color: '#666' }}>{detail}</div>}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
     </section>
   )
 }

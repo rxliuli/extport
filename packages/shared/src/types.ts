@@ -14,6 +14,7 @@ export type PublishEventType =
   | 'approved'
   | 'rejected'
   | 'withdrawn'
+  | 'blocked'
   | 'error'
   | 'stale_review'
 
@@ -40,7 +41,6 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
 
 /** Tenant-level settings stored in tenants.settings_json. */
 export interface TenantSettings {
-  autoWithdraw?: boolean
   staleReviewDays?: Partial<Record<Store, number>>
 }
 

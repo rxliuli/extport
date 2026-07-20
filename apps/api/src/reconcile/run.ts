@@ -148,6 +148,11 @@ function buildMessage(
       }
     case 'withdrawn':
       return null
+    case 'blocked':
+      // Audit-trail only — waiting behind an in-review version is the normal,
+      // no-action-needed steady state now (see decide.ts), not worth an email.
+      // The stale_review digest is the actual signal for "this needs a look."
+      return null
   }
 }
 
@@ -287,7 +292,6 @@ async function reconcileOne(
   row: JoinedRow,
   credentials: unknown,
   extensionArtifacts: Artifact[],
-  autoWithdraw: boolean,
 ): Promise<'noop' | 'submitted' | 'blocked'> {
   const { target } = row
   const adapter = getAdapter(target.store)
@@ -306,13 +310,7 @@ async function reconcileOne(
   // submit, e.g. v1.1 just got approved AND v1.2 is ready to go out.
   await recordTransitionEvents(db, notifier, row, merged, actual.reviewStatus, actual.rejectionReason)
 
-  const decision = decide({
-    desiredVersion,
-    merged,
-    reviewStatus: actual.reviewStatus,
-    autoWithdraw,
-    canWithdraw: Boolean(adapter.withdraw),
-  })
+  const decision = decide({ desiredVersion, merged, reviewStatus: actual.reviewStatus })
 
   if (decision.action === 'noop') {
     await upsertDeploymentState(db, row, {
@@ -327,6 +325,11 @@ async function reconcileOne(
   }
 
   if (decision.action === 'blocked') {
+    // Only record entering the state, not every tick it stays blocked —
+    // this is the normal steady state while a review is in flight.
+    if (row.deploymentState?.status !== 'blocked') {
+      await recordEvent(db, notifier, row, 'blocked', { desiredVersion, inReviewVersion: merged.inReviewVersion })
+    }
     await upsertDeploymentState(db, row, {
       desiredVersion,
       liveVersion: merged.liveVersion,
@@ -336,13 +339,6 @@ async function reconcileOne(
     })
     await maybeEmitStaleReview(db, notifier, row, 'blocked', row.deploymentState?.submittedAt ?? null)
     return 'blocked'
-  }
-
-  if (decision.action === 'withdraw_then_submit') {
-    if (!adapter.withdraw) throw new Error(`${target.store} adapter has no withdraw() despite decide() allowing it`)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await adapter.withdraw(credentials as any, target.storeItemId)
-    await recordEvent(db, notifier, row, 'withdrawn', { version: merged.inReviewVersion })
   }
 
   const version = decision.version
@@ -444,20 +440,10 @@ export async function runReconciliation(
       return
     }
 
-    const autoWithdraw = parseTenantSettings(tenant.settingsJson).autoWithdraw ?? true
-
     for (const row of group) {
       summary.processed++
       try {
-        const outcome = await reconcileOne(
-          env,
-          db,
-          notifier,
-          row,
-          credentials,
-          artifactsByExtension.get(row.extension.id) ?? [],
-          autoWithdraw,
-        )
+        const outcome = await reconcileOne(env, db, notifier, row, credentials, artifactsByExtension.get(row.extension.id) ?? [])
         if (outcome === 'submitted') summary.submitted++
         if (outcome === 'blocked') summary.blocked++
       } catch (err) {

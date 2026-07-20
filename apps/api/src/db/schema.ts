@@ -184,7 +184,7 @@ export const publishEvents = sqliteTable(
     extensionId: text('extension_id').notNull().references(() => extensions.id),
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'apple'] }).notNull(),
     type: text('type', {
-      enum: ['submitted', 'approved', 'rejected', 'withdrawn', 'error', 'stale_review'],
+      enum: ['submitted', 'approved', 'rejected', 'withdrawn', 'blocked', 'error', 'stale_review'],
     }).notNull(),
     payloadJson: text('payload_json').notNull().default('{}'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(now),

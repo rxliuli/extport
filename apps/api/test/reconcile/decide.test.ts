@@ -28,7 +28,7 @@ describe('mergeState', () => {
 })
 
 describe('decide', () => {
-  const base = { merged: { liveVersion: null, inReviewVersion: null }, autoWithdraw: true, canWithdraw: true }
+  const base = { merged: { liveVersion: null, inReviewVersion: null } }
 
   it('does nothing when no artifact has ever been uploaded', () => {
     expect(decide({ ...base, desiredVersion: null })).toEqual({ action: 'noop', status: 'synced' })
@@ -77,12 +77,10 @@ describe('decide', () => {
     ).toEqual({ action: 'noop', status: 'rejected' })
   })
 
-  it('submits straight away when an older in-review version was just rejected — no withdrawal needed', () => {
+  it('submits straight away when an older in-review version was just rejected — the slot is free', () => {
     expect(
       decide({
         ...base,
-        autoWithdraw: false,
-        canWithdraw: false,
         desiredVersion: '1.2.0',
         merged: { liveVersion: '1.0.0', inReviewVersion: '1.1.0' },
         reviewStatus: 'rejected',
@@ -90,32 +88,10 @@ describe('decide', () => {
     ).toEqual({ action: 'submit', version: '1.2.0' })
   })
 
-  it('withdraws an older pending review before submitting the newer desired version, when allowed', () => {
+  it('blocks — never cancels an older in-review version to make room for a newer one', () => {
     expect(
       decide({
         ...base,
-        desiredVersion: '1.2.0',
-        merged: { liveVersion: '1.0.0', inReviewVersion: '1.1.0' },
-      }),
-    ).toEqual({ action: 'withdraw_then_submit', version: '1.2.0' })
-  })
-
-  it('blocks (waits for the review to resolve) when auto_withdraw is off', () => {
-    expect(
-      decide({
-        ...base,
-        autoWithdraw: false,
-        desiredVersion: '1.2.0',
-        merged: { liveVersion: '1.0.0', inReviewVersion: '1.1.0' },
-      }),
-    ).toEqual({ action: 'blocked' })
-  })
-
-  it('blocks when the store cannot withdraw at all, even if auto_withdraw is on (Edge)', () => {
-    expect(
-      decide({
-        ...base,
-        canWithdraw: false,
         desiredVersion: '1.2.0',
         merged: { liveVersion: '1.0.0', inReviewVersion: '1.1.0' },
       }),
@@ -127,17 +103,12 @@ describe('mergeState + decide composed — Edge\'s unobservable getState()', () 
   it('stays in_review across ticks purely from what we recorded after our own submit', () => {
     const prior: PriorState = { liveVersion: null, inReviewVersion: '1.0.0' }
     const merged = mergeState(prior, {}) // Edge always returns {}
-    expect(decide({ desiredVersion: '1.0.0', merged, autoWithdraw: true, canWithdraw: false })).toEqual({
-      action: 'noop',
-      status: 'in_review',
-    })
+    expect(decide({ desiredVersion: '1.0.0', merged })).toEqual({ action: 'noop', status: 'in_review' })
   })
 
   it('blocks once a newer artifact arrives, since Edge can neither confirm nor cancel the old review', () => {
     const prior: PriorState = { liveVersion: null, inReviewVersion: '1.0.0' }
     const merged = mergeState(prior, {})
-    expect(decide({ desiredVersion: '1.1.0', merged, autoWithdraw: true, canWithdraw: false })).toEqual({
-      action: 'blocked',
-    })
+    expect(decide({ desiredVersion: '1.1.0', merged })).toEqual({ action: 'blocked' })
   })
 })

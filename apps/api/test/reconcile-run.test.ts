@@ -320,7 +320,7 @@ describe('runReconciliation — rejection frees the slot for a newer version', (
   })
 })
 
-describe('runReconciliation — blocked vs withdraw_then_submit', () => {
+describe('runReconciliation — blocked (no auto-withdraw)', () => {
   const scenario = {
     artifacts: [{ version: '1.0.0' }, { version: '1.1.0' }],
     deploymentState: { inReviewVersion: '1.0.0', liveVersion: null, status: 'in_review' as const, submittedAt: new Date() },
@@ -329,33 +329,32 @@ describe('runReconciliation — blocked vs withdraw_then_submit', () => {
     submittedItemRevisionStatus: { state: 'PENDING_REVIEW', distributionChannels: [{ crxVersion: '1.0.0' }] },
   }
 
-  it('blocks when auto_withdraw is off, without calling cancelSubmission', async () => {
-    const { db, tenantId, extensionId } = await setupChromeScenario({ ...scenario, settingsJson: '{"autoWithdraw":false}' })
+  it('blocks without calling cancelSubmission — never cancels an in-review version', async () => {
+    const { db, tenantId, extensionId } = await setupChromeScenario(scenario)
     const { fetch, calls } = routedFetch(chromeRoutes({ fetchStatus: pendingFetchStatus }))
     globalThis.fetch = fetch
     const { notifier, sent } = recordingNotifier()
 
     const summary = await runReconciliation(env, db, { tenantId }, notifier)
     expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 1, errors: 0 })
-    expect(await deploymentStateFor(db, extensionId)).toMatchObject({ status: 'blocked' })
+    expect(await deploymentStateFor(db, extensionId)).toMatchObject({ status: 'blocked', inReviewVersion: '1.0.0' })
     expect(calls.some((c) => c.url.endsWith(':cancelSubmission'))).toBe(false)
+
+    const events = await eventsFor(db, extensionId)
+    expect(events.map((e) => e.type)).toEqual(['blocked'])
+    // Entering "blocked" is audit-trail only, per spec §3.5 — not worth an email.
     expect(sent).toHaveLength(0)
   })
 
-  it('withdraws the older version then submits the newer one when auto_withdraw is on (default)', async () => {
+  it('records the blocked event once on transition, not again while it stays blocked', async () => {
     const { db, tenantId, extensionId } = await setupChromeScenario(scenario)
     globalThis.fetch = routedFetch(chromeRoutes({ fetchStatus: pendingFetchStatus })).fetch
-    const { notifier, sent } = recordingNotifier()
 
-    const summary = await runReconciliation(env, db, { tenantId }, notifier)
-    expect(summary.submitted).toBe(1)
-    expect(await deploymentStateFor(db, extensionId)).toMatchObject({ status: 'in_review', inReviewVersion: '1.1.0' })
+    await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
+    await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
+
     const events = await eventsFor(db, extensionId)
-    expect(events.map((e) => e.type)).toEqual(['withdrawn', 'submitted'])
-
-    // withdrawn is audit-trail only — just the one 'submitted' email, per spec §3.5's three tiers.
-    expect(sent).toHaveLength(1)
-    expect(sent[0]!.subject).toContain('v1.1.0')
+    expect(events.map((e) => e.type)).toEqual(['blocked'])
   })
 })
 

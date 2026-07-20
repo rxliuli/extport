@@ -52,7 +52,7 @@ export interface PublishTarget {
 export interface PublishEvent {
   id: string
   store: Store
-  type: 'submitted' | 'approved' | 'rejected' | 'withdrawn' | 'error' | 'stale_review'
+  type: 'submitted' | 'approved' | 'rejected' | 'withdrawn' | 'blocked' | 'error' | 'stale_review'
   payloadJson: string
   /** ISO date string (Date -> JSON) */
   createdAt: string
@@ -78,11 +78,6 @@ export interface CredentialRow {
   expiresAt: string | null
   /** ISO date string (Date -> JSON) */
   lastVerifiedAt: string | null
-}
-
-export interface TenantSettings {
-  autoWithdraw: boolean
-  staleReviewDays: Record<Store, number>
 }
 
 export class ApiError extends Error {
