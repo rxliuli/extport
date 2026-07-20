@@ -1,16 +1,19 @@
 import type { Store } from '@extport/shared'
 
+/**
+ * `known: false` = the store's API cannot report this field at all — the
+ * reconciler must preserve whatever it already knew instead of overwriting
+ * with a false "nothing here." `known: true` with `version` unset = the
+ * store confirms there is no live/in-review version (an authoritative
+ * "nothing here"). `known: true` with `version` set = the actual version.
+ * Edge is always `known: false` for both (confirmed API gap); Chrome/
+ * Firefox/Safari are always `known: true`.
+ */
+export type VersionKnowledge = { known: false } | { known: true; version?: string }
+
 export interface StoreState {
-  /**
-   * `null` = the store confirms there is no live/in-review version (an
-   * authoritative "nothing here"). `undefined` (the field omitted) = the
-   * store's API cannot report this field at all — the reconciler must
-   * preserve whatever it already knew instead of overwriting with a false
-   * "nothing here." Edge always omits both fields (confirmed API gap);
-   * Chrome/Firefox/Safari return a real string or an authoritative null.
-   */
-  liveVersion?: string | null
-  inReviewVersion?: string | null
+  live: VersionKnowledge
+  inReview: VersionKnowledge
   reviewStatus?: 'pending' | 'rejected'
   /** Only Firefox/Safari can say anything useful here; Chrome/Edge never expose review text via API. */
   rejectionReason?: string

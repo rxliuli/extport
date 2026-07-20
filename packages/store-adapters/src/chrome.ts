@@ -1,4 +1,4 @@
-import type { ChromeCredentials, CredentialCheck, StoreAdapter, StoreState, SubmissionResult } from './types'
+import type { ChromeCredentials, CredentialCheck, StoreAdapter, StoreState, SubmissionResult, VersionKnowledge } from './types'
 import { signJwtRS256 } from './jwt'
 import { truncate, type FetchLike } from './util'
 
@@ -73,24 +73,24 @@ async function getState(
     publishedItemRevisionStatus?: { state?: string; distributionChannels?: { crxVersion?: string }[] }
     submittedItemRevisionStatus?: { state?: string; distributionChannels?: { crxVersion?: string }[] }
   }
-  const liveVersion = body.publishedItemRevisionStatus?.distributionChannels?.[0]?.crxVersion ?? null
+  const live: VersionKnowledge = { known: true, version: body.publishedItemRevisionStatus?.distributionChannels?.[0]?.crxVersion }
   const submitted = body.submittedItemRevisionStatus
-  if (!submitted) return { liveVersion, inReviewVersion: null }
+  if (!submitted) return { live, inReview: { known: true } }
 
-  const submittedVersion = submitted.distributionChannels?.[0]?.crxVersion ?? null
+  const submittedVersion = submitted.distributionChannels?.[0]?.crxVersion
   if (submitted.state === 'PENDING_REVIEW' || submitted.state === 'STAGED') {
-    return { liveVersion, inReviewVersion: submittedVersion, reviewStatus: 'pending' }
+    return { live, inReview: { known: true, version: submittedVersion }, reviewStatus: 'pending' }
   }
   if (submitted.state === 'REJECTED' || submitted.state === 'CANCELLED') {
     return {
-      liveVersion,
-      inReviewVersion: null,
+      live,
+      inReview: { known: true },
       reviewStatus: 'rejected',
       // Google does not expose rejection text via the API (confirmed 2026-07 research) — only the Dashboard/email do.
       rejectionReason: 'Chrome Web Store does not expose rejection reasons via API — check the Developer Dashboard or your email.',
     }
   }
-  return { liveVersion, inReviewVersion: null }
+  return { live, inReview: { known: true } }
 }
 
 async function submit(

@@ -15,7 +15,7 @@ describe('firefox adapter — getState', () => {
       { status: 200, body: { results: [{ version: '1.0.0', file: { status: 'public' } }] } },
     ])
     const state = await createFirefoxAdapter(fetch).getState(creds, ADDON)
-    expect(state).toEqual({ liveVersion: '1.0.0', inReviewVersion: null })
+    expect(state).toEqual({ live: { known: true, version: '1.0.0' }, inReview: { known: true } })
   })
 
   it('reports a pending (unreviewed) newer version', async () => {
@@ -24,7 +24,7 @@ describe('firefox adapter — getState', () => {
       { status: 200, body: { results: [{ version: '1.1.0', file: { status: 'unreviewed' } }] } },
     ])
     const state = await createFirefoxAdapter(fetch).getState(creds, ADDON)
-    expect(state).toEqual({ liveVersion: '1.0.0', inReviewVersion: '1.1.0', reviewStatus: 'pending' })
+    expect(state).toEqual({ live: { known: true, version: '1.0.0' }, inReview: { known: true, version: '1.1.0' }, reviewStatus: 'pending' })
     expect(calls[0]!.url).toBe(`https://addons.mozilla.org/api/v5/addons/addon/${ADDON}/`)
     const auth = (calls[0]!.init?.headers as Record<string, string>).authorization
     expect(auth).toMatch(/^JWT [\w-]+\.[\w-]+\.[\w-]+$/)
@@ -36,7 +36,7 @@ describe('firefox adapter — getState', () => {
       { status: 200, body: { results: [{ version: '1.1.0', file: { status: 'disabled' } }] } },
     ])
     const state = await createFirefoxAdapter(fetch).getState(creds, ADDON)
-    expect(state.inReviewVersion).toBeNull()
+    expect(state.inReview).toEqual({ known: true })
     expect(state.reviewStatus).toBe('rejected')
     expect(state.rejectionReason).toMatch(/disabled\/rejected/)
   })

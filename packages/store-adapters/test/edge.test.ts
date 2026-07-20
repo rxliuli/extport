@@ -9,9 +9,9 @@ const OP_LOCATION = { location: 'https://api.addons.microsoftedge.microsoft.com/
 const FAST_POLL = { intervalMs: 1, attempts: 3 }
 
 describe('edge adapter — getState', () => {
-  it('omits both fields (unobservable, not "confirmed empty") without making a network call', async () => {
+  it('reports known: false for both (unobservable, not "confirmed empty") without making a network call', async () => {
     const state = await createEdgeAdapter(unreachableFetch).getState(creds, PRODUCT)
-    expect(state).toEqual({})
+    expect(state).toEqual({ live: { known: false }, inReview: { known: false } })
   })
 })
 

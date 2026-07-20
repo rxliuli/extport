@@ -96,11 +96,11 @@ async function submit(
 
 async function getState(): Promise<StoreState> {
   // Confirmed API gap: Edge has no endpoint to query live/pending version at
-  // all. Omitting both fields (not returning null) tells the reconciler
-  // "unobservable" so it preserves whatever it already knows from a prior
-  // successful submit, rather than overwriting real state with a false
-  // "nothing here" — see apps/api/src/reconcile/decide.ts's merge rule.
-  return {}
+  // all. `known: false` (not an authoritative "nothing here") tells the
+  // reconciler "unobservable" so it preserves whatever it already knows from
+  // a prior successful submit, rather than overwriting real state with a
+  // false "nothing here" — see apps/api/src/reconcile/decide.ts's merge rule.
+  return { live: { known: false }, inReview: { known: false } }
 }
 
 /**

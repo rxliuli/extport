@@ -68,7 +68,7 @@ describe('chrome adapter — getState', () => {
       },
     ])
     const state = await createChromeAdapter(fetch).getState(await creds(), ITEM)
-    expect(state).toEqual({ liveVersion: '1.0.0', inReviewVersion: '1.1.0', reviewStatus: 'pending' })
+    expect(state).toEqual({ live: { known: true, version: '1.0.0' }, inReview: { known: true, version: '1.1.0' }, reviewStatus: 'pending' })
     expect(calls[1]!.url).toBe(`https://chromewebstore.googleapis.com/v2/publishers/pub-1/items/${ITEM}:fetchStatus`)
   })
 
@@ -84,8 +84,8 @@ describe('chrome adapter — getState', () => {
       },
     ])
     const state = await createChromeAdapter(fetch).getState(await creds(), ITEM)
-    expect(state.liveVersion).toBe('1.0.0')
-    expect(state.inReviewVersion).toBeNull()
+    expect(state.live).toEqual({ known: true, version: '1.0.0' })
+    expect(state.inReview).toEqual({ known: true })
     expect(state.reviewStatus).toBe('rejected')
     expect(state.rejectionReason).toMatch(/does not expose rejection reasons/)
   })
@@ -93,7 +93,7 @@ describe('chrome adapter — getState', () => {
   it('handles a brand-new item with nothing submitted yet', async () => {
     const { fetch } = queueFetch([{ status: 200, body: { access_token: 'at' } }, { status: 200, body: {} }])
     const state = await createChromeAdapter(fetch).getState(await creds(), ITEM)
-    expect(state).toEqual({ liveVersion: null, inReviewVersion: null })
+    expect(state).toEqual({ live: { known: true }, inReview: { known: true } })
   })
 })
 

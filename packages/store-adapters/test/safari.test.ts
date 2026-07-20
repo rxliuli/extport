@@ -29,7 +29,7 @@ describe('safari adapter — getState', () => {
       },
     ])
     const state = await createSafariAdapter(fetch).getState(await creds(), APP_ID)
-    expect(state).toEqual({ liveVersion: '1.0.0', inReviewVersion: '1.1.0', reviewStatus: 'pending', rejectionReason: undefined })
+    expect(state).toEqual({ live: { known: true, version: '1.0.0' }, inReview: { known: true, version: '1.1.0' }, reviewStatus: 'pending', rejectionReason: undefined })
     expect(calls[0]!.url).toContain(`/v1/apps/${APP_ID}/appStoreVersions`)
   })
 
@@ -45,7 +45,7 @@ describe('safari adapter — getState', () => {
   it('handles an app with no versions at all', async () => {
     const { fetch } = queueFetch([{ status: 200, body: { data: [] } }])
     const state = await createSafariAdapter(fetch).getState(await creds(), APP_ID)
-    expect(state).toEqual({ liveVersion: null, inReviewVersion: null, reviewStatus: undefined, rejectionReason: undefined })
+    expect(state).toEqual({ live: { known: true }, inReview: { known: true }, reviewStatus: undefined, rejectionReason: undefined })
   })
 
   it('throws on a lookup failure', async () => {

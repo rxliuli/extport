@@ -200,10 +200,12 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
   const actual = await adapter.getState(credentials as any, target.storeItemId)
 
   // --- resolve step: reflect whatever the store told us this tick ---
-  if (actual.liveVersion) {
-    const alreadyRecordedOnline = versionRows.some((v) => v.status === 'online' && v.version === actual.liveVersion)
+  const liveReport = actual.live
+  if (liveReport.known && liveReport.version) {
+    const liveVersion = liveReport.version
+    const alreadyRecordedOnline = versionRows.some((v) => v.status === 'online' && v.version === liveVersion)
     if (!alreadyRecordedOnline) {
-      if (inReview && inReview.version === actual.liveVersion) {
+      if (inReview && inReview.version === liveVersion) {
         await db.update(deploymentVersions).set({ status: 'online', statusDetail: null }).where(eq(deploymentVersions.id, inReview.id))
         await notify(notifier, row, 'approved', { version: inReview.version })
         inReview = null
@@ -216,7 +218,7 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
           tenantId: row.extension.tenantId,
           extensionId: target.extensionId,
           store: target.store,
-          version: actual.liveVersion,
+          version: liveVersion,
           artifactId: null,
           status: 'online',
         })
@@ -235,8 +237,10 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
   // instead of submitting the queued row on top of it. submittedAt is left
   // unknown (null) rather than guessed at "now" — see maybeEmitStaleReview,
   // which already treats a null submittedAt as "can't judge staleness."
-  if (!inReview && actual.inReviewVersion) {
-    if (queued && queued.version === actual.inReviewVersion) {
+  const inReviewReport = actual.inReview
+  if (!inReview && inReviewReport.known && inReviewReport.version) {
+    const inReviewVersion = inReviewReport.version
+    if (queued && queued.version === inReviewVersion) {
       await db.update(deploymentVersions).set({ status: 'in_review', submittedAt: null }).where(eq(deploymentVersions.id, queued.id))
       queued = null
     } else {
@@ -245,12 +249,12 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
         tenantId: row.extension.tenantId,
         extensionId: target.extensionId,
         store: target.store,
-        version: actual.inReviewVersion,
+        version: inReviewVersion,
         artifactId: null,
         status: 'in_review',
       })
     }
-    inReview = { version: actual.inReviewVersion, submittedAt: null } as DeploymentVersion
+    inReview = { version: inReviewVersion, submittedAt: null } as DeploymentVersion
   }
 
   // Got this far without the store call throwing — the target itself is healthy,

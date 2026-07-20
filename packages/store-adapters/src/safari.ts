@@ -61,8 +61,8 @@ async function getState(credentials: SafariCredentials, appId: string, fetchImpl
   }
 
   return {
-    liveVersion,
-    inReviewVersion,
+    live: { known: true, version: liveVersion ?? undefined },
+    inReview: { known: true, version: inReviewVersion ?? undefined },
     reviewStatus,
     rejectionReason: reviewStatus === 'rejected' ? 'Check App Store Connect → Activity for Apple’s rejection notes.' : undefined,
   }

@@ -1,4 +1,4 @@
-import type { CredentialCheck, FirefoxCredentials, StoreAdapter, StoreState, SubmissionResult } from './types'
+import type { CredentialCheck, FirefoxCredentials, StoreAdapter, StoreState, SubmissionResult, VersionKnowledge } from './types'
 import { signJwtHS256 } from './jwt'
 import { pollUntil, truncate, type FetchLike } from './util'
 
@@ -36,32 +36,33 @@ async function getState(
   })
   if (!res.ok) throw new Error(`amo addon lookup failed (${res.status}): ${truncate(await res.text())}`)
   const addon = (await res.json()) as { current_version?: { version?: string } | null }
-  const liveVersion = addon.current_version?.version ?? null
+  const liveVersion = addon.current_version?.version
+  const live: VersionKnowledge = { known: true, version: liveVersion }
 
   const versionsRes = await fetchImpl(addonUrl(addonId, '/versions/?page_size=5'), {
     headers: { authorization: await amoAuthHeader(credentials) },
   })
-  if (!versionsRes.ok) return { liveVersion, inReviewVersion: null }
+  if (!versionsRes.ok) return { live, inReview: { known: true } }
   const versions = (await versionsRes.json()) as {
     results?: { version?: string; file?: { status?: string } }[]
   }
   const latest = versions.results?.[0]
-  if (!latest?.version || latest.version === liveVersion) return { liveVersion, inReviewVersion: null }
+  if (!latest?.version || latest.version === liveVersion) return { live, inReview: { known: true } }
 
   if (latest.file?.status === 'unreviewed') {
-    return { liveVersion, inReviewVersion: latest.version, reviewStatus: 'pending' }
+    return { live, inReview: { known: true, version: latest.version }, reviewStatus: 'pending' }
   }
   if (latest.file?.status === 'disabled') {
     // AMO conflates "rejected by review" and "manually disabled" into one status —
     // this is the best signal the public API exposes (confirmed 2026-07 research).
     return {
-      liveVersion,
-      inReviewVersion: null,
+      live,
+      inReview: { known: true },
       reviewStatus: 'rejected',
       rejectionReason: 'AMO marked this version disabled/rejected — check Review Notes in the Developer Hub for details.',
     }
   }
-  return { liveVersion, inReviewVersion: null }
+  return { live, inReview: { known: true } }
 }
 
 export interface PollOptions {
