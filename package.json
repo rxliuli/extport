@@ -8,11 +8,8 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "build": "pnpm -r --if-present build"
   },
-  "packageManager": "pnpm@10.5.2",
-  "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "workerd", "sharp"]
-  },
+  "packageManager": "pnpm@11.15.1",
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   }
 }
