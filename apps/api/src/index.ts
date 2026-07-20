@@ -1,5 +1,8 @@
 import { Hono } from 'hono'
+import artifactsRoutes from './routes/artifacts'
 import authRoutes from './routes/auth'
+import credentialsRoutes from './routes/credentials'
+import extensionsRoutes from './routes/extensions'
 import keysRoutes from './routes/keys'
 import { requireAuth, withDb, type AppEnv } from './middleware/auth'
 
@@ -11,6 +14,9 @@ app.get('/healthz', (c) => c.json({ ok: true }))
 
 app.route('/auth', authRoutes)
 app.route('/v1/keys', keysRoutes)
+app.route('/v1/extensions', extensionsRoutes)
+app.route('/v1/artifacts', artifactsRoutes)
+app.route('/v1/credentials', credentialsRoutes)
 
 app.get('/v1/me', requireAuth, (c) => {
   const tenant = c.get('tenant')

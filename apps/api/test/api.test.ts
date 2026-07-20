@@ -1,38 +1,9 @@
-import { decryptJson, encryptJson, newId } from '@extport/shared'
-import { createExecutionContext, env } from 'cloudflare:test'
+import { decryptJson, encryptJson } from '@extport/shared'
+import { env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
-import app from '../src/index'
-import { createDb, tenants, users } from '../src/db'
-import { provisionTenantDek, tenantDek } from '../src/lib/kms'
-import { SESSION_COOKIE, createSession } from '../src/lib/session'
-
-async function seedTenantWithUser() {
-  const db = createDb(env.DB)
-  const tenantId = newId('tenant')
-  const userId = newId('user')
-  const dek = await provisionTenantDek(env)
-  await db.insert(tenants).values({
-    id: tenantId,
-    name: 'acme',
-    email: 'dev@acme.test',
-    dekEncrypted: dek.dekEncrypted,
-    dekKeyVersion: dek.dekKeyVersion,
-  })
-  await db.insert(users).values({
-    id: userId,
-    tenantId,
-    email: 'dev@acme.test',
-    displayName: 'Acme Dev',
-    authProvider: 'github',
-    authSubject: String(Math.floor(Math.random() * 1e9)),
-  })
-  const session = await createSession(db, userId)
-  return { db, tenantId, userId, sessionCookie: `${SESSION_COOKIE}=${session.token}` }
-}
-
-function request(path: string, init?: RequestInit): Promise<Response> {
-  return Promise.resolve(app.request(path, init, env, createExecutionContext()))
-}
+import { tenants } from '../src/db'
+import { tenantDek } from '../src/lib/kms'
+import { request, seedTenantWithUser } from './helpers'
 
 describe('health', () => {
   it('responds ok without auth', async () => {

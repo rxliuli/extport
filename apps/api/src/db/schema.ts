@@ -96,6 +96,10 @@ export const storeCredentials = sqliteTable(
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull().references(() => tenants.id),
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'apple'] }).notNull(),
+    label: text('label').notNull().default(''),
+    // Last four characters of the most identifying secret field — the only
+    // plaintext-derived value ever stored; the UI shows nothing else.
+    hint: text('hint').notNull().default(''),
     // Credential JSON encrypted with the tenant DEK; plaintext never touches D1.
     encryptedPayload: text('encrypted_payload').notNull(),
     keyVersion: integer('key_version').notNull().default(1),

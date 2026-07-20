@@ -17,8 +17,9 @@ Two independent per-extension modules:
 |------|---------|
 | `apps/api` | Workers API (Hono): auth, tenants, artifacts, reconciliation loop |
 | `apps/dashboard` | Tenant dashboard (React + Vite) |
-| `packages/shared` | IDs, envelope encryption, API keys, shared types |
+| `packages/shared` | IDs, envelope encryption, API keys, version utils, shared types |
 | `packages/store-adapters` | `StoreAdapter` interface + per-store implementations |
+| `packages/cli` | `extport` CLI (`npx extport push dist.zip …`) |
 | `packages/sdk` | Open-source license verification SDK (Phase 2) |
 
 ## Development
@@ -43,6 +44,31 @@ pnpm typecheck
 After changing `apps/api/wrangler.jsonc` or `.dev.vars`, regenerate types with
 `pnpm --filter @extport/api types`. After changing `src/db/schema.ts`, run
 `pnpm --filter @extport/api db:generate` to emit a new migration.
+
+## Uploading artifacts from CI
+
+```sh
+# one line in any CI job; EXTPORT_API_KEY from Settings → API keys
+npx extport push dist.zip --extension my-extension --version 1.2.3
+# store-specific builds:
+npx extport push dist-chrome.zip --extension my-extension --version 1.2.3 --store chrome
+```
+
+Versions are immutable: identical re-uploads are idempotent (200), changed
+content for an existing version is rejected (409) — bump the version instead.
+
+## Store credentials
+
+Added in the dashboard (Settings → Store credentials); verified against the
+live store API before saving, then envelope-encrypted with the tenant DEK.
+Only the last four characters are ever displayed again.
+
+| Store | What the tenant pastes |
+|-------|------------------------|
+| Chrome | OAuth client id/secret + refresh token (`chromewebstore` scope) |
+| Firefox | AMO JWT issuer + secret |
+| Edge | Partner Center v1.1 Client ID + API key (has expiry → rotation reminders) |
+| Apple | App Store Connect .p8 key + Key ID + Issuer ID (App Manager role) |
 
 ## Security model (implemented)
 

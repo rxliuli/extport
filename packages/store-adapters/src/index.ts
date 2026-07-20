@@ -1,25 +1,27 @@
 import type { Store } from '@extport/shared'
+import { createAppleAdapter } from './apple'
+import { createChromeAdapter } from './chrome'
+import { createEdgeAdapter } from './edge'
+import { createFirefoxAdapter } from './firefox'
 import type { StoreAdapter } from './types'
+import type { CredentialsByStore } from './validate'
 
 export * from './types'
+export * from './validate'
+export { signJwtES256, signJwtHS256, pemToPkcs8 } from './jwt'
+export { createAppleAdapter } from './apple'
+export { createChromeAdapter } from './chrome'
+export { createEdgeAdapter } from './edge'
+export { createFirefoxAdapter } from './firefox'
+export type { FetchLike } from './util'
 
-function notImplemented(store: Store): StoreAdapter {
-  return {
-    store,
-    verifyCredentials: () => Promise.reject(new Error(`${store} adapter not implemented yet`)),
-    getState: () => Promise.reject(new Error(`${store} adapter not implemented yet`)),
-    submit: () => Promise.reject(new Error(`${store} adapter not implemented yet`)),
-  }
+const adapters: { [S in Store]: StoreAdapter<CredentialsByStore[S]> } = {
+  chrome: createChromeAdapter(),
+  firefox: createFirefoxAdapter(),
+  edge: createEdgeAdapter(),
+  apple: createAppleAdapter(),
 }
 
-// Milestone 3 replaces these stubs, in order: chrome → firefox → edge → apple.
-const adapters: Record<Store, StoreAdapter> = {
-  chrome: notImplemented('chrome'),
-  firefox: notImplemented('firefox'),
-  edge: notImplemented('edge'),
-  apple: notImplemented('apple'),
-}
-
-export function getAdapter(store: Store): StoreAdapter {
+export function getAdapter<S extends Store>(store: S): StoreAdapter<CredentialsByStore[S]> {
   return adapters[store]
 }
