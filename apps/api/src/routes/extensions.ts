@@ -3,6 +3,7 @@ import { and, desc, eq, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { artifacts, extensions } from '../db'
 import { requireAuth, type AppEnv } from '../middleware/auth'
+import { runReconciliation } from '../reconcile/run'
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/
 
@@ -97,6 +98,19 @@ route.patch('/:id', async (c) => {
   if (result.meta.changes === 0) return c.json({ error: 'not found' }, 404)
   const [updated] = await db.select().from(extensions).where(eq(extensions.id, c.req.param('id')))
   return c.json({ extension: updated })
+})
+
+route.post('/:id/reconcile', async (c) => {
+  const db = c.get('db')
+  const tenant = c.get('tenant')
+  const [extension] = await db
+    .select({ id: extensions.id })
+    .from(extensions)
+    .where(and(eq(extensions.tenantId, tenant.id), eq(extensions.id, c.req.param('id'))))
+  if (!extension) return c.json({ error: 'not found' }, 404)
+
+  const summary = await runReconciliation(c.env, db, { tenantId: tenant.id, extensionId: extension.id })
+  return c.json({ summary })
 })
 
 export default route

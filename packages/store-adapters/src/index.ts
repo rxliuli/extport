@@ -8,11 +8,12 @@ import type { CredentialsByStore } from './validate'
 
 export * from './types'
 export * from './validate'
-export { signJwtES256, signJwtHS256, pemToPkcs8 } from './jwt'
+export { signJwtES256, signJwtHS256, signJwtRS256, pemToPkcs8 } from './jwt'
 export { createAppleAdapter } from './apple'
 export { createChromeAdapter } from './chrome'
 export { createEdgeAdapter } from './edge'
 export { createFirefoxAdapter } from './firefox'
+export { pollUntil, sleep } from './util'
 export type { FetchLike } from './util'
 
 const adapters: { [S in Store]: StoreAdapter<CredentialsByStore[S]> } = {

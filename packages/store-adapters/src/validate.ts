@@ -14,7 +14,7 @@ export interface CredentialsByStore {
 }
 
 export const CREDENTIAL_FIELDS: { [S in Store]: (keyof CredentialsByStore[S])[] } = {
-  chrome: ['clientId', 'clientSecret', 'refreshToken'],
+  chrome: ['publisherId', 'clientEmail', 'privateKey'],
   firefox: ['jwtIssuer', 'jwtSecret'],
   edge: ['clientId', 'apiKey'],
   apple: ['keyId', 'issuerId', 'privateKeyP8'],
@@ -48,7 +48,8 @@ export function parseCredentials<S extends Store>(store: S, input: unknown): Cre
 /** The only plaintext-derived value that may be stored: last 4 chars of the identifying field. */
 export function credentialHint<S extends Store>(store: S, credentials: CredentialsByStore[S]): string {
   const field: Record<Store, string> = {
-    chrome: (credentials as ChromeCredentials).refreshToken ?? '',
+    // publisherId (not the private key) — short and human-recognizable, like the other stores' hints.
+    chrome: (credentials as ChromeCredentials).publisherId ?? '',
     firefox: (credentials as FirefoxCredentials).jwtSecret ?? '',
     edge: (credentials as EdgeCredentials).apiKey ?? '',
     apple: (credentials as AppleCredentials).keyId ?? '',

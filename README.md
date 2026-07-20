@@ -65,10 +65,33 @@ Only the last four characters are ever displayed again.
 
 | Store | What the tenant pastes |
 |-------|------------------------|
-| Chrome | OAuth client id/secret + refresh token (`chromewebstore` scope) |
+| Chrome | Web Store Publish API **v2** service account: Publisher ID + service account email + private key (JSON key from GCP, no OAuth consent screen) |
 | Firefox | AMO JWT issuer + secret |
-| Edge | Partner Center v1.1 Client ID + API key (has expiry → rotation reminders) |
+| Edge | Partner Center Client ID + API key (expires every ~72 days → rotation reminders) |
 | Apple | App Store Connect .p8 key + Key ID + Issuer ID (App Manager role) |
+
+Chrome intentionally skips OAuth entirely — the Web Store API v2 (the v1.1
+API it replaces sunsets 2026-10-15) authenticates with a GCP service account,
+which needs no consent-screen review and has no refresh token to expire. The
+tenant creates a service account, downloads its JSON key, and adds the
+service account's email as a collaborator on their Chrome Web Store developer
+account.
+
+## Reconciliation loop
+
+Every 30 minutes (Cron Trigger) `apps/api/src/reconcile/run.ts` compares each
+enabled `(extension, store)` target's latest artifact against the store's
+actual state and submits, withdraws-then-submits, or blocks — see spec §3.1–3.2
+and Appendix A for the policy. `apps/api/src/reconcile/decide.ts` is the pure
+decision core (fully unit tested); `mergeState()` there encodes the contract
+every `StoreAdapter.getState()` follows: an explicit `null` field means the
+store *confirmed* nothing is live/pending, an *omitted* field means the store
+can't tell us at all (Edge always omits both — it has no status-query
+endpoint) and the reconciler must keep whatever it last knew instead of
+overwriting real state with a false "nothing here."
+
+Trigger a reconcile early instead of waiting for the next tick — e.g. right
+after a CI push — with `POST /v1/extensions/:id/reconcile` (session or API key).
 
 ## Security model (implemented)
 

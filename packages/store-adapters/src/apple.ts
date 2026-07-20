@@ -1,8 +1,23 @@
-import type { AppleCredentials, CredentialCheck, StoreAdapter } from './types'
+import type { AppleCredentials, CredentialCheck, StoreAdapter, StoreState } from './types'
 import { signJwtES256 } from './jwt'
-import { notImplemented, truncate, type FetchLike } from './util'
+import { truncate, type FetchLike } from './util'
 
 const API_BASE = 'https://api.appstoreconnect.apple.com'
+
+const IN_REVIEW_STATES = new Set([
+  'PREPARE_FOR_SUBMISSION',
+  'READY_FOR_REVIEW',
+  'WAITING_FOR_REVIEW',
+  'IN_REVIEW',
+  'WAITING_FOR_EXPORT_COMPLIANCE',
+])
+const REJECTED_STATES = new Set(['REJECTED', 'METADATA_REJECTED', 'INVALID_BINARY', 'DEVELOPER_REJECTED'])
+const LIVE_STATES = new Set([
+  'READY_FOR_DISTRIBUTION',
+  'PENDING_DEVELOPER_RELEASE',
+  'PENDING_APPLE_RELEASE',
+  'PROCESSING_FOR_DISTRIBUTION',
+])
 
 /** App Store Connect: ES256 JWT from a .p8 key (App Manager role recommended). */
 export async function ascAuthHeader(credentials: AppleCredentials): Promise<string> {
@@ -19,6 +34,72 @@ export async function ascAuthHeader(credentials: AppleCredentials): Promise<stri
   return `Bearer ${jwt}`
 }
 
+async function getState(credentials: AppleCredentials, appId: string, fetchImpl: FetchLike): Promise<StoreState> {
+  const authorization = await ascAuthHeader(credentials)
+  const res = await fetchImpl(
+    `${API_BASE}/v1/apps/${appId}/appStoreVersions?limit=5&sort=-createdDate&fields[appStoreVersions]=versionString,appVersionState`,
+    { headers: { authorization } },
+  )
+  if (!res.ok) throw new Error(`app store connect versions lookup failed (${res.status}): ${truncate(await res.text())}`)
+  const body = (await res.json()) as {
+    data?: { attributes?: { versionString?: string; appVersionState?: string } }[]
+  }
+
+  let liveVersion: string | null = null
+  let inReviewVersion: string | null = null
+  let reviewStatus: 'pending' | 'rejected' | undefined
+  for (const version of body.data ?? []) {
+    const state = version.attributes?.appVersionState
+    const versionString = version.attributes?.versionString
+    if (!state || !versionString) continue
+    if (liveVersion === null && LIVE_STATES.has(state)) liveVersion = versionString
+    if (inReviewVersion === null && IN_REVIEW_STATES.has(state)) {
+      inReviewVersion = versionString
+      reviewStatus = 'pending'
+    }
+    if (!reviewStatus && REJECTED_STATES.has(state)) reviewStatus = 'rejected'
+  }
+
+  return {
+    liveVersion,
+    inReviewVersion,
+    reviewStatus,
+    rejectionReason: reviewStatus === 'rejected' ? 'Check App Store Connect → Activity for Apple’s rejection notes.' : undefined,
+  }
+}
+
+async function withdraw(credentials: AppleCredentials, appId: string, fetchImpl: FetchLike): Promise<void> {
+  const authorization = await ascAuthHeader(credentials)
+  const lookupRes = await fetchImpl(
+    `${API_BASE}/v1/apps/${appId}/reviewSubmissions?filter[state]=WAITING_FOR_REVIEW,IN_REVIEW&limit=1`,
+    { headers: { authorization } },
+  )
+  if (!lookupRes.ok) {
+    throw new Error(`app store connect review submission lookup failed (${lookupRes.status}): ${truncate(await lookupRes.text())}`)
+  }
+  const body = (await lookupRes.json()) as { data?: { id: string }[] }
+  const submission = body.data?.[0]
+  if (!submission) return // nothing in flight to cancel
+
+  const cancelRes = await fetchImpl(`${API_BASE}/v1/reviewSubmissions/${submission.id}`, {
+    method: 'PATCH',
+    headers: { authorization, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      data: { type: 'reviewSubmissions', id: submission.id, attributes: { canceled: true } },
+    }),
+  })
+  if (!cancelRes.ok) {
+    throw new Error(`app store connect cancel failed (${cancelRes.status}): ${truncate(await cancelRes.text())}`)
+  }
+}
+
+/**
+ * App Store Connect API. `submit` is intentionally unimplemented: this API
+ * cannot upload a binary — a build must come from an external macOS pipeline
+ * (Xcode/Transporter) first. That pipeline is spec §8 (Safari conversion),
+ * not yet built. `getState`/`withdraw` are pure REST and work today against
+ * any app/build the tenant already manages manually.
+ */
 export function createAppleAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o)): StoreAdapter<AppleCredentials> {
   return {
     store: 'apple',
@@ -34,7 +115,14 @@ export function createAppleAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o))
       if (res.status >= 500) throw new Error(`app store connect unavailable (${res.status})`)
       return { ok: false, reason: `app store connect rejected the key: ${truncate(await res.text())}` }
     },
-    getState: notImplemented('apple', 'getState'),
-    submit: notImplemented('apple', 'submit'),
+    getState: (credentials, appId) => getState(credentials, appId, fetchImpl),
+    submit: () =>
+      Promise.reject(
+        new Error(
+          'apple.submit is not implemented: the App Store Connect API cannot upload a binary — a build must be ' +
+            'produced by an external macOS pipeline (Xcode/Transporter) first. See spec §8 (Safari conversion pipeline).',
+        ),
+      ),
+    withdraw: (credentials, appId) => withdraw(credentials, appId, fetchImpl),
   }
 }

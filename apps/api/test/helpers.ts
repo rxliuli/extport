@@ -1,6 +1,6 @@
 import { newId } from '@extport/shared'
 import { createExecutionContext, env } from 'cloudflare:test'
-import app from '../src/index'
+import { app } from '../src/index'
 import { createDb, tenants, users } from '../src/db'
 import { provisionTenantDek } from '../src/lib/kms'
 import { SESSION_COOKIE, createSession } from '../src/lib/session'

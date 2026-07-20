@@ -23,6 +23,10 @@
       "bucket_name": "extport-artifacts"
     }
   ],
+  "triggers": {
+    // Reconciliation loop (spec §3.1) — every 30 minutes.
+    "crons": ["*/30 * * * *"]
+  },
   "vars": {
     // Non-secret config. Secrets (KEK_V1, GITHUB_CLIENT_SECRET) go in
     // .dev.vars locally and `wrangler secret put` in production.

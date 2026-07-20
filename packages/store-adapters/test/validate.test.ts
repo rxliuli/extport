@@ -4,17 +4,24 @@ import { credentialHint, CredentialValidationError, parseCredentials } from '../
 describe('parseCredentials', () => {
   it('accepts complete payloads and strips extras', () => {
     const parsed = parseCredentials('chrome', {
-      clientId: ' cid ',
-      clientSecret: 'sec',
-      refreshToken: 'rt',
+      publisherId: ' pub-1 ',
+      clientEmail: 'sa@project.iam.gserviceaccount.com',
+      privateKey: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----',
       injected: 'evil',
     })
-    expect(parsed).toEqual({ clientId: 'cid', clientSecret: 'sec', refreshToken: 'rt' })
+    expect(parsed).toEqual({
+      publisherId: 'pub-1',
+      clientEmail: 'sa@project.iam.gserviceaccount.com',
+      privateKey: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----',
+    })
   })
 
   it('lists every missing field', () => {
     expect(() => parseCredentials('apple', { keyId: 'k' })).toThrow(
       /missing or empty credential fields: issuerId, privateKeyP8/,
+    )
+    expect(() => parseCredentials('chrome', { publisherId: 'p' })).toThrow(
+      /missing or empty credential fields: clientEmail, privateKey/,
     )
     expect(() => parseCredentials('firefox', null)).toThrow(CredentialValidationError)
   })
@@ -26,7 +33,9 @@ describe('parseCredentials', () => {
 
 describe('credentialHint', () => {
   it('returns the last4 of the identifying field per store', () => {
-    expect(credentialHint('chrome', { clientId: 'a', clientSecret: 'b', refreshToken: '1//abcdef' })).toBe('cdef')
+    expect(
+      credentialHint('chrome', { publisherId: 'pub-0000001', clientEmail: 'a@b.iam.gserviceaccount.com', privateKey: 'x' }),
+    ).toBe('0001')
     expect(credentialHint('firefox', { jwtIssuer: 'i', jwtSecret: 'secret99' })).toBe('et99')
     expect(credentialHint('edge', { clientId: 'c', apiKey: 'edgekey123' })).toBe('y123')
     expect(credentialHint('apple', { keyId: 'AB12CD34', issuerId: 'i', privateKeyP8: 'p' })).toBe('CD34')

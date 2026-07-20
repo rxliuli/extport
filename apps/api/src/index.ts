@@ -1,4 +1,6 @@
 import { Hono } from 'hono'
+import { createDb } from './db'
+import { runReconciliation } from './reconcile/run'
 import artifactsRoutes from './routes/artifacts'
 import authRoutes from './routes/auth'
 import credentialsRoutes from './routes/credentials'
@@ -35,4 +37,20 @@ app.onError((err, c) => {
   return c.json({ error: 'internal error' }, 500)
 })
 
-export default app
+// Named export for tests (Hono's `.request()` test helper); the default
+// export below is what the Workers runtime actually loads.
+export { app }
+
+export default {
+  fetch: app.fetch,
+  async scheduled(_controller, env, ctx) {
+    const db = createDb(env.DB)
+    // waitUntil so the cron invocation doesn't get torn down mid-reconcile —
+    // scheduled() itself has no response to return, this is the whole job.
+    ctx.waitUntil(
+      runReconciliation(env, db).then((summary) => {
+        console.log(JSON.stringify({ level: 'info', message: 'reconcile tick complete', ...summary }))
+      }),
+    )
+  },
+} satisfies ExportedHandler<Env>

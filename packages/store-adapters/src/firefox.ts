@@ -1,8 +1,10 @@
-import type { CredentialCheck, FirefoxCredentials, StoreAdapter } from './types'
+import type { CredentialCheck, FirefoxCredentials, StoreAdapter, StoreState, SubmissionResult } from './types'
 import { signJwtHS256 } from './jwt'
-import { notImplemented, truncate, type FetchLike } from './util'
+import { pollUntil, truncate, type FetchLike } from './util'
 
-const PROFILE_URL = 'https://addons.mozilla.org/api/v5/accounts/profile/'
+const BASE = 'https://addons.mozilla.org'
+const PROFILE_URL = `${BASE}/api/v5/accounts/profile/`
+const UPLOAD_URL = `${BASE}/api/v5/addons/upload/`
 
 /** AMO issues (issuer, secret) pairs; every request carries a freshly signed short-lived JWT. */
 export async function amoAuthHeader(credentials: FirefoxCredentials): Promise<string> {
@@ -16,10 +18,118 @@ export async function amoAuthHeader(credentials: FirefoxCredentials): Promise<st
     },
     credentials.jwtSecret,
   )
+  // AMO expects "JWT <token>", not "Bearer <token>".
   return `JWT ${jwt}`
 }
 
-export function createFirefoxAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o)): StoreAdapter<FirefoxCredentials> {
+function addonUrl(addonId: string, suffix = ''): string {
+  return `${BASE}/api/v5/addons/addon/${encodeURIComponent(addonId)}${suffix}`
+}
+
+async function getState(
+  credentials: FirefoxCredentials,
+  addonId: string,
+  fetchImpl: FetchLike,
+): Promise<StoreState> {
+  const res = await fetchImpl(addonUrl(addonId, '/'), {
+    headers: { authorization: await amoAuthHeader(credentials) },
+  })
+  if (!res.ok) throw new Error(`amo addon lookup failed (${res.status}): ${truncate(await res.text())}`)
+  const addon = (await res.json()) as { current_version?: { version?: string } | null }
+  const liveVersion = addon.current_version?.version ?? null
+
+  const versionsRes = await fetchImpl(addonUrl(addonId, '/versions/?page_size=5'), {
+    headers: { authorization: await amoAuthHeader(credentials) },
+  })
+  if (!versionsRes.ok) return { liveVersion, inReviewVersion: null }
+  const versions = (await versionsRes.json()) as {
+    results?: { version?: string; file?: { status?: string } }[]
+  }
+  const latest = versions.results?.[0]
+  if (!latest?.version || latest.version === liveVersion) return { liveVersion, inReviewVersion: null }
+
+  if (latest.file?.status === 'unreviewed') {
+    return { liveVersion, inReviewVersion: latest.version, reviewStatus: 'pending' }
+  }
+  if (latest.file?.status === 'disabled') {
+    // AMO conflates "rejected by review" and "manually disabled" into one status —
+    // this is the best signal the public API exposes (confirmed 2026-07 research).
+    return {
+      liveVersion,
+      inReviewVersion: null,
+      reviewStatus: 'rejected',
+      rejectionReason: 'AMO marked this version disabled/rejected — check Review Notes in the Developer Hub for details.',
+    }
+  }
+  return { liveVersion, inReviewVersion: null }
+}
+
+export interface PollOptions {
+  intervalMs: number
+  attempts: number
+}
+
+const DEFAULT_POLL: PollOptions = { intervalMs: 4000, attempts: 5 }
+
+async function submit(
+  credentials: FirefoxCredentials,
+  addonId: string,
+  artifact: ArrayBuffer,
+  fetchImpl: FetchLike,
+  poll: PollOptions,
+): Promise<SubmissionResult> {
+  const form = new FormData()
+  form.append('channel', 'listed')
+  form.append('upload', new Blob([artifact], { type: 'application/zip' }), 'extension.zip')
+  const uploadRes = await fetchImpl(UPLOAD_URL, {
+    method: 'POST',
+    headers: { authorization: await amoAuthHeader(credentials) },
+    body: form,
+  })
+  if (!uploadRes.ok) {
+    return { submitted: false, detail: `upload rejected (${uploadRes.status}): ${truncate(await uploadRes.text())}` }
+  }
+  const uploadBody = (await uploadRes.json()) as { uuid: string }
+  const uuid = uploadBody.uuid
+
+  // AMO validates asynchronously (usually seconds). Poll briefly and finish
+  // the create-version step now if it completes in time; if not, don't fail —
+  // just retry the whole upload on the next reconcile tick (cheap, and AMO's
+  // daily upload quota comfortably covers a 30-minute reconcile cadence).
+  const processed = await pollUntil(
+    async () => {
+      const res = await fetchImpl(`${UPLOAD_URL}${uuid}/`, {
+        headers: { authorization: await amoAuthHeader(credentials) },
+      })
+      if (!res.ok) return null
+      const body = (await res.json()) as { processed?: boolean; valid?: boolean; validation?: unknown }
+      return body.processed ? body : null
+    },
+    poll,
+  )
+
+  if (!processed) {
+    return { submitted: true, detail: 'upload accepted, still validating — will confirm on the next reconcile' }
+  }
+  if (!processed.valid) {
+    return { submitted: false, detail: `validation failed: ${truncate(JSON.stringify(processed.validation ?? ''))}` }
+  }
+
+  const versionRes = await fetchImpl(addonUrl(addonId, '/versions/'), {
+    method: 'POST',
+    headers: { authorization: await amoAuthHeader(credentials), 'content-type': 'application/json' },
+    body: JSON.stringify({ upload: uuid }),
+  })
+  if (!versionRes.ok) {
+    return { submitted: false, detail: `version creation failed (${versionRes.status}): ${truncate(await versionRes.text())}` }
+  }
+  return { submitted: true }
+}
+
+export function createFirefoxAdapter(
+  fetchImpl: FetchLike = (i, o) => fetch(i, o),
+  poll: PollOptions = DEFAULT_POLL,
+): StoreAdapter<FirefoxCredentials> {
   return {
     store: 'firefox',
     async verifyCredentials(credentials): Promise<CredentialCheck> {
@@ -30,7 +140,9 @@ export function createFirefoxAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o
       if (res.status >= 500) throw new Error(`amo unavailable (${res.status})`)
       return { ok: false, reason: `amo rejected the JWT credentials: ${truncate(await res.text())}` }
     },
-    getState: notImplemented('firefox', 'getState'),
-    submit: notImplemented('firefox', 'submit'),
+    getState: (credentials, addonId) => getState(credentials, addonId, fetchImpl),
+    submit: (credentials, addonId, artifact) => submit(credentials, addonId, artifact, fetchImpl, poll),
+    // Firefox review is automated/near-instant for the vast majority of submissions —
+    // there is nothing in-flight to cancel by the time we could act on it.
   }
 }

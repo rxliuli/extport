@@ -1,4 +1,4 @@
-/** Minimal JWT signing (HS256 for AMO, ES256 for App Store Connect) on Web Crypto. */
+/** Minimal JWT signing (HS256 for AMO, ES256 for App Store Connect, RS256 for GCP service accounts) on Web Crypto. */
 
 const encoder = new TextEncoder()
 
@@ -60,5 +60,22 @@ export async function signJwtES256(
     key,
     encoder.encode(input),
   )
+  return `${input}.${b64url(new Uint8Array(signature))}`
+}
+
+/** GCP service-account JWT (RS256), used to self-sign a JWT-bearer assertion for Chrome Web Store API v2. */
+export async function signJwtRS256(
+  payload: Record<string, unknown>,
+  options: { privateKeyPkcs8Pem: string },
+): Promise<string> {
+  const input = signingInput({ alg: 'RS256', typ: 'JWT' }, payload)
+  const key = await crypto.subtle.importKey(
+    'pkcs8',
+    pemToPkcs8(options.privateKeyPkcs8Pem) as BufferSource,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+  const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, encoder.encode(input))
   return `${input}.${b64url(new Uint8Array(signature))}`
 }

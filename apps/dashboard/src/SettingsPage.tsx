@@ -3,9 +3,9 @@ import { api, ApiError, type ApiKeyRow, type CredentialRow } from './api'
 
 const CREDENTIAL_FIELDS: Record<CredentialRow['store'], { key: string; label: string; textarea?: boolean }[]> = {
   chrome: [
-    { key: 'clientId', label: 'OAuth Client ID' },
-    { key: 'clientSecret', label: 'OAuth Client Secret' },
-    { key: 'refreshToken', label: 'Refresh Token' },
+    { key: 'publisherId', label: 'Publisher ID (Developer Dashboard → Account)' },
+    { key: 'clientEmail', label: 'Service Account Email' },
+    { key: 'privateKey', label: 'Service Account Private Key (.json → private_key)', textarea: true },
   ],
   firefox: [
     { key: 'jwtIssuer', label: 'JWT Issuer' },
