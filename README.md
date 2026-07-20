@@ -93,6 +93,28 @@ overwriting real state with a false "nothing here."
 Trigger a reconcile early instead of waiting for the next tick — e.g. right
 after a CI push — with `POST /v1/extensions/:id/reconcile` (session or API key).
 
+## Notifications
+
+Email only for now — Telegram/Discord are deferred (the `Notifier` interface
+in `apps/api/src/lib/notify.ts` is already channel-agnostic, so adding one
+later is a new adapter, not a redesign). Sent via Cloudflare's native
+[Email Sending](https://developers.cloudflare.com/email-service/) Workers
+binding (`env.EMAIL`, configured as `send_email` in `wrangler.jsonc`) — no
+third-party vendor. The `from` domain must be onboarded once with
+`wrangler email sending enable yourdomain.com`; set `NOTIFICATION_FROM_EMAIL`
+to an address on that domain.
+
+Every `publish_events` row except `withdrawn` (audit-trail only — always
+immediately followed by a `submitted` event that does notify) triggers an
+email: `rejected`/`error` are the urgent tier, `approved`/`submitted` are
+routine, `stale_review` is a once-per-day digest (deduped by the same
+20-hour window that already gates the event itself, see M3). Credential
+expiry is a separate check (`apps/api/src/reconcile/expiry.ts`, also run
+every cron tick): one advance-warning email exactly on the `active` →
+`expiring` transition — a deliberate simplification of the spec's 30/7/1-day
+reminder ladder, since the natural `error` notification once a credential
+actually fails already covers the "after" side without extra state tracking.
+
 ## Security model (implemented)
 
 - **Envelope encryption**: per-tenant AES-256-GCM DEK, wrapped by a versioned
@@ -109,6 +131,7 @@ after a CI push — with `POST /v1/extensions/:id/reconcile` (session or API key
 cd apps/api
 wrangler d1 create extport            # put the id into wrangler.jsonc
 wrangler r2 bucket create extport-artifacts
+wrangler email sending enable yourdomain.com   # for notification emails
 wrangler secret put KEK_V1            # openssl rand -base64 32
 wrangler secret put GITHUB_CLIENT_SECRET
 pnpm db:migrate:remote

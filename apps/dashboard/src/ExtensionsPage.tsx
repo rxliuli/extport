@@ -1,14 +1,31 @@
 import { useEffect, useState } from 'react'
-import { api, ApiError, type Extension } from './api'
+import { api, ApiError, type MatrixExtension, type Store } from './api'
+import { ageDays, STATUS_COLOR, STATUS_LABEL } from './status'
 
-export function ExtensionsPage() {
-  const [extensions, setExtensions] = useState<Extension[]>([])
+const STORES: Store[] = ['chrome', 'firefox', 'edge', 'apple']
+const STORE_LABEL: Record<Store, string> = { chrome: 'Chrome', firefox: 'Firefox', edge: 'Edge', apple: 'Apple' }
+
+function Cell({ target }: { target: MatrixExtension['targets'][number] | undefined }) {
+  if (!target) {
+    return <span style={{ color: '#aaa' }}>—</span>
+  }
+  const days = ageDays(target.submittedAt)
+  const suffix = target.status === 'in_review' && days !== null ? ` (${days}d)` : ''
+  return (
+    <span style={{ color: STATUS_COLOR[target.status], fontWeight: 600 }} title={target.statusDetail ?? undefined}>
+      {target.liveVersion ?? '—'} · {STATUS_LABEL[target.status]}
+      {suffix}
+    </span>
+  )
+}
+
+export function ExtensionsPage({ onSelect }: { onSelect: (id: string) => void }) {
+  const [extensions, setExtensions] = useState<MatrixExtension[]>([])
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [selected, setSelected] = useState<Extension | null>(null)
 
   const reload = () =>
-    api<{ extensions: Extension[] }>('/v1/extensions').then((r) => setExtensions(r.extensions))
+    api<{ extensions: MatrixExtension[] }>('/v1/extensions/matrix').then((r) => setExtensions(r.extensions))
 
   useEffect(() => {
     void reload()
@@ -39,44 +56,37 @@ export function ExtensionsPage() {
         <button type="submit">Add</button>
       </form>
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
-      <table cellPadding={6} style={{ borderCollapse: 'collapse', width: '100%' }}>
+      <table cellPadding={8} style={{ borderCollapse: 'collapse', width: '100%' }}>
         <thead>
           <tr style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>
-            <th>Name</th>
-            <th>Slug</th>
-            <th>Publishing</th>
-            <th></th>
+            <th>Extension</th>
+            {STORES.map((s) => (
+              <th key={s}>{STORE_LABEL[s]}</th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {extensions.map((ext) => (
             <tr key={ext.id} style={{ borderBottom: '1px solid #eee' }}>
-              <td>{ext.name}</td>
               <td>
-                <code>{ext.slug}</code>
-              </td>
-              <td>{ext.publishingEnabled ? 'on' : 'off'}</td>
-              <td>
-                <button onClick={() => setSelected(selected?.id === ext.id ? null : ext)}>
-                  {selected?.id === ext.id ? 'Hide' : 'CI setup'}
+                <button
+                  onClick={() => onSelect(ext.id)}
+                  style={{ background: 'none', border: 'none', padding: 0, color: '#0969da', cursor: 'pointer', font: 'inherit' }}
+                >
+                  {ext.name}
                 </button>
+                <div style={{ fontSize: 12, color: '#666' }}>{ext.slug}</div>
               </td>
+              {STORES.map((s) => (
+                <td key={s}>
+                  <Cell target={ext.targets.find((t) => t.store === s)} />
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>
       </table>
       {extensions.length === 0 && <p>No extensions yet — add your first one above.</p>}
-      {selected && (
-        <div style={{ background: '#f6f6f6', padding: 12, marginTop: 12, borderRadius: 6 }}>
-          <p style={{ marginTop: 0 }}>
-            Upload artifacts for <strong>{selected.name}</strong> from CI:
-          </p>
-          <pre style={{ overflowX: 'auto' }}>
-            {`npx extport push dist.zip --extension ${selected.slug} --version 1.2.3\n`}
-            {`# EXTPORT_API_KEY must be set (Settings → API keys)`}
-          </pre>
-        </div>
-      )}
     </section>
   )
 }

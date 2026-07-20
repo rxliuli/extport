@@ -1,11 +1,14 @@
 import { Hono } from 'hono'
 import { createDb } from './db'
+import { createEmailNotifier } from './lib/notify'
+import { checkCredentialExpiry } from './reconcile/expiry'
 import { runReconciliation } from './reconcile/run'
 import artifactsRoutes from './routes/artifacts'
 import authRoutes from './routes/auth'
 import credentialsRoutes from './routes/credentials'
 import extensionsRoutes from './routes/extensions'
 import keysRoutes from './routes/keys'
+import tenantRoutes from './routes/tenant'
 import { requireAuth, withDb, type AppEnv } from './middleware/auth'
 
 const app = new Hono<AppEnv>()
@@ -19,6 +22,7 @@ app.route('/v1/keys', keysRoutes)
 app.route('/v1/extensions', extensionsRoutes)
 app.route('/v1/artifacts', artifactsRoutes)
 app.route('/v1/credentials', credentialsRoutes)
+app.route('/v1/tenant', tenantRoutes)
 
 app.get('/v1/me', requireAuth, (c) => {
   const tenant = c.get('tenant')
@@ -45,12 +49,16 @@ export default {
   fetch: app.fetch,
   async scheduled(_controller, env, ctx) {
     const db = createDb(env.DB)
+    const notifier = createEmailNotifier(env)
     // waitUntil so the cron invocation doesn't get torn down mid-reconcile —
     // scheduled() itself has no response to return, this is the whole job.
     ctx.waitUntil(
-      runReconciliation(env, db).then((summary) => {
-        console.log(JSON.stringify({ level: 'info', message: 'reconcile tick complete', ...summary }))
-      }),
+      Promise.all([
+        runReconciliation(env, db, {}, notifier).then((summary) => {
+          console.log(JSON.stringify({ level: 'info', message: 'reconcile tick complete', ...summary }))
+        }),
+        checkCredentialExpiry(db, notifier),
+      ]),
     )
   },
 } satisfies ExportedHandler<Env>

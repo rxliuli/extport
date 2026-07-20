@@ -4,8 +4,8 @@ import {
   maxVersion,
   newId,
   type DeploymentStatus,
+  type PublishEventType,
   type Store,
-  type TenantSettings,
 } from '@extport/shared'
 import { getAdapter } from '@extport/store-adapters'
 import { and, eq, gt, inArray } from 'drizzle-orm'
@@ -26,6 +26,8 @@ import {
 } from '../db'
 import type { Db } from '../db'
 import { tenantDek } from '../lib/kms'
+import { createEmailNotifier, type Notifier } from '../lib/notify'
+import { parseTenantSettings } from '../lib/tenant-settings'
 import { decide, mergeState, type PriorState } from './decide'
 
 // One reconcile tick processes at most this many (tenant, store) credential
@@ -59,15 +61,6 @@ export interface ReconcileSummary {
 
 function truncate(text: string, max = 500): string {
   return text.length > max ? `${text.slice(0, max)}…` : text
-}
-
-function parseTenantSettings(json: string): TenantSettings {
-  try {
-    const parsed: unknown = JSON.parse(json)
-    return typeof parsed === 'object' && parsed !== null ? (parsed as TenantSettings) : {}
-  } catch {
-    return {}
-  }
 }
 
 function resolveDesiredVersion(extensionArtifacts: Artifact[], store: Store): string | null {
@@ -107,10 +100,62 @@ async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, next))
 }
 
+const STORE_LABELS: Record<Store, string> = {
+  chrome: 'Chrome Web Store',
+  firefox: 'Firefox Add-ons',
+  edge: 'Edge Add-ons',
+  apple: 'App Store',
+}
+
+/**
+ * Maps a publish_event into an email — spec §3.5's three priority tiers all
+ * end up as an email (there's only one channel for now, see project notes);
+ * the tiers just differ in framing. `withdrawn` is audit-trail only, not
+ * notify-worthy on its own — it's always immediately followed by a
+ * `submitted` event in the same tick, which does notify.
+ */
+function buildMessage(
+  row: JoinedRow,
+  type: PublishEventType,
+  payload: Record<string, unknown>,
+): { subject: string; text: string } | null {
+  const ext = row.extension.name
+  const store = STORE_LABELS[row.target.store]
+  switch (type) {
+    case 'rejected': {
+      const reason =
+        typeof payload.reason === 'string' && payload.reason
+          ? payload.reason
+          : 'No reason was provided by the store — check its developer dashboard.'
+      return { subject: `❌ ${ext} rejected on ${store}`, text: `${ext} v${payload.version ?? '?'} was rejected on ${store}.\n\n${reason}` }
+    }
+    case 'error':
+      return {
+        subject: `⚠️ ${ext} publishing error on ${store}`,
+        text: `${ext} hit an error while reconciling ${store}:\n\n${payload.message ?? 'unknown error'}`,
+      }
+    case 'approved':
+      return { subject: `✅ ${ext} v${payload.version} is live on ${store}`, text: `${ext} v${payload.version} is now live on ${store}.` }
+    case 'submitted':
+      return {
+        subject: `${ext} v${payload.version} submitted to ${store}`,
+        text: `${ext} v${payload.version} was submitted for review on ${store}.${payload.detail ? `\n\n${payload.detail}` : ''}`,
+      }
+    case 'stale_review':
+      return {
+        subject: `⏳ ${ext} still ${payload.status} on ${store} (${payload.ageDays}+ days)`,
+        text: `${ext} has been ${payload.status} on ${store} for ${payload.ageDays}+ days — this may need manual attention. Check the store's developer dashboard.`,
+      }
+    case 'withdrawn':
+      return null
+  }
+}
+
 async function recordEvent(
   db: Db,
+  notifier: Notifier,
   row: JoinedRow,
-  type: 'submitted' | 'approved' | 'rejected' | 'withdrawn' | 'error' | 'stale_review',
+  type: PublishEventType,
   payload: Record<string, unknown>,
 ): Promise<void> {
   await db.insert(publishEvents).values({
@@ -121,6 +166,8 @@ async function recordEvent(
     type,
     payloadJson: JSON.stringify(payload),
   })
+  const message = buildMessage(row, type, payload)
+  if (message) await notifier.send({ to: row.tenant.email, ...message })
 }
 
 interface StatePatch {
@@ -163,7 +210,7 @@ async function upsertDeploymentState(db: Db, row: JoinedRow, patch: StatePatch):
     })
 }
 
-async function persistError(db: Db, row: JoinedRow, message: string): Promise<void> {
+async function persistError(db: Db, notifier: Notifier, row: JoinedRow, message: string): Promise<void> {
   const prior = row.deploymentState
   const detail = truncate(message)
   await upsertDeploymentState(db, row, {
@@ -173,7 +220,7 @@ async function persistError(db: Db, row: JoinedRow, message: string): Promise<vo
     status: 'error',
     statusDetail: detail,
   })
-  await recordEvent(db, row, 'error', { message: detail })
+  await recordEvent(db, notifier, row, 'error', { message: detail })
 }
 
 function staleReviewThresholdDays(tenant: Tenant, store: Store): number {
@@ -183,6 +230,7 @@ function staleReviewThresholdDays(tenant: Tenant, store: Store): number {
 
 async function maybeEmitStaleReview(
   db: Db,
+  notifier: Notifier,
   row: JoinedRow,
   status: DeploymentStatus,
   submittedAt: Date | null,
@@ -206,12 +254,13 @@ async function maybeEmitStaleReview(
     .limit(1)
   if (recent.length > 0) return
 
-  await recordEvent(db, row, 'stale_review', { ageDays: Math.floor(ageMs / 86_400_000), status })
+  await recordEvent(db, notifier, row, 'stale_review', { ageDays: Math.floor(ageMs / 86_400_000), status })
 }
 
 /** Emits approved/rejected events by comparing this tick's merged state against what deployment_states already had. */
 async function recordTransitionEvents(
   db: Db,
+  notifier: Notifier,
   row: JoinedRow,
   merged: { liveVersion: string | null; inReviewVersion: string | null },
   reviewStatus: 'pending' | 'rejected' | undefined,
@@ -219,10 +268,10 @@ async function recordTransitionEvents(
 ): Promise<void> {
   const prior = row.deploymentState
   if (merged.liveVersion && merged.liveVersion !== (prior?.liveVersion ?? null)) {
-    await recordEvent(db, row, 'approved', { version: merged.liveVersion })
+    await recordEvent(db, notifier, row, 'approved', { version: merged.liveVersion })
   }
   if (reviewStatus === 'rejected' && prior?.status !== 'rejected') {
-    await recordEvent(db, row, 'rejected', { version: prior?.inReviewVersion ?? null, reason: rejectionReason })
+    await recordEvent(db, notifier, row, 'rejected', { version: prior?.inReviewVersion ?? null, reason: rejectionReason })
   }
 }
 
@@ -234,6 +283,7 @@ async function recordTransitionEvents(
 async function reconcileOne(
   env: Env,
   db: Db,
+  notifier: Notifier,
   row: JoinedRow,
   credentials: unknown,
   extensionArtifacts: Artifact[],
@@ -254,7 +304,7 @@ async function reconcileOne(
   // Reflect anything the store told us this tick (a version going live, a
   // rejection) before deciding what to do next — these can fire alongside a
   // submit, e.g. v1.1 just got approved AND v1.2 is ready to go out.
-  await recordTransitionEvents(db, row, merged, actual.reviewStatus, actual.rejectionReason)
+  await recordTransitionEvents(db, notifier, row, merged, actual.reviewStatus, actual.rejectionReason)
 
   const decision = decide({
     desiredVersion,
@@ -272,7 +322,7 @@ async function reconcileOne(
       status: decision.status,
       statusDetail: decision.status === 'rejected' ? (actual.rejectionReason ?? null) : null,
     })
-    await maybeEmitStaleReview(db, row, decision.status, row.deploymentState?.submittedAt ?? null)
+    await maybeEmitStaleReview(db, notifier, row, decision.status, row.deploymentState?.submittedAt ?? null)
     return 'noop'
   }
 
@@ -284,7 +334,7 @@ async function reconcileOne(
       status: 'blocked',
       statusDetail: null,
     })
-    await maybeEmitStaleReview(db, row, 'blocked', row.deploymentState?.submittedAt ?? null)
+    await maybeEmitStaleReview(db, notifier, row, 'blocked', row.deploymentState?.submittedAt ?? null)
     return 'blocked'
   }
 
@@ -292,7 +342,7 @@ async function reconcileOne(
     if (!adapter.withdraw) throw new Error(`${target.store} adapter has no withdraw() despite decide() allowing it`)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await adapter.withdraw(credentials as any, target.storeItemId)
-    await recordEvent(db, row, 'withdrawn', { version: merged.inReviewVersion })
+    await recordEvent(db, notifier, row, 'withdrawn', { version: merged.inReviewVersion })
   }
 
   const version = decision.version
@@ -318,7 +368,7 @@ async function reconcileOne(
     statusDetail: result.detail ?? null,
     submittedAt: new Date(),
   })
-  await recordEvent(db, row, 'submitted', { version, detail: result.detail })
+  await recordEvent(db, notifier, row, 'submitted', { version, detail: result.detail })
   return 'submitted'
 }
 
@@ -327,7 +377,12 @@ async function reconcileOne(
  * 30 minutes with no filter, or scoped to one tenant/extension from the
  * dashboard's manual "reconcile now" button.
  */
-export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilter = {}): Promise<ReconcileSummary> {
+export async function runReconciliation(
+  env: Env,
+  db: Db,
+  filter: ReconcileFilter = {},
+  notifier: Notifier = createEmailNotifier(env),
+): Promise<ReconcileSummary> {
   const conditions = [eq(extensions.publishingEnabled, true), eq(publishTargets.enabled, true)]
   if (filter.tenantId) conditions.push(eq(extensions.tenantId, filter.tenantId))
   if (filter.extensionId) conditions.push(eq(publishTargets.extensionId, filter.extensionId))
@@ -369,7 +424,7 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
 
     if (credential.status === 'invalid') {
       for (const row of group) {
-        await persistError(db, row, `store credential "${credential.label}" failed verification — reverify it in Settings`)
+        await persistError(db, notifier, row, `store credential "${credential.label}" failed verification — reverify it in Settings`)
         summary.errors++
         summary.processed++
       }
@@ -382,7 +437,7 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
       credentials = await decryptJson(dek, credential.encryptedPayload)
     } catch (err) {
       for (const row of group) {
-        await persistError(db, row, `credential decryption failed: ${(err as Error).message}`)
+        await persistError(db, notifier, row, `credential decryption failed: ${(err as Error).message}`)
         summary.errors++
         summary.processed++
       }
@@ -397,6 +452,7 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
         const outcome = await reconcileOne(
           env,
           db,
+          notifier,
           row,
           credentials,
           artifactsByExtension.get(row.extension.id) ?? [],
@@ -405,7 +461,7 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
         if (outcome === 'submitted') summary.submitted++
         if (outcome === 'blocked') summary.blocked++
       } catch (err) {
-        await persistError(db, row, (err as Error).message)
+        await persistError(db, notifier, row, (err as Error).message)
         summary.errors++
       }
     }

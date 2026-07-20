@@ -8,10 +8,9 @@ import {
 import { and, desc, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { publishTargets, storeCredentials } from '../db'
+import { statusFor } from '../lib/credential-status'
 import { tenantDek } from '../lib/kms'
 import { requireSession, type AppEnv } from '../middleware/auth'
-
-const EXPIRING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 
 const route = new Hono<AppEnv>()
 
@@ -29,12 +28,6 @@ function publicView(row: typeof storeCredentials.$inferSelect) {
     lastVerifiedAt: row.lastVerifiedAt,
     createdAt: row.createdAt,
   }
-}
-
-function statusFor(ok: boolean, expiresAt: Date | null): 'active' | 'invalid' | 'expiring' {
-  if (!ok) return 'invalid'
-  if (expiresAt && expiresAt.getTime() - Date.now() < EXPIRING_WINDOW_MS) return 'expiring'
-  return 'active'
 }
 
 route.get('/', async (c) => {

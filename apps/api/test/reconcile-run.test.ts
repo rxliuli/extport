@@ -13,6 +13,7 @@ import {
   tenants,
 } from '../src/db'
 import { provisionTenantDek, tenantDek } from '../src/lib/kms'
+import type { Notification, Notifier } from '../src/lib/notify'
 import { runReconciliation } from '../src/reconcile/run'
 import { createApiKey, createExtension, request, seedTenantWithUser } from './helpers'
 
@@ -188,6 +189,11 @@ afterEach(() => {
   globalThis.fetch = realFetch
 })
 
+function recordingNotifier(): { notifier: Notifier; sent: Notification[] } {
+  const sent: Notification[] = []
+  return { notifier: { send: (n) => Promise.resolve(void sent.push(n)) }, sent }
+}
+
 async function deploymentStateFor(db: ReturnType<typeof createDb>, extensionId: string) {
   const [row] = await db.select().from(deploymentStates).where(eq(deploymentStates.extensionId, extensionId))
   return row
@@ -202,8 +208,9 @@ describe('runReconciliation — fresh publish', () => {
     const { db, tenantId, extensionId } = await setupChromeScenario({ artifacts: [{ version: '1.0.0' }] })
     const { fetch, calls } = routedFetch(chromeRoutes())
     globalThis.fetch = fetch
+    const { notifier, sent } = recordingNotifier()
 
-    const summary = await runReconciliation(env, db, { tenantId })
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
     expect(summary).toEqual({ processed: 1, submitted: 1, blocked: 0, errors: 0 })
 
     const state = await deploymentStateFor(db, extensionId)
@@ -213,6 +220,10 @@ describe('runReconciliation — fresh publish', () => {
     const events = await eventsFor(db, extensionId)
     expect(events.map((e) => e.type)).toEqual(['submitted'])
     expect(calls.some((c) => c.url.endsWith(':publish'))).toBe(true)
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatchObject({ to: 't@test.com' })
+    expect(sent[0]!.subject).toContain('v1.0.0')
   })
 })
 
@@ -228,12 +239,14 @@ describe('runReconciliation — already synced', () => {
       }),
     )
     globalThis.fetch = fetch
+    const { notifier, sent } = recordingNotifier()
 
-    const summary = await runReconciliation(env, db, { tenantId })
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
     expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 0 })
     expect(await deploymentStateFor(db, extensionId)).toMatchObject({ status: 'synced', liveVersion: '1.0.0' })
     expect(calls.some((c) => c.url.endsWith(':upload') || c.url.endsWith(':publish'))).toBe(false)
     expect(await eventsFor(db, extensionId)).toHaveLength(0)
+    expect(sent).toHaveLength(0)
   })
 })
 
@@ -248,10 +261,12 @@ describe('runReconciliation — waiting on the exact version already in review',
         fetchStatus: { submittedItemRevisionStatus: { state: 'PENDING_REVIEW', distributionChannels: [{ crxVersion: '1.1.0' }] } },
       }),
     ).fetch
+    const { notifier, sent } = recordingNotifier()
 
-    const summary = await runReconciliation(env, db, { tenantId })
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
     expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 0 })
     expect(await deploymentStateFor(db, extensionId)).toMatchObject({ status: 'in_review', inReviewVersion: '1.1.0' })
+    expect(sent).toHaveLength(0)
   })
 })
 
@@ -266,12 +281,16 @@ describe('runReconciliation — approval', () => {
         fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.1.0' }] } },
       }),
     ).fetch
+    const { notifier, sent } = recordingNotifier()
 
-    await runReconciliation(env, db, { tenantId })
+    await runReconciliation(env, db, { tenantId }, notifier)
     expect(await deploymentStateFor(db, extensionId)).toMatchObject({ status: 'synced', liveVersion: '1.1.0' })
     const events = await eventsFor(db, extensionId)
     expect(events.map((e) => e.type)).toEqual(['approved'])
     expect(JSON.parse(events[0]!.payloadJson)).toEqual({ version: '1.1.0' })
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.subject).toContain('v1.1.0 is live')
   })
 })
 
@@ -286,12 +305,18 @@ describe('runReconciliation — rejection frees the slot for a newer version', (
         fetchStatus: { submittedItemRevisionStatus: { state: 'REJECTED', distributionChannels: [{ crxVersion: '1.1.0' }] } },
       }),
     ).fetch
+    const { notifier, sent } = recordingNotifier()
 
-    const summary = await runReconciliation(env, db, { tenantId })
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
     expect(summary.submitted).toBe(1)
     expect(await deploymentStateFor(db, extensionId)).toMatchObject({ status: 'in_review', inReviewVersion: '1.2.0' })
     const events = await eventsFor(db, extensionId)
     expect(events.map((e) => e.type)).toEqual(['rejected', 'submitted'])
+
+    expect(sent).toHaveLength(2)
+    expect(sent[0]!.subject).toContain('rejected')
+    expect(sent[0]!.text).toContain('does not expose rejection reasons via API')
+    expect(sent[1]!.subject).toContain('v1.2.0')
   })
 })
 
@@ -308,22 +333,29 @@ describe('runReconciliation — blocked vs withdraw_then_submit', () => {
     const { db, tenantId, extensionId } = await setupChromeScenario({ ...scenario, settingsJson: '{"autoWithdraw":false}' })
     const { fetch, calls } = routedFetch(chromeRoutes({ fetchStatus: pendingFetchStatus }))
     globalThis.fetch = fetch
+    const { notifier, sent } = recordingNotifier()
 
-    const summary = await runReconciliation(env, db, { tenantId })
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
     expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 1, errors: 0 })
     expect(await deploymentStateFor(db, extensionId)).toMatchObject({ status: 'blocked' })
     expect(calls.some((c) => c.url.endsWith(':cancelSubmission'))).toBe(false)
+    expect(sent).toHaveLength(0)
   })
 
   it('withdraws the older version then submits the newer one when auto_withdraw is on (default)', async () => {
     const { db, tenantId, extensionId } = await setupChromeScenario(scenario)
     globalThis.fetch = routedFetch(chromeRoutes({ fetchStatus: pendingFetchStatus })).fetch
+    const { notifier, sent } = recordingNotifier()
 
-    const summary = await runReconciliation(env, db, { tenantId })
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
     expect(summary.submitted).toBe(1)
     expect(await deploymentStateFor(db, extensionId)).toMatchObject({ status: 'in_review', inReviewVersion: '1.1.0' })
     const events = await eventsFor(db, extensionId)
     expect(events.map((e) => e.type)).toEqual(['withdrawn', 'submitted'])
+
+    // withdrawn is audit-trail only — just the one 'submitted' email, per spec §3.5's three tiers.
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.subject).toContain('v1.1.0')
   })
 })
 
@@ -337,7 +369,7 @@ describe('runReconciliation — failure isolation', () => {
     // test files' leftover rows share this file's D1 storage (isolation is
     // per-file, not per-test, in this harness), so assertions below are
     // scoped to these two extensions rather than global summary totals.
-    await runReconciliation(env, good.db, {})
+    await runReconciliation(env, good.db, {}, recordingNotifier().notifier)
 
     expect(await deploymentStateFor(good.db, bad.extensionId)).toMatchObject({ status: 'error' })
     expect((await eventsFor(good.db, bad.extensionId))[0]).toMatchObject({ type: 'error' })
@@ -360,7 +392,7 @@ describe('runReconciliation — failure isolation', () => {
     })
     globalThis.fetch = routedFetch(chromeRoutes()).fetch
 
-    const summary = await runReconciliation(env, db, { tenantId })
+    const summary = await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
     expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 1 })
     const state = await deploymentStateFor(db, extensionId)
     expect(state?.status).toBe('error')

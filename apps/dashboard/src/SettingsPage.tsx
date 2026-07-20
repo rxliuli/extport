@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, ApiError, type ApiKeyRow, type CredentialRow } from './api'
+import { api, ApiError, type ApiKeyRow, type CredentialRow, type TenantSettings } from './api'
 
 const CREDENTIAL_FIELDS: Record<CredentialRow['store'], { key: string; label: string; textarea?: boolean }[]> = {
   chrome: [
@@ -213,6 +213,45 @@ function CredentialsSection() {
   )
 }
 
+function PublishingSettingsSection() {
+  const [settings, setSettings] = useState<TenantSettings | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    void api<TenantSettings>('/v1/tenant/settings').then(setSettings)
+  }, [])
+
+  const toggle = async () => {
+    if (!settings) return
+    setError(null)
+    try {
+      const updated = await api<TenantSettings>('/v1/tenant/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ autoWithdraw: !settings.autoWithdraw }),
+      })
+      setSettings(updated)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err))
+    }
+  }
+
+  if (!settings) return null
+
+  return (
+    <section>
+      <h3>Publishing</h3>
+      <p>
+        <label>
+          <input type="checkbox" checked={settings.autoWithdraw} onChange={() => void toggle()} /> Auto-withdraw an
+          older in-review submission when a newer version is ready to publish (Chrome/Apple only — Edge and Firefox
+          can't be withdrawn via API).
+        </label>
+      </p>
+      {error && <p style={{ color: 'crimson' }}>{error}</p>}
+    </section>
+  )
+}
+
 export function SettingsPage() {
   return (
     <>
@@ -220,6 +259,8 @@ export function SettingsPage() {
       <ApiKeysSection />
       <hr />
       <CredentialsSection />
+      <hr />
+      <PublishingSettingsSection />
     </>
   )
 }

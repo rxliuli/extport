@@ -27,11 +27,20 @@
     // Reconciliation loop (spec §3.1) — every 30 minutes.
     "crons": ["*/30 * * * *"]
   },
+  "send_email": [
+    {
+      "name": "EMAIL"
+      // Local dev sends are logged, not delivered, unless you add "remote": true
+      // and onboard a domain: `wrangler email sending enable yourdomain.com`.
+    }
+  ],
   "vars": {
     // Non-secret config. Secrets (KEK_V1, GITHUB_CLIENT_SECRET) go in
     // .dev.vars locally and `wrangler secret put` in production.
     "CURRENT_KEK_VERSION": "1",
     "DASHBOARD_URL": "http://localhost:5173",
-    "GITHUB_CLIENT_ID": ""
+    "GITHUB_CLIENT_ID": "",
+    // Must be on a domain onboarded via `wrangler email sending enable`.
+    "NOTIFICATION_FROM_EMAIL": "notifications@extport.dev"
   }
 }

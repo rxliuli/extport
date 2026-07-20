@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ExtensionDetailPage } from './ExtensionDetailPage'
 import { ExtensionsPage } from './ExtensionsPage'
 import { SettingsPage } from './SettingsPage'
 import type { Me } from './api'
@@ -9,6 +10,7 @@ export function App() {
   const [me, setMe] = useState<Me | null>(null)
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState<Page>('extensions')
+  const [selectedExtensionId, setSelectedExtensionId] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/v1/me', { credentials: 'include' })
@@ -29,15 +31,20 @@ export function App() {
     )
   }
 
+  const goToPage = (next: Page) => {
+    setSelectedExtensionId(null)
+    setPage(next)
+  }
+
   return (
-    <main style={{ fontFamily: 'system-ui', padding: 32, maxWidth: 720 }}>
+    <main style={{ fontFamily: 'system-ui', padding: 32, maxWidth: 840 }}>
       <header style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginBottom: 24 }}>
         <h1 style={{ margin: 0 }}>extport</h1>
         <nav style={{ display: 'flex', gap: 12 }}>
-          <button onClick={() => setPage('extensions')} disabled={page === 'extensions'}>
+          <button onClick={() => goToPage('extensions')} disabled={page === 'extensions' && !selectedExtensionId}>
             Extensions
           </button>
-          <button onClick={() => setPage('settings')} disabled={page === 'settings'}>
+          <button onClick={() => goToPage('settings')} disabled={page === 'settings'}>
             Settings
           </button>
         </nav>
@@ -54,7 +61,13 @@ export function App() {
           </button>
         </span>
       </header>
-      {page === 'extensions' ? <ExtensionsPage /> : <SettingsPage />}
+      {page === 'extensions' && selectedExtensionId ? (
+        <ExtensionDetailPage extensionId={selectedExtensionId} onBack={() => setSelectedExtensionId(null)} />
+      ) : page === 'extensions' ? (
+        <ExtensionsPage onSelect={setSelectedExtensionId} />
+      ) : (
+        <SettingsPage />
+      )}
     </main>
   )
 }
