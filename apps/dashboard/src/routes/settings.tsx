@@ -146,9 +146,9 @@ const STORE_OPTION_LABEL: Record<CredentialRow['store'], string> = {
 }
 
 const CREDENTIAL_STATUS_CLASS: Record<CredentialRow['status'], string> = {
-  active: 'text-green-700',
-  expiring: 'text-amber-600',
-  invalid: 'text-red-600',
+  active: 'text-green-700 dark:text-green-500',
+  expiring: 'text-amber-600 dark:text-amber-400',
+  invalid: 'text-red-600 dark:text-red-400',
 }
 
 function CredentialsSection() {

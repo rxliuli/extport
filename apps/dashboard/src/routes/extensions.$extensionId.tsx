@@ -255,11 +255,11 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
 // Cell vocabulary for the version × store matrix. Shape carries the meaning,
 // color only reinforces it (color alone is invisible to color-blind readers).
 const CELL: Record<DeploymentVersion['status'], { Icon: LucideIcon; className: string; label: string }> = {
-  online: { Icon: CircleCheck, className: 'text-green-700', label: 'live' },
-  in_review: { Icon: Clock, className: 'text-amber-600', label: 'in review' },
-  queued: { Icon: CircleDashed, className: 'text-amber-600', label: 'queued' },
+  online: { Icon: CircleCheck, className: 'text-green-700 dark:text-green-500', label: 'live' },
+  in_review: { Icon: Clock, className: 'text-amber-600 dark:text-amber-400', label: 'in review' },
+  queued: { Icon: CircleDashed, className: 'text-amber-600 dark:text-amber-400', label: 'queued' },
   skipped: { Icon: SkipForward, className: 'text-muted-foreground', label: 'skipped' },
-  rejected: { Icon: CircleX, className: 'text-red-600', label: 'rejected' },
+  rejected: { Icon: CircleX, className: 'text-red-600 dark:text-red-400', label: 'rejected' },
 }
 
 /** Numeric-aware compare, same semantics as @extport/shared's compareVersions (1.10 > 1.9). */
@@ -285,9 +285,9 @@ function cellTitle(row: DeploymentVersion, isCurrentLive: boolean): string {
 }
 
 const OPS_EVENT: Record<PublishEvent['type'], { className: string; label: string }> = {
-  error: { className: 'text-red-600', label: 'error' },
-  recovered: { className: 'text-green-700', label: 'recovered' },
-  stale_review: { className: 'text-amber-600', label: 'stale review' },
+  error: { className: 'text-red-600 dark:text-red-400', label: 'error' },
+  recovered: { className: 'text-green-700 dark:text-green-500', label: 'recovered' },
+  stale_review: { className: 'text-amber-600 dark:text-amber-400', label: 'stale review' },
 }
 
 function opsEventDetail(event: PublishEvent): string | null {
@@ -499,7 +499,7 @@ function ExtensionDetailPage() {
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="outline" size="sm" className="text-red-600 hover:text-red-600">
+                <Button variant="outline" size="sm" className="text-red-600 hover:text-red-600 dark:text-red-400 dark:hover:text-red-400">
                   <Trash2 /> Delete
                 </Button>
               </AlertDialogTrigger>

@@ -13,10 +13,10 @@ interface Target {
 }
 
 const FACT_CLASS = {
-  live: 'text-green-700',
-  in_review: 'text-amber-600',
-  queued: 'text-amber-600',
-  rejected: 'text-red-600',
+  live: 'text-green-700 dark:text-green-500',
+  in_review: 'text-amber-600 dark:text-amber-400',
+  queued: 'text-amber-600 dark:text-amber-400',
+  rejected: 'text-red-600 dark:text-red-400',
 }
 
 // Up to three versions can be true for a target at once (live, in review,
@@ -42,7 +42,7 @@ export function VersionSummary({ target }: { target: Target }) {
   return (
     <span className="text-sm" title={target.statusDetail ?? undefined}>
       {target.status === 'error' && (
-        <span className="mr-1 inline-flex items-center gap-1 font-semibold text-red-600">
+        <span className="mr-1 inline-flex items-center gap-1 font-semibold text-red-600 dark:text-red-400">
           <TriangleAlert size={13} /> error{facts.length > 0 ? ' ·' : ''}
         </span>
       )}
