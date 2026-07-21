@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "extport-api",
+  "name": "extport",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-14",
   "compatibility_flags": ["nodejs_compat"],
@@ -8,12 +8,25 @@
     "enabled": true,
     "head_sampling_rate": 1
   },
+  // One Worker serves both the API (/api/*, run_worker_first below) and the
+  // dashboard SPA (everything else, from the built assets with SPA fallback
+  // for TanStack Router's client-side routes). Same-origin by construction —
+  // no CORS, no cross-site cookies, and dev (vite proxying /api to wrangler)
+  // matches production shape exactly.
+  "assets": {
+    "directory": "../dashboard/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  // dash.* on purpose — the apex stays reserved for a future marketing site.
+  // Requires the extport.dev zone to exist on this Cloudflare account before
+  // the first deploy.
+  "routes": [{ "pattern": "dash.extport.dev", "custom_domain": true }],
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "extport",
-      // Replace with the real id from `wrangler d1 create extport` before deploying.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "86961734-96e0-4e8e-ba2d-48423b94ff46",
       "migrations_dir": "migrations"
     }
   ],
@@ -35,10 +48,13 @@
     }
   ],
   "vars": {
-    // Non-secret config. Secrets (KEK_V1, GITHUB_CLIENT_SECRET) go in
-    // .dev.vars locally and `wrangler secret put` in production.
+    // Non-secret config, production values. Local dev overrides live in
+    // .dev.vars (which also holds the secrets KEK_V1 / GITHUB_CLIENT_SECRET;
+    // production secrets are set once via `wrangler secret put`).
     "CURRENT_KEK_VERSION": "1",
-    "DASHBOARD_URL": "http://localhost:5173",
+    "DASHBOARD_URL": "https://dash.extport.dev",
+    // The production GitHub OAuth App's client id (public, fine to commit) —
+    // callback URL must be https://dash.extport.dev/api/auth/github/callback.
     "GITHUB_CLIENT_ID": "",
     // Must be on a domain onboarded via `wrangler email sending enable`.
     "NOTIFICATION_FROM_EMAIL": "notifications@extport.dev"

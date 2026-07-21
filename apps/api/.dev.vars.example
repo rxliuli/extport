@@ -2,3 +2,5 @@
 # Generate a KEK with: openssl rand -base64 32
 KEK_V1=""
 GITHUB_CLIENT_SECRET=""
+# Local override — production value in wrangler.jsonc points at dash.extport.dev.
+DASHBOARD_URL=http://localhost:5173
