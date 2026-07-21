@@ -111,7 +111,7 @@ async function withdraw(credentials: SafariCredentials, appId: string, fetchImpl
 /**
  * App Store Connect API. `submit` is intentionally unimplemented: this API
  * cannot upload a binary — a build must come from an external macOS pipeline
- * (Xcode/Transporter) first. That pipeline is spec §8 (Safari conversion),
+ * (Xcode/Transporter) first. That pipeline is spec §8 (docs/safari-pipeline.md),
  * not yet built. `getState`/`withdraw` are pure REST and work today against
  * any app/build the tenant already manages manually.
  */
@@ -135,7 +135,7 @@ export function createSafariAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o)
       Promise.reject(
         new Error(
           'safari.submit is not implemented: the App Store Connect API cannot upload a binary — a build must be ' +
-            'produced by an external macOS pipeline (Xcode/Transporter) first. See spec §8 (Safari conversion pipeline).',
+            'produced by an external macOS pipeline (Xcode/Transporter) first. See docs/safari-pipeline.md (spec §8).',
         ),
       ),
     withdraw: (credentials, target) => withdraw(credentials, target.storeItemId, fetchImpl),
