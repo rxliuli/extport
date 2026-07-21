@@ -1,0 +1,65 @@
+import { queryOptions } from '@tanstack/react-query'
+import {
+  api,
+  ApiError,
+  type ApiKeyRow,
+  type CredentialRow,
+  type DeploymentVersion,
+  type Extension,
+  type MatrixExtension,
+  type Me,
+  type PublishEvent,
+  type PublishTarget,
+} from './api'
+
+export const meQuery = queryOptions({
+  queryKey: ['me'],
+  queryFn: (): Promise<Me | null> =>
+    api<Me>('/v1/me').catch((err: unknown) => {
+      if (err instanceof ApiError && err.status === 401) return null
+      throw err
+    }),
+  staleTime: 5 * 60_000,
+  retry: false,
+})
+
+// Store review state changes on the stores' clock, not ours — poll gently so
+// the dashboard stays current without a manual reload (the cron reconciles
+// every 30 minutes; these only re-read our own DB).
+const POLL_MS = 30_000
+
+export const matrixQuery = queryOptions({
+  queryKey: ['extensions', 'matrix'],
+  queryFn: () => api<{ extensions: MatrixExtension[] }>('/v1/extensions/matrix').then((r) => r.extensions),
+  refetchInterval: POLL_MS,
+})
+
+export const extensionQuery = (id: string) =>
+  queryOptions({
+    queryKey: ['extensions', id],
+    queryFn: () => api<{ extension: Extension }>(`/v1/extensions/${id}`).then((r) => r.extension),
+  })
+
+export const targetsQuery = (id: string) =>
+  queryOptions({
+    queryKey: ['extensions', id, 'targets'],
+    queryFn: () => api<{ targets: PublishTarget[] }>(`/v1/extensions/${id}/targets`).then((r) => r.targets),
+    refetchInterval: POLL_MS,
+  })
+
+export const timelineQuery = (id: string) =>
+  queryOptions({
+    queryKey: ['extensions', id, 'timeline'],
+    queryFn: () => api<{ versions: DeploymentVersion[]; events: PublishEvent[] }>(`/v1/extensions/${id}/timeline`),
+    refetchInterval: POLL_MS,
+  })
+
+export const credentialsQuery = queryOptions({
+  queryKey: ['credentials'],
+  queryFn: () => api<{ credentials: CredentialRow[] }>('/v1/credentials').then((r) => r.credentials),
+})
+
+export const keysQuery = queryOptions({
+  queryKey: ['keys'],
+  queryFn: () => api<{ keys: ApiKeyRow[] }>('/v1/keys').then((r) => r.keys),
+})
