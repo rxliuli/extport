@@ -141,14 +141,20 @@ to an address on that domain.
 
 Submitted/approved/rejected fire an email inline whenever `reconcileOne`
 transitions a `deployment_versions` row — they aren't persisted as their own
-event (the row's status *is* the record); `error`/`stale_review` are the only
-two `publish_events` types left, since they're the only things that aren't
-about one specific version. `rejected`/`error` are the urgent tier,
+event (the row's status *is* the record); `error`/`recovered`/`stale_review`
+are the only `publish_events` types left, since they're the only things that
+aren't about one specific version. `error` and `recovered` are **transition
+markers**, never per-tick records: entering the error state records one
+event and sends one email, every further failing tick only refreshes
+`publish_targets.lastErrorDetail` (so a credential left broken for a week is
+one email, not 48 a day from the half-hourly cron), and the next successful
+tick closes the story with a `recovered` event (audit only, no email —
+whoever fixed it already knows). `rejected`/`error` are the urgent tier,
 `approved`/`submitted` are routine, `stale_review` is a once-per-day digest
 (deduped by the same 20-hour window that already gates the event itself, see
 M3). Entering `queued` or `blocked` (waiting behind an in-review row) is
 deliberately silent — steady state, not worth an email; check the dashboard
-Timeline for that. Credential expiry is a separate check
+Versions matrix for that. Credential expiry is a separate check
 (`apps/api/src/reconcile/expiry.ts`, also run
 every cron tick): one advance-warning email exactly on the `active` →
 `expiring` transition — a deliberate simplification of the spec's 30/7/1-day

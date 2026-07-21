@@ -16,8 +16,12 @@ export type DeploymentStatus =
   | 'rejected'
   | 'error'
 
-/** Only things that aren't about a specific version's lifecycle — see deployment_versions.status for that. */
-export type PublishEventType = 'error' | 'stale_review'
+/**
+ * Only things that aren't about a specific version's lifecycle — see
+ * deployment_versions.status for that. error/recovered are transition
+ * markers (entering and leaving the error state), never per-tick records.
+ */
+export type PublishEventType = 'error' | 'recovered' | 'stale_review'
 
 export type CredentialHealth = 'active' | 'invalid' | 'expiring'
 

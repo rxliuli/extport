@@ -217,7 +217,7 @@ export const publishEvents = sqliteTable(
     tenantId: text('tenant_id').notNull().references(() => tenants.id),
     extensionId: text('extension_id').notNull().references(() => extensions.id),
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
-    type: text('type', { enum: ['error', 'stale_review'] }).notNull(),
+    type: text('type', { enum: ['error', 'recovered', 'stale_review'] }).notNull(),
     payloadJson: text('payload_json').notNull().$defaultFn(() => '{}'),
     createdAt: text('created_at').notNull().$defaultFn(now),
   },

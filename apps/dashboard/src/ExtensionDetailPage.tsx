@@ -6,6 +6,7 @@ import {
   type CredentialRow,
   type DeploymentVersion,
   type Extension,
+  type PublishEvent,
   type PublishTarget,
   type Store,
 } from './api'
@@ -230,16 +231,61 @@ function cellTitle(row: DeploymentVersion, isCurrentLive: boolean): string {
   return parts.join(' · ')
 }
 
+const OPS_EVENT: Record<PublishEvent['type'], { color: string; label: string }> = {
+  error: { color: '#cf222e', label: 'error' },
+  recovered: { color: '#1a7f37', label: 'recovered' },
+  stale_review: { color: '#9a6700', label: 'stale review' },
+}
+
+function opsEventDetail(event: PublishEvent): string | null {
+  const payload = JSON.parse(event.payloadJson) as Record<string, unknown>
+  if (event.type === 'error') return typeof payload.message === 'string' ? payload.message : null
+  if (event.type === 'stale_review') return `in review for ${payload.ageDays}+ days`
+  return null
+}
+
+// Target-level operational history — error/recovered are transition markers
+// (entering and leaving the error state, never one row per failing tick),
+// stale_review is the daily digest. These have no version to belong to, so
+// they live here rather than in the version matrix above.
+function OpsEventsList({ events }: { events: PublishEvent[] }) {
+  if (events.length === 0) return null
+  return (
+    <section>
+      <h3>Operational events</h3>
+      <table cellPadding={6} style={{ borderCollapse: 'collapse' }}>
+        <tbody>
+          {events.slice(0, 10).map((e) => {
+            const detail = opsEventDetail(e)
+            return (
+              <tr key={e.id} style={{ borderBottom: '1px solid #f0f0f0', fontSize: 13 }}>
+                <td style={{ color: '#666', fontSize: 12, whiteSpace: 'nowrap' }}>{relativeTime(e.createdAt)}</td>
+                <td>{e.store}</td>
+                <td style={{ color: OPS_EVENT[e.type].color, fontWeight: 600 }}>{OPS_EVENT[e.type].label}</td>
+                <td style={{ color: '#666', fontSize: 12 }}>{detail}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
 // deployment_versions pivoted into rows = versions, columns = stores — the
 // release-progress view. One glance along a row answers "where is 0.0.7
 // live?"; down a column, a store's full history. Target-level health
 // (error/stale_review) has no version, so it deliberately doesn't appear
-// here — that lives on the Store targets table above.
+// here — that lives on the Store targets table and the ops list below.
 function VersionMatrixSection({ extensionId }: { extensionId: string }) {
   const [versions, setVersions] = useState<DeploymentVersion[]>([])
+  const [events, setEvents] = useState<PublishEvent[]>([])
 
   useEffect(() => {
-    void api<{ versions: DeploymentVersion[] }>(`/v1/extensions/${extensionId}/timeline`).then((r) => setVersions(r.versions))
+    void api<{ versions: DeploymentVersion[]; events: PublishEvent[] }>(`/v1/extensions/${extensionId}/timeline`).then((r) => {
+      setVersions(r.versions)
+      setEvents(r.events)
+    })
   }, [extensionId])
 
   const stores = STORES.filter((s) => versions.some((v) => v.store === s))
@@ -317,6 +363,7 @@ function VersionMatrixSection({ extensionId }: { extensionId: string }) {
           </p>
         </>
       )}
+      <OpsEventsList events={events} />
     </section>
   )
 }

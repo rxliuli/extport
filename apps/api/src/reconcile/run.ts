@@ -123,10 +123,22 @@ async function notify(notifier: Notifier, row: JoinedRow, kind: NotifyKind, payl
 
 async function persistError(db: Db, notifier: Notifier, row: JoinedRow, message: string): Promise<void> {
   const detail = truncate(message)
+  // The event and the email mark the healthy → erroring TRANSITION, not every
+  // failing tick — a credential left broken for a week must not produce 48
+  // identical emails a day (cron runs every 30 minutes). Same philosophy as
+  // blocked/stale_review. Deliberately keyed on "was already erroring", not on
+  // message equality: store API error bodies embed per-request ids (Apple puts
+  // a UUID in every error response), so equality would see a "new" error every
+  // tick and spam anyway. The freshest message is still always visible — the
+  // target row below is updated on every failing tick.
+  const isTransition = row.target.lastErrorDetail === null
   await db
     .update(publishTargets)
     .set({ lastErrorDetail: detail, lastErrorAt: new Date().toISOString() })
     .where(eq(publishTargets.id, row.target.id))
+  row.target.lastErrorDetail = detail
+  if (!isTransition) return
+
   await db.insert(publishEvents).values({
     id: newId('publishEvent'),
     tenantId: row.extension.tenantId,
@@ -260,8 +272,21 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
 
   // Got this far without the store call throwing — the target itself is healthy,
   // whatever went wrong on a previous tick (if anything) no longer applies.
+  // `recovered` closes the story the `error` transition event opened; audit
+  // trail only, no email (whoever fixed it already knows). The in-memory row
+  // is cleared too so a failure later in this same tick (e.g. submit throwing
+  // below) still registers as a fresh healthy → erroring transition.
   if (target.lastErrorDetail) {
     await db.update(publishTargets).set({ lastErrorDetail: null, lastErrorAt: null }).where(eq(publishTargets.id, target.id))
+    await db.insert(publishEvents).values({
+      id: newId('publishEvent'),
+      tenantId: row.extension.tenantId,
+      extensionId: row.extension.id,
+      store: target.store,
+      type: 'recovered',
+      payloadJson: '{}',
+    })
+    target.lastErrorDetail = null
   }
   await db.update(publishTargets).set({ lastReconciledAt: new Date().toISOString() }).where(eq(publishTargets.id, target.id))
 

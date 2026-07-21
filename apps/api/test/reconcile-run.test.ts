@@ -415,6 +415,48 @@ describe('runReconciliation — failure isolation', () => {
     expect(await versionsFor(good.db, good.extensionId)).toMatchObject([{ version: '1.0.0', status: 'in_review' }])
   })
 
+  it('records the error event and email once on transition, not again on every failing tick', async () => {
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      artifacts: [{ version: '1.0.0' }],
+      versions: [{ version: '1.0.0', status: 'queued' }],
+      credentialStatus: 'invalid',
+    })
+    const { notifier, sent } = recordingNotifier()
+
+    await runReconciliation(env, db, { tenantId }, notifier)
+    await runReconciliation(env, db, { tenantId }, notifier)
+    await runReconciliation(env, db, { tenantId }, notifier)
+
+    expect((await eventsFor(db, extensionId)).map((e) => e.type)).toEqual(['error'])
+    expect(sent).toHaveLength(1)
+    // The freshest failure detail still lands on the target every tick.
+    expect((await targetFor(db, extensionId)).lastErrorDetail).toMatch(/failed verification/)
+  })
+
+  it('records a recovered event (no email) when an erroring target succeeds again', async () => {
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      versions: [{ version: '1.0.0', status: 'online' }],
+    })
+    // Seed the "was erroring" state directly, as if a previous tick failed.
+    await db
+      .update(publishTargets)
+      .set({ lastErrorDetail: 'chrome fetchStatus failed (503)', lastErrorAt: new Date().toISOString() })
+      .where(eq(publishTargets.extensionId, extensionId))
+    globalThis.fetch = routedFetch(
+      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] } } }),
+    ).fetch
+    const { notifier, sent } = recordingNotifier()
+
+    await runReconciliation(env, db, { tenantId }, notifier)
+    expect((await eventsFor(db, extensionId)).map((e) => e.type)).toEqual(['recovered'])
+    expect((await targetFor(db, extensionId)).lastErrorDetail).toBeNull()
+    expect(sent).toHaveLength(0)
+
+    // Staying healthy is steady state — no second recovered event.
+    await runReconciliation(env, db, { tenantId }, notifier)
+    expect((await eventsFor(db, extensionId)).map((e) => e.type)).toEqual(['recovered'])
+  })
+
   it('reports a missing R2 object as an error without crashing the whole tick', async () => {
     const { db, tenantId, extensionId } = await setupChromeScenario({})
     // Insert an artifact + queued row whose R2 object was never actually written.
