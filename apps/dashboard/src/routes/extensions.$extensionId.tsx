@@ -13,6 +13,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -32,6 +33,7 @@ import {
   CircleX,
   Clock,
   Loader2,
+  Plus,
   RefreshCw,
   SkipForward,
   Trash2,
@@ -56,6 +58,7 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
   const [credentialId, setCredentialId] = useState('')
   const [storeItemId, setStoreItemId] = useState('')
   const [crxId, setCrxId] = useState('')
+  const [open, setOpen] = useState(false)
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['extensions'] })
 
@@ -86,6 +89,7 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
       setStoreItemId('')
       setCrxId('')
       setCredentialId('')
+      setOpen(false)
       void invalidate()
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -109,8 +113,93 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex items-center justify-between">
         <CardTitle>Store targets</CardTitle>
+        {availableStores.length > 0 && (
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Plus /> Add a store
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add a store</DialogTitle>
+              </DialogHeader>
+              <form
+                className="flex flex-col gap-3"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  if (selectedCredentialId && storeItemId.trim()) add.mutate()
+                }}
+              >
+                <Select
+                  value={selectedStore}
+                  onValueChange={(value: string) => {
+                    setStore(value as Store)
+                    setCredentialId('')
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableStores.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={selectedCredentialId} onValueChange={setCredentialId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select credential…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {matchingCredentials.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.label} (…{c.hint})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={storeItemId}
+                  onChange={(e) => setStoreItemId(e.target.value)}
+                  placeholder={selectedStore === 'edge' ? 'Product ID (Partner Center → Extension identity)' : 'Store item id'}
+                  required
+                />
+                {selectedStore === 'edge' && (
+                  <Input
+                    value={crxId}
+                    onChange={(e) => setCrxId(e.target.value)}
+                    placeholder="CRX ID (optional — public status lookups)"
+                  />
+                )}
+                {selectedStore === 'edge' && (
+                  <p className="text-xs text-muted-foreground">
+                    Partner Center's submission API and its public status page use two different ids for the same
+                    listing — Product ID is required for publishing; CRX ID is optional and only improves live-version
+                    detection between reconciles.
+                  </p>
+                )}
+                {matchingCredentials.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No {selectedStore} credential yet — add one in{' '}
+                    <Link to="/settings" className="underline underline-offset-4">
+                      Settings → Store credentials
+                    </Link>{' '}
+                    first.
+                  </p>
+                )}
+                <Button type="submit" disabled={matchingCredentials.length === 0 || add.isPending} className="justify-self-start">
+                  {add.isPending && <Loader2 className="animate-spin" />}
+                  Add
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
       </CardHeader>
       <CardContent className="space-y-6">
         {targets.length > 0 && (
@@ -168,85 +257,6 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
           </Table>
         )}
         {targets.length === 0 && <p className="text-sm text-muted-foreground">No stores configured yet.</p>}
-
-        {availableStores.length > 0 && (
-          <div className="space-y-3 border-t pt-4">
-            <h4 className="text-sm font-medium">Add a store</h4>
-            <form
-              className="flex flex-wrap items-center gap-2"
-              onSubmit={(e) => {
-                e.preventDefault()
-                if (selectedCredentialId && storeItemId.trim()) add.mutate()
-              }}
-            >
-              <Select
-                value={selectedStore}
-                onValueChange={(value: string) => {
-                  setStore(value as Store)
-                  setCredentialId('')
-                }}
-              >
-                <SelectTrigger size="sm" className="w-28">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableStores.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={selectedCredentialId} onValueChange={setCredentialId}>
-                <SelectTrigger size="sm" className="w-52">
-                  <SelectValue placeholder="Select credential…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {matchingCredentials.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.label} (…{c.hint})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input
-                value={storeItemId}
-                onChange={(e) => setStoreItemId(e.target.value)}
-                placeholder={selectedStore === 'edge' ? 'Product ID (Partner Center → Extension identity)' : 'Store item id'}
-                className="h-8 w-72"
-                required
-              />
-              {selectedStore === 'edge' && (
-                <Input
-                  value={crxId}
-                  onChange={(e) => setCrxId(e.target.value)}
-                  placeholder="CRX ID (optional — public status lookups)"
-                  className="h-8 w-72"
-                />
-              )}
-              <Button type="submit" size="sm" disabled={matchingCredentials.length === 0 || add.isPending}>
-                {add.isPending && <Loader2 className="animate-spin" />}
-                Add
-              </Button>
-            </form>
-            {selectedStore === 'edge' && (
-              <p className="max-w-prose text-xs text-muted-foreground">
-                Partner Center's submission API and its public status page use two different ids for the same listing —
-                Product ID is required for publishing; CRX ID is optional and only improves live-version detection between
-                reconciles.
-              </p>
-            )}
-            {matchingCredentials.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                No {selectedStore} credential yet — add one in{' '}
-                <Link to="/settings" className="underline underline-offset-4">
-                  Settings → Store credentials
-                </Link>{' '}
-                first.
-              </p>
-            )}
-          </div>
-        )}
       </CardContent>
     </Card>
   )
@@ -380,8 +390,12 @@ function VersionMatrixSection({ extensionId }: { extensionId: string }) {
                           <TableCell key={column.key} className="text-center">
                             <Tooltip>
                               <TooltipTrigger asChild>
+                                {/* Fixed-width box so the icon lands at the same x position in
+                                    every row of this column — centering variable-width content
+                                    (icon alone vs. icon + "Nd") shifts the icon itself left/right
+                                    depending on whether trailing text is present. */}
                                 <span
-                                  className={`inline-flex items-center gap-0.5 ${className} ${wasLive ? 'opacity-35' : ''}`}
+                                  className={`inline-flex w-10 items-center gap-0.5 ${className} ${wasLive ? 'opacity-35' : ''}`}
                                 >
                                   <Icon size={16} strokeWidth={2.25} aria-label={label} />
                                   {days !== null && <span className="text-[11px]">{days}d</span>}
@@ -447,6 +461,12 @@ function ExtensionDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data: extension, isPending } = useQuery(extensionQuery(extensionId))
+  // Same query TargetsSection/VersionMatrixSection already make — React
+  // Query dedupes by key, so this doesn't add a request. Used only to hide
+  // the CI onboarding hint below once there's proof the tenant already
+  // knows how to push (kept for extensions with nothing pushed yet).
+  const { data: timeline } = useQuery(timelineQuery(extensionId))
+  const hasPushedBefore = (timeline?.versions.length ?? 0) > 0
 
   const reconcile = useMutation({
     mutationFn: () =>
@@ -526,14 +546,16 @@ function ExtensionDetailPage() {
         </div>
       </div>
 
-      <Card className="bg-muted/50">
-        <CardContent className="py-4">
-          <p className="mb-2 text-sm font-medium">Upload artifacts for this extension from CI:</p>
-          <pre className="overflow-x-auto rounded-md bg-background p-3 text-xs">
-            {`npx extport push dist.zip --extension ${extension.slug} --version 1.2.3\n# EXTPORT_API_KEY must be set (Settings → API keys)`}
-          </pre>
-        </CardContent>
-      </Card>
+      {!hasPushedBefore && (
+        <Card className="bg-muted/50">
+          <CardContent className="py-4">
+            <p className="mb-2 text-sm font-medium">Upload artifacts for this extension from CI:</p>
+            <pre className="overflow-x-auto rounded-md bg-background p-3 text-xs">
+              {`npx extport push dist.zip --extension ${extension.slug} --version 1.2.3\n# EXTPORT_API_KEY must be set (Settings → API keys)`}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs defaultValue="publishing">
         <TabsList>
