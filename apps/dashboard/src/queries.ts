@@ -15,7 +15,7 @@ import {
 export const meQuery = queryOptions({
   queryKey: ['me'],
   queryFn: (): Promise<Me | null> =>
-    api<Me>('/v1/me').catch((err: unknown) => {
+    api<Me>('/api/v1/me').catch((err: unknown) => {
       if (err instanceof ApiError && err.status === 401) return null
       throw err
     }),
@@ -30,36 +30,36 @@ const POLL_MS = 30_000
 
 export const matrixQuery = queryOptions({
   queryKey: ['extensions', 'matrix'],
-  queryFn: () => api<{ extensions: MatrixExtension[] }>('/v1/extensions/matrix').then((r) => r.extensions),
+  queryFn: () => api<{ extensions: MatrixExtension[] }>('/api/v1/extensions/matrix').then((r) => r.extensions),
   refetchInterval: POLL_MS,
 })
 
 export const extensionQuery = (id: string) =>
   queryOptions({
     queryKey: ['extensions', id],
-    queryFn: () => api<{ extension: Extension }>(`/v1/extensions/${id}`).then((r) => r.extension),
+    queryFn: () => api<{ extension: Extension }>(`/api/v1/extensions/${id}`).then((r) => r.extension),
   })
 
 export const targetsQuery = (id: string) =>
   queryOptions({
     queryKey: ['extensions', id, 'targets'],
-    queryFn: () => api<{ targets: PublishTarget[] }>(`/v1/extensions/${id}/targets`).then((r) => r.targets),
+    queryFn: () => api<{ targets: PublishTarget[] }>(`/api/v1/extensions/${id}/targets`).then((r) => r.targets),
     refetchInterval: POLL_MS,
   })
 
 export const timelineQuery = (id: string) =>
   queryOptions({
     queryKey: ['extensions', id, 'timeline'],
-    queryFn: () => api<{ versions: DeploymentVersion[]; events: PublishEvent[] }>(`/v1/extensions/${id}/timeline`),
+    queryFn: () => api<{ versions: DeploymentVersion[]; events: PublishEvent[] }>(`/api/v1/extensions/${id}/timeline`),
     refetchInterval: POLL_MS,
   })
 
 export const credentialsQuery = queryOptions({
   queryKey: ['credentials'],
-  queryFn: () => api<{ credentials: CredentialRow[] }>('/v1/credentials').then((r) => r.credentials),
+  queryFn: () => api<{ credentials: CredentialRow[] }>('/api/v1/credentials').then((r) => r.credentials),
 })
 
 export const keysQuery = queryOptions({
   queryKey: ['keys'],
-  queryFn: () => api<{ keys: ApiKeyRow[] }>('/v1/keys').then((r) => r.keys),
+  queryFn: () => api<{ keys: ApiKeyRow[] }>('/api/v1/keys').then((r) => r.keys),
 })

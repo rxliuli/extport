@@ -23,7 +23,7 @@ function ExtensionsPage() {
   const [name, setName] = useState('')
 
   const create = useMutation({
-    mutationFn: (name: string) => api('/v1/extensions', { method: 'POST', body: JSON.stringify({ name }) }),
+    mutationFn: (name: string) => api('/api/v1/extensions', { method: 'POST', body: JSON.stringify({ name }) }),
     onSuccess: () => {
       setName('')
       void queryClient.invalidateQueries({ queryKey: ['extensions'] })

@@ -6,7 +6,7 @@ import { artifacts, deploymentVersions, publishEvents, publishTargets, storeCred
 import { createExtension, fakeZip, request, seedTenantWithUser } from './helpers'
 
 function upload(key: string, extensionSlug: string, version: string, body: Uint8Array): Promise<Response> {
-  return request(`/v1/artifacts?extension=${extensionSlug}&version=${version}`, {
+  return request(`/api/v1/artifacts?extension=${extensionSlug}&version=${version}`, {
     method: 'POST',
     headers: { authorization: `Bearer ${key}`, 'content-type': 'application/zip' },
     body: body as BodyInit,
@@ -18,7 +18,7 @@ describe('DELETE /v1/extensions/:id', () => {
     const { db, sessionCookie, tenantId } = await seedTenantWithUser()
     const extension = await createExtension(sessionCookie)
 
-    const keyRes = await request('/v1/keys', {
+    const keyRes = await request('/api/v1/keys', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'test' }),
@@ -66,13 +66,13 @@ describe('DELETE /v1/extensions/:id', () => {
       credentialId,
     })
 
-    const deleteRes = await request(`/v1/extensions/${extension.id}`, {
+    const deleteRes = await request(`/api/v1/extensions/${extension.id}`, {
       method: 'DELETE',
       headers: { cookie: sessionCookie },
     })
     expect(deleteRes.status).toBe(200)
 
-    expect((await request(`/v1/extensions/${extension.id}`, { headers: { cookie: sessionCookie } })).status).toBe(404)
+    expect((await request(`/api/v1/extensions/${extension.id}`, { headers: { cookie: sessionCookie } })).status).toBe(404)
     expect(await env.ARTIFACTS.get(artifact.r2Key)).toBeNull()
     expect(await db.select().from(artifacts).where(eq(artifacts.extensionId, extension.id))).toHaveLength(0)
     expect(await db.select().from(deploymentVersions).where(eq(deploymentVersions.extensionId, extension.id))).toHaveLength(0)
@@ -85,7 +85,7 @@ describe('DELETE /v1/extensions/:id', () => {
   it('is a clean no-op on artifacts/targets when the extension never had any', async () => {
     const { sessionCookie } = await seedTenantWithUser()
     const extension = await createExtension(sessionCookie)
-    const res = await request(`/v1/extensions/${extension.id}`, { method: 'DELETE', headers: { cookie: sessionCookie } })
+    const res = await request(`/api/v1/extensions/${extension.id}`, { method: 'DELETE', headers: { cookie: sessionCookie } })
     expect(res.status).toBe(200)
   })
 
@@ -94,21 +94,21 @@ describe('DELETE /v1/extensions/:id', () => {
     const b = await seedTenantWithUser()
     const extension = await createExtension(a.sessionCookie)
 
-    expect((await request(`/v1/extensions/${extension.id}`, { method: 'DELETE' })).status).toBe(401)
+    expect((await request(`/api/v1/extensions/${extension.id}`, { method: 'DELETE' })).status).toBe(401)
 
-    const crossTenant = await request(`/v1/extensions/${extension.id}`, {
+    const crossTenant = await request(`/api/v1/extensions/${extension.id}`, {
       method: 'DELETE',
       headers: { cookie: b.sessionCookie },
     })
     expect(crossTenant.status).toBe(404)
 
     // Still there — the cross-tenant attempt must not have deleted it.
-    expect((await request(`/v1/extensions/${extension.id}`, { headers: { cookie: a.sessionCookie } })).status).toBe(200)
+    expect((await request(`/api/v1/extensions/${extension.id}`, { headers: { cookie: a.sessionCookie } })).status).toBe(200)
   })
 
   it('404s for an id that never existed', async () => {
     const { sessionCookie } = await seedTenantWithUser()
-    const res = await request('/v1/extensions/ext_doesnotexist', { method: 'DELETE', headers: { cookie: sessionCookie } })
+    const res = await request('/api/v1/extensions/ext_doesnotexist', { method: 'DELETE', headers: { cookie: sessionCookie } })
     expect(res.status).toBe(404)
   })
 })

@@ -28,7 +28,7 @@ function ApiKeysSection() {
   const [freshKey, setFreshKey] = useState<string | null>(null)
 
   const create = useMutation({
-    mutationFn: (name: string) => api<{ key: string }>('/v1/keys', { method: 'POST', body: JSON.stringify({ name }) }),
+    mutationFn: (name: string) => api<{ key: string }>('/api/v1/keys', { method: 'POST', body: JSON.stringify({ name }) }),
     onSuccess: (created) => {
       setFreshKey(created.key)
       setName('')
@@ -38,7 +38,7 @@ function ApiKeysSection() {
   })
 
   const revoke = useMutation({
-    mutationFn: (id: string) => api(`/v1/keys/${id}`, { method: 'DELETE' }),
+    mutationFn: (id: string) => api(`/api/v1/keys/${id}`, { method: 'DELETE' }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: keysQuery.queryKey }),
     onError: (err) => toast.error(errorMessage(err)),
   })
@@ -163,7 +163,7 @@ function CredentialsSection() {
 
   const add = useMutation({
     mutationFn: () =>
-      api('/v1/credentials', {
+      api('/api/v1/credentials', {
         method: 'POST',
         body: JSON.stringify({
           store,
@@ -182,12 +182,12 @@ function CredentialsSection() {
   })
 
   const verify = useMutation({
-    mutationFn: (id: string) => api(`/v1/credentials/${id}/verify`, { method: 'POST' }).catch(() => {}),
+    mutationFn: (id: string) => api(`/api/v1/credentials/${id}/verify`, { method: 'POST' }).catch(() => {}),
     onSuccess: () => void invalidate(),
   })
 
   const remove = useMutation({
-    mutationFn: (id: string) => api(`/v1/credentials/${id}`, { method: 'DELETE' }),
+    mutationFn: (id: string) => api(`/api/v1/credentials/${id}`, { method: 'DELETE' }),
     onSuccess: () => void invalidate(),
     onError: (err) => toast.error(errorMessage(err)),
   })

@@ -7,7 +7,7 @@ import { request, seedTenantWithUser } from './helpers'
 
 describe('health', () => {
   it('responds ok without auth', async () => {
-    const res = await request('/healthz')
+    const res = await request('/api/healthz')
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true })
   })
@@ -15,13 +15,13 @@ describe('health', () => {
 
 describe('auth', () => {
   it('rejects /v1/me without credentials', async () => {
-    const res = await request('/v1/me')
+    const res = await request('/api/v1/me')
     expect(res.status).toBe(401)
   })
 
   it('resolves /v1/me from a session cookie', async () => {
     const { tenantId, sessionCookie } = await seedTenantWithUser()
-    const res = await request('/v1/me', { headers: { cookie: sessionCookie } })
+    const res = await request('/api/v1/me', { headers: { cookie: sessionCookie } })
     expect(res.status).toBe(200)
     const body = (await res.json()) as { authType: string; tenant: { id: string }; user: { email: string } }
     expect(body.authType).toBe('session')
@@ -30,7 +30,7 @@ describe('auth', () => {
   })
 
   it('rejects garbage bearer tokens', async () => {
-    const res = await request('/v1/me', {
+    const res = await request('/api/v1/me', {
       headers: { authorization: 'Bearer sk_live_' + 'x'.repeat(40) },
     })
     expect(res.status).toBe(401)
@@ -42,7 +42,7 @@ describe('api keys', () => {
     const { tenantId, sessionCookie } = await seedTenantWithUser()
 
     // Create — plaintext returned exactly once.
-    const createRes = await request('/v1/keys', {
+    const createRes = await request('/api/v1/keys', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'ci' }),
@@ -52,7 +52,7 @@ describe('api keys', () => {
     expect(created.key).toMatch(/^sk_live_[0-9a-zA-Z]{40}$/)
 
     // The key authenticates as the tenant.
-    const meRes = await request('/v1/me', {
+    const meRes = await request('/api/v1/me', {
       headers: { authorization: `Bearer ${created.key}` },
     })
     expect(meRes.status).toBe(200)
@@ -62,13 +62,13 @@ describe('api keys', () => {
     expect(me.user).toBeNull()
 
     // Listing shows the mask, never the key or its hash.
-    const listRes = await request('/v1/keys', { headers: { cookie: sessionCookie } })
+    const listRes = await request('/api/v1/keys', { headers: { cookie: sessionCookie } })
     const list = (await listRes.json()) as { keys: Array<{ id: string; masked: string }> }
     expect(list.keys.map((k) => k.id)).toContain(created.id)
     expect(JSON.stringify(list)).not.toContain(created.key)
 
     // API keys cannot manage keys.
-    const forbidden = await request('/v1/keys', {
+    const forbidden = await request('/api/v1/keys', {
       method: 'POST',
       headers: { authorization: `Bearer ${created.key}`, 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'escalation' }),
@@ -76,12 +76,12 @@ describe('api keys', () => {
     expect(forbidden.status).toBe(401)
 
     // Revoke — the key stops working.
-    const revokeRes = await request(`/v1/keys/${created.id}`, {
+    const revokeRes = await request(`/api/v1/keys/${created.id}`, {
       method: 'DELETE',
       headers: { cookie: sessionCookie },
     })
     expect(revokeRes.status).toBe(200)
-    const afterRevoke = await request('/v1/me', {
+    const afterRevoke = await request('/api/v1/me', {
       headers: { authorization: `Bearer ${created.key}` },
     })
     expect(afterRevoke.status).toBe(401)
@@ -90,13 +90,13 @@ describe('api keys', () => {
   it('scopes revocation to the owning tenant', async () => {
     const a = await seedTenantWithUser()
     const b = await seedTenantWithUser()
-    const createRes = await request('/v1/keys', {
+    const createRes = await request('/api/v1/keys', {
       method: 'POST',
       headers: { cookie: a.sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'a-key' }),
     })
     const created = (await createRes.json()) as { id: string }
-    const crossRevoke = await request(`/v1/keys/${created.id}`, {
+    const crossRevoke = await request(`/api/v1/keys/${created.id}`, {
       method: 'DELETE',
       headers: { cookie: b.sessionCookie },
     })

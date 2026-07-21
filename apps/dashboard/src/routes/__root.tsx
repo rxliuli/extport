@@ -33,7 +33,7 @@ function RootLayout() {
           </CardHeader>
           <CardContent>
             <Button asChild className="w-full">
-              <a href="/auth/github">Sign in with GitHub</a>
+              <a href="/api/auth/github">Sign in with GitHub</a>
             </Button>
           </CardContent>
         </Card>
@@ -42,7 +42,7 @@ function RootLayout() {
   }
 
   const signOut = async () => {
-    await fetch('/auth/logout', { method: 'POST', credentials: 'include' })
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
     queryClient.setQueryData(meQuery.queryKey, null)
   }
 

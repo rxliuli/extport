@@ -31,7 +31,7 @@ cp .dev.vars.example .dev.vars       # fill KEK_V1 (openssl rand -base64 32) + G
 pnpm db:migrate:local                # apply D1 migrations locally
 pnpm dev                             # API on :8787
 # in another terminal
-pnpm --filter @extport/dashboard dev # dashboard on :5173, proxies /auth and /v1 to :8787
+pnpm --filter @extport/dashboard dev # dashboard on :5173, proxies /api to :8787
 ```
 
 Tests & checks:
@@ -96,7 +96,7 @@ At most one `queued` and one `in_review` row may be active per
 `(extension, store)` at a time — that invariant is enforced on the write
 path, not by a DB constraint:
 
-- **Pushing an artifact** (`POST /v1/artifacts`) rejects outright (409) if the
+- **Pushing an artifact** (`POST /api/v1/artifacts`) rejects outright (409) if the
   version isn't strictly newer than whatever's already queued/in-review/live
   for its target store(s) — no silent "accepted but ignored". Otherwise it
   marks any existing `queued` row `skipped` (an `in_review` row is never
@@ -124,7 +124,7 @@ must leave the row alone instead of overwriting real state with a false
 "nothing here."
 
 The Cron Trigger runs this every 30 minutes with no filter. Trigger it early
-instead of waiting for the next tick with `POST /v1/extensions/:id/reconcile`
+instead of waiting for the next tick with `POST /api/v1/extensions/:id/reconcile`
 (session or API key) — though in practice a push or a new target already does
 this automatically.
 

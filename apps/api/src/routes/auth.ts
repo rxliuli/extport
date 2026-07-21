@@ -32,7 +32,7 @@ auth.get('/github', (c) => {
   })
   const url = new URL('https://github.com/login/oauth/authorize')
   url.searchParams.set('client_id', c.env.GITHUB_CLIENT_ID)
-  url.searchParams.set('redirect_uri', new URL('/auth/github/callback', c.req.url).toString())
+  url.searchParams.set('redirect_uri', new URL('/api/auth/github/callback', c.req.url).toString())
   url.searchParams.set('scope', 'read:user user:email')
   url.searchParams.set('state', state)
   return c.redirect(url.toString())

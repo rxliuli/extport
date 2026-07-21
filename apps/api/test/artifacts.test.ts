@@ -7,7 +7,7 @@ function upload(
   query: string,
   body: Uint8Array,
 ): Promise<Response> {
-  return request(`/v1/artifacts?${query}`, {
+  return request(`/api/v1/artifacts?${query}`, {
     method: 'POST',
     headers: {
       ...(auth.key ? { authorization: `Bearer ${auth.key}` } : {}),
@@ -21,7 +21,7 @@ function upload(
 describe('extensions', () => {
   it('creates with a slug derived from the name', async () => {
     const { sessionCookie } = await seedTenantWithUser()
-    const res = await request('/v1/extensions', {
+    const res = await request('/api/v1/extensions', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Clean Twitter!' }),
@@ -34,7 +34,7 @@ describe('extensions', () => {
   it('enforces the free-plan extension limit', async () => {
     const { sessionCookie } = await seedTenantWithUser()
     await createExtension(sessionCookie, 'First')
-    const res = await request('/v1/extensions', {
+    const res = await request('/api/v1/extensions', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Second' }),
@@ -45,7 +45,7 @@ describe('extensions', () => {
   it('rejects duplicate slugs within a tenant', async () => {
     const { sessionCookie } = await seedTenantWithUser()
     await createExtension(sessionCookie, 'Same')
-    const res = await request('/v1/extensions', {
+    const res = await request('/api/v1/extensions', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'same' }),
@@ -119,7 +119,7 @@ describe('artifact upload', () => {
     await upload({ key }, `extension=${extension.slug}&version=1.0.0`, fakeZip(3))
     await upload({ key }, `extension=${extension.slug}&version=1.1.0`, fakeZip(4))
 
-    const res = await request(`/v1/artifacts?extension=${extension.slug}`, {
+    const res = await request(`/api/v1/artifacts?extension=${extension.slug}`, {
       headers: { authorization: `Bearer ${key}` },
     })
     const { artifacts } = (await res.json()) as { artifacts: Array<{ version: string }> }

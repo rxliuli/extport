@@ -53,6 +53,6 @@ describe('buildPushUrl', () => {
       apiUrl: 'https://api.example.com',
       apiKey: 'k',
     })
-    expect(url).toBe('https://api.example.com/v1/artifacts?extension=my-ext&version=1.2.3&store=firefox')
+    expect(url).toBe('https://api.example.com/api/v1/artifacts?extension=my-ext&version=1.2.3&store=firefox')
   })
 })

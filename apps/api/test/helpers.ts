@@ -34,7 +34,7 @@ export function request(path: string, init?: RequestInit): Promise<Response> {
 }
 
 export async function createApiKey(sessionCookie: string): Promise<string> {
-  const res = await request('/v1/keys', {
+  const res = await request('/api/v1/keys', {
     method: 'POST',
     headers: { cookie: sessionCookie, 'content-type': 'application/json' },
     body: JSON.stringify({ name: 'test' }),
@@ -47,7 +47,7 @@ export async function createExtension(
   sessionCookie: string,
   name = 'My Extension',
 ): Promise<{ id: string; slug: string }> {
-  const res = await request('/v1/extensions', {
+  const res = await request('/api/v1/extensions', {
     method: 'POST',
     headers: { cookie: sessionCookie, 'content-type': 'application/json' },
     body: JSON.stringify({ name }),

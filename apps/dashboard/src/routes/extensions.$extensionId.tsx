@@ -73,7 +73,7 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
 
   const add = useMutation({
     mutationFn: () =>
-      api(`/v1/extensions/${extensionId}/targets`, {
+      api(`/api/v1/extensions/${extensionId}/targets`, {
         method: 'POST',
         body: JSON.stringify({
           store: selectedStore,
@@ -93,7 +93,7 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
 
   const toggle = useMutation({
     mutationFn: (target: PublishTarget) =>
-      api(`/v1/extensions/${extensionId}/targets/${target.id}`, {
+      api(`/api/v1/extensions/${extensionId}/targets/${target.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ enabled: !target.enabled }),
       }),
@@ -102,7 +102,7 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
   })
 
   const remove = useMutation({
-    mutationFn: (target: PublishTarget) => api(`/v1/extensions/${extensionId}/targets/${target.id}`, { method: 'DELETE' }),
+    mutationFn: (target: PublishTarget) => api(`/api/v1/extensions/${extensionId}/targets/${target.id}`, { method: 'DELETE' }),
     onSuccess: () => void invalidate(),
     onError: (err) => toast.error(errorMessage(err)),
   })
@@ -432,7 +432,7 @@ function ExtensionDetailPage() {
 
   const togglePublishing = useMutation({
     mutationFn: () =>
-      api(`/v1/extensions/${extensionId}`, {
+      api(`/api/v1/extensions/${extensionId}`, {
         method: 'PATCH',
         body: JSON.stringify({ publishingEnabled: !extension?.publishingEnabled }),
       }),
@@ -443,7 +443,7 @@ function ExtensionDetailPage() {
   const reconcile = useMutation({
     mutationFn: () =>
       api<{ summary: { processed: number; submitted: number; blocked: number; errors: number } }>(
-        `/v1/extensions/${extensionId}/reconcile`,
+        `/api/v1/extensions/${extensionId}/reconcile`,
         { method: 'POST' },
       ),
     onSuccess: ({ summary }) => {
@@ -456,7 +456,7 @@ function ExtensionDetailPage() {
   })
 
   const deleteExtension = useMutation({
-    mutationFn: () => api(`/v1/extensions/${extensionId}`, { method: 'DELETE' }),
+    mutationFn: () => api(`/api/v1/extensions/${extensionId}`, { method: 'DELETE' }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['extensions'] })
       void navigate({ to: '/' })

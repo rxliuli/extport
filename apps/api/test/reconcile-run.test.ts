@@ -495,7 +495,7 @@ describe('POST /v1/extensions/:id/reconcile — manual trigger', () => {
     const { sessionCookie } = await seedTenantWithUser()
     const extension = await createExtension(sessionCookie)
     // No publish target configured — reconcile should be a safe no-op (0 processed), not an error.
-    const res = await request(`/v1/extensions/${extension.id}/reconcile`, {
+    const res = await request(`/api/v1/extensions/${extension.id}/reconcile`, {
       method: 'POST',
       headers: { cookie: sessionCookie },
     })
@@ -509,9 +509,9 @@ describe('POST /v1/extensions/:id/reconcile — manual trigger', () => {
     const b = await seedTenantWithUser()
     const extension = await createExtension(a.sessionCookie)
 
-    expect((await request(`/v1/extensions/${extension.id}/reconcile`, { method: 'POST' })).status).toBe(401)
+    expect((await request(`/api/v1/extensions/${extension.id}/reconcile`, { method: 'POST' })).status).toBe(401)
 
-    const crossTenant = await request(`/v1/extensions/${extension.id}/reconcile`, {
+    const crossTenant = await request(`/api/v1/extensions/${extension.id}/reconcile`, {
       method: 'POST',
       headers: { cookie: b.sessionCookie },
     })
@@ -522,7 +522,7 @@ describe('POST /v1/extensions/:id/reconcile — manual trigger', () => {
     const { sessionCookie } = await seedTenantWithUser()
     const extension = await createExtension(sessionCookie)
     const key = await createApiKey(sessionCookie)
-    const res = await request(`/v1/extensions/${extension.id}/reconcile`, {
+    const res = await request(`/api/v1/extensions/${extension.id}/reconcile`, {
       method: 'POST',
       headers: { authorization: `Bearer ${key}` },
     })

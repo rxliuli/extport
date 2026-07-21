@@ -15,16 +15,21 @@ const app = new Hono<AppEnv>()
 
 app.use('*', withDb)
 
-app.get('/healthz', (c) => c.json({ ok: true }))
+// Everything lives under /api so the deployed Worker needs exactly one
+// asset-routing rule (`run_worker_first: ["/api/*"]`) and the SPA keeps the
+// entire top-level path namespace to itself.
+const api = new Hono<AppEnv>()
 
-app.route('/auth', authRoutes)
-app.route('/v1/keys', keysRoutes)
-app.route('/v1/extensions', extensionsRoutes)
-app.route('/v1/artifacts', artifactsRoutes)
-app.route('/v1/credentials', credentialsRoutes)
-app.route('/v1/tenant', tenantRoutes)
+api.get('/healthz', (c) => c.json({ ok: true }))
 
-app.get('/v1/me', requireAuth, (c) => {
+api.route('/auth', authRoutes)
+api.route('/v1/keys', keysRoutes)
+api.route('/v1/extensions', extensionsRoutes)
+api.route('/v1/artifacts', artifactsRoutes)
+api.route('/v1/credentials', credentialsRoutes)
+api.route('/v1/tenant', tenantRoutes)
+
+api.get('/v1/me', requireAuth, (c) => {
   const tenant = c.get('tenant')
   const user = c.get('user')
   return c.json({
@@ -33,6 +38,8 @@ app.get('/v1/me', requireAuth, (c) => {
     user: user ? { id: user.id, email: user.email, displayName: user.displayName } : null,
   })
 })
+
+app.route('/api', api)
 
 app.notFound((c) => c.json({ error: 'not found' }, 404))
 

@@ -78,7 +78,7 @@ export function parsePushArgs(argv, env) {
  * @returns {string}
  */
 export function buildPushUrl(options) {
-  const url = new URL('/v1/artifacts', options.apiUrl)
+  const url = new URL('/api/v1/artifacts', options.apiUrl)
   url.searchParams.set('extension', options.extension)
   url.searchParams.set('version', options.version)
   if (options.store) url.searchParams.set('store', options.store)

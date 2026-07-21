@@ -19,9 +19,8 @@ export default defineConfig({
   server: {
     proxy: {
       // Same-origin cookies in dev: proxy API routes to `wrangler dev`.
-      '/auth': 'http://localhost:8787',
-      '/v1': 'http://localhost:8787',
-      '/healthz': 'http://localhost:8787',
+      // One rule on purpose — everything the Worker serves lives under /api.
+      '/api': 'http://localhost:8787',
     },
   },
 })

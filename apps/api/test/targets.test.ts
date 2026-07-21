@@ -27,7 +27,7 @@ async function createCredential(
   label = store,
 ): Promise<{ id: string }> {
   const res = await withStoreApiStub(() =>
-    request('/v1/credentials', {
+    request('/api/v1/credentials', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({ store, label, credentials: fields }),
@@ -41,7 +41,7 @@ async function createCredential(
 /** Adding a target now verifies storeItemId against the real store — same stub as credential creation. */
 function addTarget(extensionId: string, sessionCookie: string, body: unknown): Promise<Response> {
   return withStoreApiStub(() =>
-    request(`/v1/extensions/${extensionId}/targets`, {
+    request(`/api/v1/extensions/${extensionId}/targets`, {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -93,12 +93,12 @@ describe('publish targets', () => {
     expect(createRes.status).toBe(201)
     const created = (await createRes.json()) as { target: { id: string } }
 
-    const listRes = await request(`/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
+    const listRes = await request(`/api/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
     const list = (await listRes.json()) as { targets: Array<{ id: string; store: string; credentialLabel: string }> }
     expect(list.targets).toHaveLength(1)
     expect(list.targets[0]).toMatchObject({ id: created.target.id, store: 'edge', credentialLabel: 'edge' })
 
-    const patchRes = await request(`/v1/extensions/${extension.id}/targets/${created.target.id}`, {
+    const patchRes = await request(`/api/v1/extensions/${extension.id}/targets/${created.target.id}`, {
       method: 'PATCH',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({ enabled: false, storeItemId: 'product-2' }),
@@ -107,12 +107,12 @@ describe('publish targets', () => {
     const patched = (await patchRes.json()) as { target: { enabled: boolean; storeItemId: string } }
     expect(patched.target).toMatchObject({ enabled: false, storeItemId: 'product-2' })
 
-    const deleteRes = await request(`/v1/extensions/${extension.id}/targets/${created.target.id}`, {
+    const deleteRes = await request(`/api/v1/extensions/${extension.id}/targets/${created.target.id}`, {
       method: 'DELETE',
       headers: { cookie: sessionCookie },
     })
     expect(deleteRes.status).toBe(200)
-    const afterDelete = await request(`/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
+    const afterDelete = await request(`/api/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
     expect(((await afterDelete.json()) as { targets: unknown[] }).targets).toHaveLength(0)
   })
 
@@ -172,7 +172,7 @@ describe('publish targets', () => {
     globalThis.fetch = (() => Promise.resolve(new Response('not found', { status: 404 }))) as typeof fetch
     let res: Response
     try {
-      res = await request(`/v1/extensions/${extension.id}/targets`, {
+      res = await request(`/api/v1/extensions/${extension.id}/targets`, {
         method: 'POST',
         headers: { cookie: sessionCookie, 'content-type': 'application/json' },
         body: JSON.stringify({ store: 'firefox', storeItemId: 'bogus-id', credentialId: credential.id }),
@@ -182,7 +182,7 @@ describe('publish targets', () => {
     }
     expect(res.status).toBe(502)
 
-    const list = await request(`/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
+    const list = await request(`/api/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
     expect(((await list.json()) as { targets: unknown[] }).targets).toHaveLength(0)
   })
 
@@ -198,7 +198,7 @@ describe('publish targets', () => {
     }) as typeof fetch
     let res: Response
     try {
-      res = await request(`/v1/extensions/${extension.id}/targets`, {
+      res = await request(`/api/v1/extensions/${extension.id}/targets`, {
         method: 'POST',
         headers: { cookie: sessionCookie, 'content-type': 'application/json' },
         body: JSON.stringify({ store: 'firefox', storeItemId: 'addon-1', credentialId: credential.id }),
@@ -208,7 +208,7 @@ describe('publish targets', () => {
     }
     expect(res.status).toBe(201)
 
-    const list = await request(`/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
+    const list = await request(`/api/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
     const body = (await list.json()) as { targets: Array<{ liveVersion: string | null; status: string }> }
     expect(body.targets[0]).toMatchObject({ liveVersion: '2.5.0', status: 'synced' })
   })
@@ -224,7 +224,7 @@ describe('publish targets', () => {
       return Promise.resolve(new Response(JSON.stringify({ current_version: { version: '3.0.0' } }), { status: 200 }))
     }) as typeof fetch
     try {
-      const first = await request(`/v1/extensions/${extension.id}/targets`, {
+      const first = await request(`/api/v1/extensions/${extension.id}/targets`, {
         method: 'POST',
         headers: { cookie: sessionCookie, 'content-type': 'application/json' },
         body: JSON.stringify({ store: 'firefox', storeItemId: 'addon-1', credentialId: credential.id }),
@@ -232,11 +232,11 @@ describe('publish targets', () => {
       expect(first.status).toBe(201)
       const { target } = (await first.json()) as { target: { id: string } }
 
-      await request(`/v1/extensions/${extension.id}/targets/${target.id}`, { method: 'DELETE', headers: { cookie: sessionCookie } })
+      await request(`/api/v1/extensions/${extension.id}/targets/${target.id}`, { method: 'DELETE', headers: { cookie: sessionCookie } })
 
       // deployment_versions history from the removed target is still there —
       // re-adding the same store shouldn't produce a second identical row.
-      const second = await request(`/v1/extensions/${extension.id}/targets`, {
+      const second = await request(`/api/v1/extensions/${extension.id}/targets`, {
         method: 'POST',
         headers: { cookie: sessionCookie, 'content-type': 'application/json' },
         body: JSON.stringify({ store: 'firefox', storeItemId: 'addon-1', credentialId: credential.id }),
@@ -261,7 +261,7 @@ describe('GET /v1/extensions/matrix', () => {
     const credential = await createCredential(sessionCookie, 'edge', EDGE_FIELDS)
     await addTarget(extension.id, sessionCookie, { store: 'edge', storeItemId: 'x', credentialId: credential.id })
 
-    const res = await request('/v1/extensions/matrix', { headers: { cookie: sessionCookie } })
+    const res = await request('/api/v1/extensions/matrix', { headers: { cookie: sessionCookie } })
     expect(res.status).toBe(200)
     const body = (await res.json()) as {
       extensions: Array<{ id: string; targets: Array<{ store: string; status: string; credentialStatus: string }> }>
@@ -273,7 +273,7 @@ describe('GET /v1/extensions/matrix', () => {
   it('is empty for an extension with no configured targets', async () => {
     const { sessionCookie } = await seedTenantWithUser()
     const extension = await createExtension(sessionCookie)
-    const res = await request('/v1/extensions/matrix', { headers: { cookie: sessionCookie } })
+    const res = await request('/api/v1/extensions/matrix', { headers: { cookie: sessionCookie } })
     const body = (await res.json()) as { extensions: Array<{ id: string; targets: unknown[] }> }
     expect(body.extensions.find((e) => e.id === extension.id)?.targets).toEqual([])
   })
@@ -291,7 +291,7 @@ describe('GET /v1/extensions/:id/timeline', () => {
       { id: newId('publishEvent'), tenantId, extensionId: extension.id, store: 'chrome', type: 'stale_review', payloadJson: '{}' },
     ])
 
-    const res = await request(`/v1/extensions/${extension.id}/timeline`, { headers: { cookie: sessionCookie } })
+    const res = await request(`/api/v1/extensions/${extension.id}/timeline`, { headers: { cookie: sessionCookie } })
     const body = (await res.json()) as { versions: Array<{ version: string }>; events: Array<{ type: string }> }
     expect(body.versions.map((v) => v.version)).toEqual(['1.1.0', '1.0.0'])
     expect(body.events.map((e) => e.type)).toEqual(['stale_review'])
@@ -301,7 +301,7 @@ describe('GET /v1/extensions/:id/timeline', () => {
     const a = await seedTenantWithUser()
     const b = await seedTenantWithUser()
     const extension = await createExtension(a.sessionCookie)
-    const res = await request(`/v1/extensions/${extension.id}/timeline`, { headers: { cookie: b.sessionCookie } })
+    const res = await request(`/api/v1/extensions/${extension.id}/timeline`, { headers: { cookie: b.sessionCookie } })
     expect(res.status).toBe(404)
   })
 })

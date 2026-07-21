@@ -73,7 +73,7 @@ const chromeBody = (extra?: Record<string, unknown>) =>
   })
 
 function post(cookie: string, body: string): Promise<Response> {
-  return request('/v1/credentials', {
+  return request('/api/v1/credentials', {
     method: 'POST',
     headers: { cookie, 'content-type': 'application/json' },
     body,
@@ -160,7 +160,7 @@ describe('credentials', () => {
     }
 
     stubStoreApi(400, { error: 'invalid_grant' })
-    const res = await request(`/v1/credentials/${created.credential.id}/verify`, {
+    const res = await request(`/api/v1/credentials/${created.credential.id}/verify`, {
       method: 'POST',
       headers: { cookie: sessionCookie },
     })
@@ -174,7 +174,7 @@ describe('credentials', () => {
     stubStoreApi(200, { access_token: 'at' })
     const { sessionCookie } = await seedTenantWithUser()
     await post(sessionCookie, chromeBody())
-    const res = await request('/v1/credentials', { headers: { cookie: sessionCookie } })
+    const res = await request('/api/v1/credentials', { headers: { cookie: sessionCookie } })
     const text = await res.text()
     expect(text).toContain('"hint":"abcd"')
     expect(text).not.toContain('encryptedPayload')
@@ -197,14 +197,14 @@ describe('credentials', () => {
       credentialId: created.credential.id,
     })
 
-    const blocked = await request(`/v1/credentials/${created.credential.id}`, {
+    const blocked = await request(`/api/v1/credentials/${created.credential.id}`, {
       method: 'DELETE',
       headers: { cookie: sessionCookie },
     })
     expect(blocked.status).toBe(409)
 
     await db.delete(publishTargets).where(eq(publishTargets.credentialId, created.credential.id))
-    const ok = await request(`/v1/credentials/${created.credential.id}`, {
+    const ok = await request(`/api/v1/credentials/${created.credential.id}`, {
       method: 'DELETE',
       headers: { cookie: sessionCookie },
     })
@@ -214,7 +214,7 @@ describe('credentials', () => {
   it('is session-only — API keys cannot touch credentials', async () => {
     const { sessionCookie } = await seedTenantWithUser()
     const key = await createApiKey(sessionCookie)
-    const res = await request('/v1/credentials', { headers: { authorization: `Bearer ${key}` } })
+    const res = await request('/api/v1/credentials', { headers: { authorization: `Bearer ${key}` } })
     expect(res.status).toBe(401)
   })
 })
