@@ -104,7 +104,7 @@ describe('chrome adapter — submit', () => {
       { status: 200, body: { uploadState: 'SUCCEEDED' } },
       { status: 200, body: {} },
     ])
-    const result = await createChromeAdapter(fetch).submit(await creds(), { storeItemId: ITEM }, new ArrayBuffer(8))
+    const result = await createChromeAdapter(fetch).submit(await creds(), { storeItemId: ITEM }, new ArrayBuffer(8), '1.0.0')
     expect(result).toEqual({ submitted: true })
     expect(calls[1]!.url).toBe(`https://chromewebstore.googleapis.com/upload/v2/publishers/pub-1/items/${ITEM}:upload`)
     expect(calls[2]!.url).toBe(`https://chromewebstore.googleapis.com/v2/publishers/pub-1/items/${ITEM}:publish`)
@@ -116,7 +116,7 @@ describe('chrome adapter — submit', () => {
       { status: 200, body: { access_token: 'at' } },
       { status: 200, body: { uploadState: 'FAILURE', itemError: [{ error_code: 'PKG_MANIFEST_PARSE_ERROR' }] } },
     ])
-    const result = await createChromeAdapter(fetch).submit(await creds(), { storeItemId: ITEM }, new ArrayBuffer(8))
+    const result = await createChromeAdapter(fetch).submit(await creds(), { storeItemId: ITEM }, new ArrayBuffer(8), '1.0.0')
     expect(result.submitted).toBe(false)
     expect(result.detail).toContain('PKG_MANIFEST_PARSE_ERROR')
     expect(calls).toHaveLength(2)
@@ -128,7 +128,7 @@ describe('chrome adapter — submit', () => {
       { status: 200, body: { uploadState: 'SUCCEEDED' } },
       { status: 400, body: 'bad request' },
     ])
-    const result = await createChromeAdapter(fetch).submit(await creds(), { storeItemId: ITEM }, new ArrayBuffer(8))
+    const result = await createChromeAdapter(fetch).submit(await creds(), { storeItemId: ITEM }, new ArrayBuffer(8), '1.0.0')
     expect(result.submitted).toBe(false)
   })
 })

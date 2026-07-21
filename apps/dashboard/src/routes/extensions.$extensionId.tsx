@@ -147,7 +147,7 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
                     )}
                   </TableCell>
                   <TableCell>
-                    <VersionSummary target={t} />
+                    <VersionSummary lifecycles={t.lifecycles} />
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-right">
                     {!t.enabled && (
@@ -305,23 +305,41 @@ function VersionMatrixSection({ extensionId }: { extensionId: string }) {
   const versions = data?.versions ?? []
   const events = data?.events ?? []
 
-  const stores = STORES.filter((s) => versions.some((v) => v.store === s))
+  // One column per lifecycle: plain stores get one, Safari gets one per
+  // platform present in the rows (labelled "safari (macos)" etc.).
+  const columns = STORES.flatMap((store) => {
+    const storeRows = versions.filter((v) => v.store === store)
+    if (storeRows.length === 0) return []
+    // Same platform order as the server's deriveTargetLifecycles: macos, ios.
+    const platformOrder = [null, 'macos', 'ios']
+    const platforms = [...new Set(storeRows.map((v) => v.platform ?? null))].sort(
+      (a, b) => platformOrder.indexOf(a) - platformOrder.indexOf(b),
+    )
+    return platforms.map((platform) => ({
+      key: `${store}:${platform ?? ''}`,
+      store,
+      platform,
+      label: platform ? `${store} (${platform})` : store,
+    }))
+  })
   const versionNumbers = [...new Set(versions.map((v) => v.version))].sort((a, b) => compareVersions(b, a))
 
   // The endpoint returns newest-first; keep the first (freshest) row per cell.
   const byCell = new Map<string, DeploymentVersion>()
   for (const v of versions) {
-    const key = `${v.store}:${v.version}`
+    const key = `${v.store}:${v.platform ?? ''}:${v.version}`
     if (!byCell.has(key)) byCell.set(key, v)
   }
 
   // Per column, only the MAX online version is live right now; older online
   // rows are history ("was live") and render faded so it can't read as
   // several versions being live at once.
-  const currentLive = new Map<Store, string>()
-  for (const store of stores) {
-    const online = versions.filter((v) => v.store === store && v.status === 'online').map((v) => v.version)
-    if (online.length > 0) currentLive.set(store, online.sort(compareVersions).at(-1)!)
+  const currentLive = new Map<string, string>()
+  for (const column of columns) {
+    const online = versions
+      .filter((v) => v.store === column.store && (v.platform ?? null) === column.platform && v.status === 'online')
+      .map((v) => v.version)
+    if (online.length > 0) currentLive.set(column.key, online.sort(compareVersions).at(-1)!)
   }
 
   return (
@@ -338,9 +356,9 @@ function VersionMatrixSection({ extensionId }: { extensionId: string }) {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Version</TableHead>
-                    {stores.map((s) => (
-                      <TableHead key={s} className="px-4 text-center">
-                        {s}
+                    {columns.map((column) => (
+                      <TableHead key={column.key} className="px-4 text-center">
+                        {column.label}
                       </TableHead>
                     ))}
                   </TableRow>
@@ -351,15 +369,15 @@ function VersionMatrixSection({ extensionId }: { extensionId: string }) {
                       <TableCell>
                         <code className="text-xs">{version}</code>
                       </TableCell>
-                      {stores.map((store) => {
-                        const row = byCell.get(`${store}:${version}`)
-                        if (!row) return <TableCell key={store} />
-                        const isCurrentLive = row.status === 'online' && currentLive.get(store) === version
+                      {columns.map((column) => {
+                        const row = byCell.get(`${column.store}:${column.platform ?? ''}:${version}`)
+                        if (!row) return <TableCell key={column.key} />
+                        const isCurrentLive = row.status === 'online' && currentLive.get(column.key) === version
                         const wasLive = row.status === 'online' && !isCurrentLive
                         const days = row.status === 'in_review' ? ageDays(row.submittedAt) : null
                         const { Icon, className, label } = CELL[row.status]
                         return (
-                          <TableCell key={store} className="text-center">
+                          <TableCell key={column.key} className="text-center">
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <span

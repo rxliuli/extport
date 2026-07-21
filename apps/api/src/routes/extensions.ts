@@ -7,7 +7,7 @@ import { tenantDek } from '../lib/kms'
 import { requireAuth, type AppEnv } from '../middleware/auth'
 import { queueLatestArtifact } from '../reconcile/queue'
 import { runReconciliation } from '../reconcile/run'
-import { deriveTargetStatus } from '../reconcile/status'
+import { deriveTargetLifecycles } from '../reconcile/status'
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/
 
@@ -63,14 +63,13 @@ route.get('/matrix', async (c) => {
   const targetsByExtension = new Map<string, unknown[]>()
   for (const row of targetRows) {
     const rows = versionsByExtStore.get(`${row.target.extensionId}:${row.target.store}`) ?? []
-    const derived = deriveTargetStatus(rows, row.target.lastErrorDetail)
     const entry = {
       targetId: row.target.id,
       store: row.target.store,
       enabled: row.target.enabled,
       credentialLabel: row.credential.label,
       credentialStatus: row.credential.status,
-      ...derived,
+      lifecycles: deriveTargetLifecycles(rows, row.target.lastErrorDetail),
       lastReconciledAt: row.target.lastReconciledAt,
     }
     const list = targetsByExtension.get(row.target.extensionId)
@@ -244,11 +243,12 @@ route.get('/:id/targets', async (c) => {
       id: r.target.id,
       store: r.target.store,
       storeItemId: r.target.storeItemId,
+      crxId: r.target.crxId,
       enabled: r.target.enabled,
       credentialId: r.credential.id,
       credentialLabel: r.credential.label,
       credentialStatus: r.credential.status,
-      ...deriveTargetStatus(versionsByStore.get(r.target.store) ?? [], r.target.lastErrorDetail),
+      lifecycles: deriveTargetLifecycles(versionsByStore.get(r.target.store) ?? [], r.target.lastErrorDetail),
     })),
   })
 })
@@ -303,12 +303,24 @@ route.post('/:id/targets', async (c) => {
   // persisting" contract POST /v1/credentials already applies to the
   // credential itself. This also hands back real state, so the target
   // starts with an accurate baseline instead of "—" until a later reconcile.
-  let actual
+  // Multi-platform stores (Safari) are queried once per platform — this is
+  // also how platforms become "known" lifecycles: only platforms the store
+  // actually reports something for get rows.
+  const adapter = getAdapter(store)
+  const platforms: (string | undefined)[] = adapter.platforms ? [...adapter.platforms] : [undefined]
+  const observed: { platform: string | undefined; live?: string; inReview?: string }[] = []
   try {
     const dek = await tenantDek(c.env, tenant)
     const decrypted = await decryptJson(dek, credential.encryptedPayload)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- credentials are opaque per-store, validated at save time
-    actual = await getAdapter(store).getState(decrypted as any, { storeItemId, crxId })
+    for (const platform of platforms) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- credentials are opaque per-store, validated at save time
+      const actual = await adapter.getState(decrypted as any, { storeItemId, crxId }, platform)
+      observed.push({
+        platform,
+        live: actual.live.known ? actual.live.version : undefined,
+        inReview: actual.inReview.known ? actual.inReview.version : undefined,
+      })
+    }
   } catch (err) {
     return c.json({ error: `couldn't verify this item on ${store} — check the item id and credential`, detail: (err as Error).message }, 502)
   }
@@ -335,29 +347,33 @@ route.post('/:id/targets', async (c) => {
     .select()
     .from(deploymentVersions)
     .where(and(eq(deploymentVersions.extensionId, extension.id), eq(deploymentVersions.store, store)))
-  const liveVersion = actual.live.known ? actual.live.version : undefined
-  if (liveVersion && !existingRows.some((v) => v.status === 'online' && v.version === liveVersion)) {
-    await db.insert(deploymentVersions).values({
-      id: newId('deploymentVersion'),
-      tenantId: tenant.id,
-      extensionId: extension.id,
-      store,
-      version: liveVersion,
-      artifactId: null,
-      status: 'online',
-    })
-  }
-  const inReviewVersion = actual.inReview.known ? actual.inReview.version : undefined
-  if (inReviewVersion && !existingRows.some((v) => v.status === 'in_review' && v.version === inReviewVersion)) {
-    await db.insert(deploymentVersions).values({
-      id: newId('deploymentVersion'),
-      tenantId: tenant.id,
-      extensionId: extension.id,
-      store,
-      version: inReviewVersion,
-      artifactId: null,
-      status: 'in_review',
-    })
+  for (const { platform, live, inReview } of observed) {
+    const dbPlatform = (platform ?? null) as (typeof existingRows)[number]['platform']
+    const platformRows = existingRows.filter((v) => (v.platform ?? null) === (platform ?? null))
+    if (live && !platformRows.some((v) => v.status === 'online' && v.version === live)) {
+      await db.insert(deploymentVersions).values({
+        id: newId('deploymentVersion'),
+        tenantId: tenant.id,
+        extensionId: extension.id,
+        store,
+        platform: dbPlatform,
+        version: live,
+        artifactId: null,
+        status: 'online',
+      })
+    }
+    if (inReview && !platformRows.some((v) => v.status === 'in_review' && v.version === inReview)) {
+      await db.insert(deploymentVersions).values({
+        id: newId('deploymentVersion'),
+        tenantId: tenant.id,
+        extensionId: extension.id,
+        store,
+        platform: dbPlatform,
+        version: inReview,
+        artifactId: null,
+        status: 'in_review',
+      })
+    }
   }
 
   // Pick up anything already pushed before this target existed to receive

@@ -64,3 +64,25 @@ export function deriveTargetStatus(rows: DeploymentVersion[], lastErrorDetail: s
     submittedAt: inReview?.submittedAt ?? null,
   }
 }
+
+export type TargetLifecycle = { platform: DeploymentVersion['platform'] } & DerivedTargetStatus
+
+/**
+ * A target's rows grouped into lifecycles — one per platform observed in the
+ * rows (Safari: macos/ios), or a single unnamed lifecycle for every other
+ * store (and for a fresh multi-platform target with no rows yet). The
+ * target-level lastErrorDetail applies to every lifecycle: it means
+ * reconcile couldn't even reach the store, which is true for all of them.
+ */
+export function deriveTargetLifecycles(rows: DeploymentVersion[], lastErrorDetail: string | null): TargetLifecycle[] {
+  const order = (p: DeploymentVersion['platform']) => (p === null ? 0 : p === 'macos' ? 1 : 2)
+  const platforms = [...new Set(rows.map((v) => v.platform ?? null))].sort((a, b) => order(a) - order(b))
+  if (platforms.length === 0) platforms.push(null)
+  return platforms.map((platform) => ({
+    platform,
+    ...deriveTargetStatus(
+      rows.filter((v) => (v.platform ?? null) === platform),
+      lastErrorDetail,
+    ),
+  }))
+}

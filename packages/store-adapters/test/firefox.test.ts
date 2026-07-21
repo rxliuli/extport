@@ -49,7 +49,7 @@ describe('firefox adapter — submit', () => {
       { status: 200, body: { processed: true, valid: true } },
       { status: 201, body: {} },
     ])
-    const result = await createFirefoxAdapter(fetch).submit(creds, { storeItemId: ADDON }, new ArrayBuffer(8))
+    const result = await createFirefoxAdapter(fetch).submit(creds, { storeItemId: ADDON }, new ArrayBuffer(8), '1.0.0')
     expect(result).toEqual({ submitted: true })
     expect(calls[0]!.url).toBe('https://addons.mozilla.org/api/v5/addons/upload/')
     expect(calls[2]!.url).toBe(`https://addons.mozilla.org/api/v5/addons/addon/${ADDON}/versions/`)
@@ -64,7 +64,7 @@ describe('firefox adapter — submit', () => {
       { status: 200, body: { processed: true, valid: true } },
       { status: 201, body: {} },
     ])
-    const result = await createFirefoxAdapter(fetch, FAST_POLL).submit(creds, { storeItemId: ADDON }, new ArrayBuffer(8))
+    const result = await createFirefoxAdapter(fetch, FAST_POLL).submit(creds, { storeItemId: ADDON }, new ArrayBuffer(8), '1.0.0')
     expect(result).toEqual({ submitted: true })
     expect(calls).toHaveLength(5)
   })
@@ -75,7 +75,7 @@ describe('firefox adapter — submit', () => {
       ...Array.from({ length: FAST_POLL.attempts }, () => ({ status: 200, body: { processed: false } })),
     ]
     const { fetch, calls } = queueFetch(entries)
-    const result = await createFirefoxAdapter(fetch, FAST_POLL).submit(creds, { storeItemId: ADDON }, new ArrayBuffer(8))
+    const result = await createFirefoxAdapter(fetch, FAST_POLL).submit(creds, { storeItemId: ADDON }, new ArrayBuffer(8), '1.0.0')
     expect(result.submitted).toBe(true)
     expect(result.detail).toMatch(/still validating/)
     // upload + FAST_POLL.attempts polls, no version-create call
@@ -87,7 +87,7 @@ describe('firefox adapter — submit', () => {
       { status: 200, body: { uuid: 'u1' } },
       { status: 200, body: { processed: true, valid: false, validation: { messages: ['bad manifest'] } } },
     ])
-    const result = await createFirefoxAdapter(fetch).submit(creds, { storeItemId: ADDON }, new ArrayBuffer(8))
+    const result = await createFirefoxAdapter(fetch).submit(creds, { storeItemId: ADDON }, new ArrayBuffer(8), '1.0.0')
     expect(result.submitted).toBe(false)
     expect(result.detail).toContain('bad manifest')
     expect(calls).toHaveLength(2)
@@ -95,7 +95,7 @@ describe('firefox adapter — submit', () => {
 
   it('reports a rejected upload immediately', async () => {
     const { fetch } = queueFetch([{ status: 400, body: 'invalid zip' }])
-    const result = await createFirefoxAdapter(fetch).submit(creds, { storeItemId: ADDON }, new ArrayBuffer(8))
+    const result = await createFirefoxAdapter(fetch).submit(creds, { storeItemId: ADDON }, new ArrayBuffer(8), '1.0.0')
     expect(result.submitted).toBe(false)
     expect(result.detail).toContain('invalid zip')
   })

@@ -68,7 +68,7 @@ export function parsePushArgs(argv, env) {
 
   const apiKey = flags['api-key'] ?? env.EXTPORT_API_KEY
   if (!apiKey) throw new Error('missing API key: set EXTPORT_API_KEY or pass --api-key')
-  const apiUrl = (flags['api-url'] ?? env.EXTPORT_API_URL ?? 'https://api.extport.dev').replace(/\/+$/, '')
+  const apiUrl = (flags['api-url'] ?? env.EXTPORT_API_URL ?? 'https://dash.extport.dev').replace(/\/+$/, '')
 
   return { file, extension, version, store, apiUrl, apiKey }
 }

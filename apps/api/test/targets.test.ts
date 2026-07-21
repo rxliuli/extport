@@ -209,8 +209,8 @@ describe('publish targets', () => {
     expect(res.status).toBe(201)
 
     const list = await request(`/api/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
-    const body = (await list.json()) as { targets: Array<{ liveVersion: string | null; status: string }> }
-    expect(body.targets[0]).toMatchObject({ liveVersion: '2.5.0', status: 'synced' })
+    const body = (await list.json()) as { targets: Array<{ lifecycles: Array<{ liveVersion: string | null; status: string }> }> }
+    expect(body.targets[0]!.lifecycles).toEqual([expect.objectContaining({ platform: null, liveVersion: '2.5.0', status: 'synced' })])
   })
 
   it('does not duplicate baseline rows when a target is removed and re-added for the same store', async () => {
@@ -267,7 +267,13 @@ describe('GET /v1/extensions/matrix', () => {
       extensions: Array<{ id: string; targets: Array<{ store: string; status: string; credentialStatus: string }> }>
     }
     const entry = body.extensions.find((e) => e.id === extension.id)
-    expect(entry?.targets).toEqual([expect.objectContaining({ store: 'edge', status: 'synced', credentialStatus: 'active' })])
+    expect(entry?.targets).toEqual([
+      expect.objectContaining({
+        store: 'edge',
+        credentialStatus: 'active',
+        lifecycles: [expect.objectContaining({ platform: null, status: 'synced' })],
+      }),
+    ])
   })
 
   it('is empty for an extension with no configured targets', async () => {

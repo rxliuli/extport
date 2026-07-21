@@ -14,7 +14,7 @@ describe('parsePushArgs', () => {
       extension: 'my-ext',
       version: '1.2.3',
       store: 'chrome',
-      apiUrl: 'https://api.extport.dev',
+      apiUrl: 'https://dash.extport.dev',
     })
   })
 

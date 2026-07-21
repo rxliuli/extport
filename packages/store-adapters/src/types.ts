@@ -25,6 +25,15 @@ export type CredentialCheck =
 
 export interface SubmissionResult {
   submitted: boolean
+  /**
+   * True = "couldn't submit yet, but nothing is wrong — leave the version
+   * queued and retry next tick." Distinct from a plain failure (which the
+   * reconciler records as a target error): Safari waits for a binary the
+   * tenant's macOS pipeline uploads out-of-band, Edge waits out its package
+   * validation poll window. Neither deserves an error event, let alone an
+   * error email per tick.
+   */
+  waiting?: boolean
   detail?: string
 }
 
@@ -46,18 +55,32 @@ export interface StoreTarget {
 /**
  * One implementation per store (chrome | firefox | edge | safari).
  * Credentials arrive already decrypted (tenant DEK) and must never be logged.
+ *
+ * `platforms`: stores where one listing spans several independent review
+ * timelines declare them here (Safari: macos + ios) and the reconciler runs
+ * one full lifecycle per platform, passing it back into every call below.
+ * Undefined = one unnamed lifecycle, platform arguments are never passed.
+ *
+ * `version` on submit: chrome/firefox/edge upload the artifact zip, which
+ * carries its own version. Safari's binary never travels through extport —
+ * the tenant's macOS pipeline uploads it to App Store Connect directly
+ * (docs/safari-pipeline.md), so submit() needs to be told which queued
+ * version it is orchestrating.
  */
 export interface StoreAdapter<TCredentials = unknown> {
   readonly store: Store
+  readonly platforms?: readonly string[]
   verifyCredentials(credentials: TCredentials): Promise<CredentialCheck>
-  getState(credentials: TCredentials, target: StoreTarget): Promise<StoreState>
+  getState(credentials: TCredentials, target: StoreTarget, platform?: string): Promise<StoreState>
   submit(
     credentials: TCredentials,
     target: StoreTarget,
     artifact: ArrayBuffer,
+    version: string,
+    platform?: string,
   ): Promise<SubmissionResult>
   /** Only stores that can cancel an in-review submission implement this (Chrome, Safari). */
-  withdraw?(credentials: TCredentials, target: StoreTarget): Promise<void>
+  withdraw?(credentials: TCredentials, target: StoreTarget, platform?: string): Promise<void>
 }
 
 // Credential payload shapes stored (encrypted) in store_credentials.encrypted_payload.

@@ -192,31 +192,36 @@ async function maybeEmitStaleReview(db: Db, notifier: Notifier, row: JoinedRow, 
 }
 
 /**
- * One (extension, store) target through a full reconcile tick. Throws on any
- * failure — the caller catches per-target and persists the error uniformly,
- * so a bad target never takes its siblings down with it.
- *
- * `versionRows` are every deployment_versions row for this (extension, store),
- * regardless of status — the resolve step below mutates them in place as it
- * observes what the store reports, then decide() only needs to know whether a
- * queued and/or in_review row remain active.
+ * One lifecycle — (extension, store, platform) — through a full reconcile
+ * tick. Single-lifecycle stores pass platform=undefined; Safari runs this
+ * once per platform (docs/safari-pipeline.md), each with its own queued/
+ * in_review rows and its own store queries.
  */
-async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow, credentials: unknown, versionRows: DeploymentVersion[]): Promise<'noop' | 'submitted' | 'blocked'> {
+async function reconcileLifecycle(
+  env: Env,
+  db: Db,
+  notifier: Notifier,
+  row: JoinedRow,
+  credentials: unknown,
+  lifecycleRows: DeploymentVersion[],
+  platform: string | undefined,
+): Promise<'noop' | 'submitted' | 'blocked'> {
   const { target } = row
   const adapter = getAdapter(target.store)
   const storeTarget = { storeItemId: target.storeItemId, crxId: target.crxId ?? undefined }
+  const dbPlatform = (platform ?? null) as DeploymentVersion['platform']
 
-  let queued = versionRows.find((v) => v.status === 'queued') ?? null
-  let inReview = versionRows.find((v) => v.status === 'in_review') ?? null
+  let queued = lifecycleRows.find((v) => v.status === 'queued') ?? null
+  let inReview = lifecycleRows.find((v) => v.status === 'in_review') ?? null
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- credentials are opaque per-store, validated at save time
-  const actual = await adapter.getState(credentials as any, storeTarget)
+  const actual = await adapter.getState(credentials as any, storeTarget, platform)
 
   // --- resolve step: reflect whatever the store told us this tick ---
   const liveReport = actual.live
   if (liveReport.known && liveReport.version) {
     const liveVersion = liveReport.version
-    const alreadyRecordedOnline = versionRows.some((v) => v.status === 'online' && v.version === liveVersion)
+    const alreadyRecordedOnline = lifecycleRows.some((v) => v.status === 'online' && v.version === liveVersion)
     if (!alreadyRecordedOnline) {
       if (inReview && inReview.version === liveVersion) {
         await db.update(deploymentVersions).set({ status: 'online', statusDetail: null }).where(eq(deploymentVersions.id, inReview.id))
@@ -231,6 +236,7 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
           tenantId: row.extension.tenantId,
           extensionId: target.extensionId,
           store: target.store,
+          platform: dbPlatform,
           version: liveVersion,
           artifactId: null,
           status: 'online',
@@ -262,6 +268,7 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
         tenantId: row.extension.tenantId,
         extensionId: target.extensionId,
         store: target.store,
+        platform: dbPlatform,
         version: inReviewVersion,
         artifactId: null,
         status: 'in_review',
@@ -269,26 +276,6 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
     }
     inReview = { version: inReviewVersion, submittedAt: null } as DeploymentVersion
   }
-
-  // Got this far without the store call throwing — the target itself is healthy,
-  // whatever went wrong on a previous tick (if anything) no longer applies.
-  // `recovered` closes the story the `error` transition event opened; audit
-  // trail only, no email (whoever fixed it already knows). The in-memory row
-  // is cleared too so a failure later in this same tick (e.g. submit throwing
-  // below) still registers as a fresh healthy → erroring transition.
-  if (target.lastErrorDetail) {
-    await db.update(publishTargets).set({ lastErrorDetail: null, lastErrorAt: null }).where(eq(publishTargets.id, target.id))
-    await db.insert(publishEvents).values({
-      id: newId('publishEvent'),
-      tenantId: row.extension.tenantId,
-      extensionId: row.extension.id,
-      store: target.store,
-      type: 'recovered',
-      payloadJson: '{}',
-    })
-    target.lastErrorDetail = null
-  }
-  await db.update(publishTargets).set({ lastReconciledAt: new Date().toISOString() }).where(eq(publishTargets.id, target.id))
 
   await maybeEmitStaleReview(db, notifier, row, inReview)
 
@@ -304,8 +291,18 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
   const bytes = await object.arrayBuffer()
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = await adapter.submit(credentials as any, storeTarget, bytes)
-  if (!result.submitted) throw new Error(result.detail ?? `${target.store} submit failed without a detail message`)
+  const result = await adapter.submit(credentials as any, storeTarget, bytes, queued!.version, platform)
+  if (!result.submitted) {
+    if (result.waiting) {
+      // Not an error — e.g. Safari waiting for the tenant's macOS pipeline
+      // to upload a binary, or Edge's validation outlasting the poll window.
+      // Keep the row queued and surface the reason where the dashboard shows
+      // details, then retry next tick.
+      await db.update(deploymentVersions).set({ statusDetail: result.detail ?? null }).where(eq(deploymentVersions.id, queued!.id))
+      return 'noop'
+    }
+    throw new Error(result.detail ?? `${target.store} submit failed without a detail message`)
+  }
 
   await db
     .update(deploymentVersions)
@@ -313,6 +310,54 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
     .where(eq(deploymentVersions.id, queued!.id))
   await notify(notifier, row, 'submitted', { version: queued!.version, detail: result.detail })
   return 'submitted'
+}
+
+/**
+ * One (extension, store) target through a full reconcile tick — one
+ * lifecycle per adapter-declared platform (or a single unnamed one). Throws
+ * on any failure — the caller catches per-target and persists the error
+ * uniformly, so a bad target never takes its siblings down with it.
+ */
+async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow, credentials: unknown, versionRows: DeploymentVersion[]): Promise<'noop' | 'submitted' | 'blocked'> {
+  const { target } = row
+  const adapter = getAdapter(target.store)
+  const platforms: (string | undefined)[] = adapter.platforms ? [...adapter.platforms] : [undefined]
+
+  let submitted = false
+  let blocked = false
+  let healthConfirmed = false
+  for (const platform of platforms) {
+    const lifecycleRows = versionRows.filter((v) => (v.platform ?? null) === (platform ?? null))
+    const outcome = await reconcileLifecycle(env, db, notifier, row, credentials, lifecycleRows, platform)
+
+    // First lifecycle got past the store call — the target itself is healthy,
+    // whatever went wrong on a previous tick no longer applies. `recovered`
+    // closes the story the `error` transition event opened; audit trail only,
+    // no email (whoever fixed it already knows). The in-memory row is cleared
+    // too so a failure later in this same tick still registers as a fresh
+    // healthy → erroring transition.
+    if (!healthConfirmed) {
+      healthConfirmed = true
+      if (target.lastErrorDetail) {
+        await db.update(publishTargets).set({ lastErrorDetail: null, lastErrorAt: null }).where(eq(publishTargets.id, target.id))
+        await db.insert(publishEvents).values({
+          id: newId('publishEvent'),
+          tenantId: row.extension.tenantId,
+          extensionId: row.extension.id,
+          store: target.store,
+          type: 'recovered',
+          payloadJson: '{}',
+        })
+        target.lastErrorDetail = null
+      }
+    }
+
+    if (outcome === 'submitted') submitted = true
+    else if (outcome === 'blocked') blocked = true
+  }
+  await db.update(publishTargets).set({ lastReconciledAt: new Date().toISOString() }).where(eq(publishTargets.id, target.id))
+
+  return submitted ? 'submitted' : blocked ? 'blocked' : 'noop'
 }
 
 /**

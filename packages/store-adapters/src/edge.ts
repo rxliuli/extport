@@ -79,7 +79,9 @@ async function submit(
     poll,
   )
   if (!validated) {
-    return { submitted: false, detail: 'package validation still in progress after the poll window — will retry next reconcile' }
+    // Not a failure — validation just outlasted our poll window. `waiting`
+    // keeps the version queued without recording a target error each tick.
+    return { submitted: false, waiting: true, detail: 'package validation still in progress after the poll window — will retry next reconcile' }
   }
   if (validated.status !== 'Succeeded') {
     return { submitted: false, detail: `package validation failed: ${validated.errorCode ?? ''} ${truncate(validated.message ?? '')}`.trim() }

@@ -1,4 +1,4 @@
-import type { SafariCredentials, CredentialCheck, StoreAdapter, StoreState } from './types'
+import type { SafariCredentials, CredentialCheck, StoreAdapter, StoreState, StoreTarget, SubmissionResult } from './types'
 import { signJwtES256 } from './jwt'
 import { truncate, type FetchLike } from './util'
 
@@ -19,6 +19,20 @@ const LIVE_STATES = new Set([
   'PROCESSING_FOR_DISTRIBUTION',
 ])
 
+/**
+ * One App Store Connect app spans macOS and iOS with fully independent
+ * version/review timelines — these are the reconciler-facing platform names
+ * (deployment_versions.platform) mapped to ASC's enum.
+ */
+export const SAFARI_PLATFORMS = ['macos', 'ios'] as const
+const ASC_PLATFORM: Record<string, string> = { macos: 'MAC_OS', ios: 'IOS' }
+
+function ascPlatform(platform: string | undefined): string {
+  const mapped = platform ? ASC_PLATFORM[platform] : undefined
+  if (!mapped) throw new Error(`safari adapter requires a platform (macos | ios), got ${JSON.stringify(platform)}`)
+  return mapped
+}
+
 /** App Store Connect: ES256 JWT from a .p8 key (App Manager role recommended). */
 export async function ascAuthHeader(credentials: SafariCredentials): Promise<string> {
   const now = Math.floor(Date.now() / 1000)
@@ -36,23 +50,14 @@ export async function ascAuthHeader(credentials: SafariCredentials): Promise<str
 
 const RELEVANT_STATES = [...LIVE_STATES, ...IN_REVIEW_STATES, ...REJECTED_STATES]
 
-async function getState(credentials: SafariCredentials, appId: string, fetchImpl: FetchLike): Promise<StoreState> {
+async function getState(credentials: SafariCredentials, appId: string, platform: string, fetchImpl: FetchLike): Promise<StoreState> {
   const authorization = await ascAuthHeader(credentials)
   // No `sort` param exists on this endpoint (confirmed against the API docs —
-  // requesting one is a 400) — filter server-side by the states we actually
-  // care about instead of paging through everything and hoping the version
-  // we want is recent enough to be in a small, arbitrarily-ordered page.
-  //
-  // MAC_OS only, deliberately: one ASC app covers both macOS and iOS with
-  // independent per-platform version timelines, and without this filter the
-  // response mixes them in arbitrary order — first-match would flip between
-  // platforms whenever their versions diverge. Tracking macOS alone is an
-  // explicit interim stance, not a limitation of the API; per-platform
-  // lifecycles (one safari target, two tracked timelines) are deferred to
-  // the Safari submit pipeline work (spec §8), which is what actually needs
-  // them.
+  // requesting one is a 400) — filter server-side by platform and by the
+  // states we actually care about instead of paging through everything and
+  // hoping the version we want is in a small, arbitrarily-ordered page.
   const res = await fetchImpl(
-    `${API_BASE}/v1/apps/${appId}/appStoreVersions?limit=10&filter[platform]=MAC_OS&filter[appVersionState]=${RELEVANT_STATES.join(',')}&fields[appStoreVersions]=versionString,appVersionState`,
+    `${API_BASE}/v1/apps/${appId}/appStoreVersions?limit=10&filter[platform]=${ascPlatform(platform)}&filter[appVersionState]=${RELEVANT_STATES.join(',')}&fields[appStoreVersions]=versionString,appVersionState`,
     { headers: { authorization } },
   )
   if (!res.ok) throw new Error(`app store connect versions lookup failed (${res.status}): ${truncate(await res.text())}`)
@@ -83,10 +88,150 @@ async function getState(credentials: SafariCredentials, appId: string, fetchImpl
   }
 }
 
-async function withdraw(credentials: SafariCredentials, appId: string, fetchImpl: FetchLike): Promise<void> {
+interface AscResource {
+  id: string
+  attributes?: Record<string, unknown>
+}
+
+/**
+ * Orchestrates a review submission for a binary the tenant's macOS pipeline
+ * already uploaded to App Store Connect (docs/safari-pipeline.md — the ASC
+ * REST API cannot upload binaries, so extport never sees them; the artifact
+ * bytes passed by the reconciler are the web-extension zip and are ignored).
+ *
+ * Steps: find a processed build for (version, platform) — `waiting` until
+ * one exists — then create/reuse the appStoreVersion, attach the build, and
+ * submit through the reviewSubmissions flow. Idempotent against partial
+ * progress from an earlier failed tick (reuses an existing version row and
+ * an open draft submission, skips an already-added item).
+ */
+async function submit(
+  credentials: SafariCredentials,
+  appId: string,
+  version: string,
+  platform: string,
+  fetchImpl: FetchLike,
+): Promise<SubmissionResult> {
   const authorization = await ascAuthHeader(credentials)
+  const headers = { authorization, 'content-type': 'application/json' }
+  const platformValue = ascPlatform(platform)
+
+  const fail = async (step: string, res: Response): Promise<SubmissionResult> => ({
+    submitted: false,
+    detail: `${step} failed (${res.status}): ${truncate(await res.text())}`,
+  })
+
+  // 1. A processed build must already exist — uploaded out-of-band by the
+  //    tenant's macOS pipeline. Until it appears this is a normal wait, not
+  //    an error.
+  const buildsRes = await fetchImpl(
+    `${API_BASE}/v1/builds?filter[app]=${appId}&filter[preReleaseVersion.version]=${encodeURIComponent(version)}&filter[preReleaseVersion.platform]=${platformValue}&filter[processingState]=VALID&filter[expired]=false&limit=1`,
+    { headers: { authorization } },
+  )
+  if (!buildsRes.ok) return fail('build lookup', buildsRes)
+  const build = ((await buildsRes.json()) as { data?: AscResource[] }).data?.[0]
+  if (!build) {
+    return {
+      submitted: false,
+      waiting: true,
+      detail: `waiting for a processed ${platform} build of v${version} to appear in App Store Connect`,
+    }
+  }
+
+  // 2. Create or reuse the appStoreVersion for this (platform, version).
+  const versionsRes = await fetchImpl(
+    `${API_BASE}/v1/apps/${appId}/appStoreVersions?filter[platform]=${platformValue}&filter[versionString]=${encodeURIComponent(version)}&limit=1`,
+    { headers: { authorization } },
+  )
+  if (!versionsRes.ok) return fail('version lookup', versionsRes)
+  let appStoreVersion = ((await versionsRes.json()) as { data?: AscResource[] }).data?.[0]
+  if (!appStoreVersion) {
+    const createRes = await fetchImpl(`${API_BASE}/v1/appStoreVersions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        data: {
+          type: 'appStoreVersions',
+          attributes: { platform: platformValue, versionString: version },
+          relationships: { app: { data: { type: 'apps', id: appId } } },
+        },
+      }),
+    })
+    if (!createRes.ok) return fail('version create', createRes)
+    appStoreVersion = ((await createRes.json()) as { data: AscResource }).data
+  }
+
+  // 3. Attach the build to the version.
+  const attachRes = await fetchImpl(`${API_BASE}/v1/appStoreVersions/${appStoreVersion.id}/relationships/build`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ data: { type: 'builds', id: build.id } }),
+  })
+  if (!attachRes.ok) return fail('build attach', attachRes)
+
+  // 4. Reuse an open draft review submission for this platform, or create one.
+  const openRes = await fetchImpl(
+    `${API_BASE}/v1/apps/${appId}/reviewSubmissions?filter[platform]=${platformValue}&filter[state]=READY_FOR_REVIEW&limit=1`,
+    { headers: { authorization } },
+  )
+  if (!openRes.ok) return fail('review submission lookup', openRes)
+  let submission = ((await openRes.json()) as { data?: AscResource[] }).data?.[0]
+  if (!submission) {
+    const createSubRes = await fetchImpl(`${API_BASE}/v1/reviewSubmissions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        data: {
+          type: 'reviewSubmissions',
+          attributes: { platform: platformValue },
+          relationships: { app: { data: { type: 'apps', id: appId } } },
+        },
+      }),
+    })
+    if (!createSubRes.ok) return fail('review submission create', createSubRes)
+    submission = ((await createSubRes.json()) as { data: AscResource }).data
+  }
+
+  // 5. Add the version as a submission item (skip if a retry already did).
+  const itemsRes = await fetchImpl(`${API_BASE}/v1/reviewSubmissions/${submission.id}/items?limit=50`, {
+    headers: { authorization },
+  })
+  if (!itemsRes.ok) return fail('submission items lookup', itemsRes)
+  const items = ((await itemsRes.json()) as { data?: { relationships?: { appStoreVersion?: { data?: { id?: string } } } }[] }).data ?? []
+  const alreadyAdded = items.some((item) => item.relationships?.appStoreVersion?.data?.id === appStoreVersion.id)
+  if (!alreadyAdded) {
+    const addItemRes = await fetchImpl(`${API_BASE}/v1/reviewSubmissionItems`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        data: {
+          type: 'reviewSubmissionItems',
+          relationships: {
+            reviewSubmission: { data: { type: 'reviewSubmissions', id: submission.id } },
+            appStoreVersion: { data: { type: 'appStoreVersions', id: appStoreVersion.id } },
+          },
+        },
+      }),
+    })
+    if (!addItemRes.ok) return fail('submission item add', addItemRes)
+  }
+
+  // 6. Submit for review.
+  const submitRes = await fetchImpl(`${API_BASE}/v1/reviewSubmissions/${submission.id}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ data: { type: 'reviewSubmissions', id: submission.id, attributes: { submitted: true } } }),
+  })
+  if (!submitRes.ok) return fail('review submit', submitRes)
+
+  return { submitted: true, detail: `submitted ${platform} v${version} (build ${build.id}) for App Store review` }
+}
+
+async function withdraw(credentials: SafariCredentials, appId: string, platform: string | undefined, fetchImpl: FetchLike): Promise<void> {
+  const authorization = await ascAuthHeader(credentials)
+  const platformFilter = platform ? `&filter[platform]=${ascPlatform(platform)}` : ''
   const lookupRes = await fetchImpl(
-    `${API_BASE}/v1/apps/${appId}/reviewSubmissions?filter[state]=WAITING_FOR_REVIEW,IN_REVIEW&limit=1`,
+    `${API_BASE}/v1/apps/${appId}/reviewSubmissions?filter[state]=WAITING_FOR_REVIEW,IN_REVIEW${platformFilter}&limit=1`,
     { headers: { authorization } },
   )
   if (!lookupRes.ok) {
@@ -109,15 +254,16 @@ async function withdraw(credentials: SafariCredentials, appId: string, fetchImpl
 }
 
 /**
- * App Store Connect API. `submit` is intentionally unimplemented: this API
- * cannot upload a binary — a build must come from an external macOS pipeline
- * (Xcode/Transporter) first. That pipeline is spec §8 (docs/safari-pipeline.md),
- * not yet built. `getState`/`withdraw` are pure REST and work today against
- * any app/build the tenant already manages manually.
+ * App Store Connect API. The binary itself never travels through extport —
+ * the ASC API cannot upload one; the tenant's macOS pipeline builds and
+ * uploads it out-of-band, and submit() here only orchestrates the review
+ * (find build → version → attach → submit), waiting until the build shows
+ * up. See docs/safari-pipeline.md (spec §8).
  */
 export function createSafariAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o)): StoreAdapter<SafariCredentials> {
   return {
     store: 'safari',
+    platforms: SAFARI_PLATFORMS,
     async verifyCredentials(credentials): Promise<CredentialCheck> {
       let authorization: string
       try {
@@ -130,14 +276,9 @@ export function createSafariAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o)
       if (res.status >= 500) throw new Error(`app store connect unavailable (${res.status})`)
       return { ok: false, reason: `app store connect rejected the key: ${truncate(await res.text())}` }
     },
-    getState: (credentials, target) => getState(credentials, target.storeItemId, fetchImpl),
-    submit: () =>
-      Promise.reject(
-        new Error(
-          'safari.submit is not implemented: the App Store Connect API cannot upload a binary — a build must be ' +
-            'produced by an external macOS pipeline (Xcode/Transporter) first. See docs/safari-pipeline.md (spec §8).',
-        ),
-      ),
-    withdraw: (credentials, target) => withdraw(credentials, target.storeItemId, fetchImpl),
+    getState: (credentials, target: StoreTarget, platform?: string) => getState(credentials, target.storeItemId, platform ?? 'macos', fetchImpl),
+    submit: (credentials, target, _artifact, version, platform) =>
+      submit(credentials, target.storeItemId, version, platform ?? 'macos', fetchImpl),
+    withdraw: (credentials, target, platform) => withdraw(credentials, target.storeItemId, platform, fetchImpl),
   }
 }

@@ -15,6 +15,7 @@ import {
 } from '../src/db'
 import { provisionTenantDek, tenantDek } from '../src/lib/kms'
 import type { Notification, Notifier } from '../src/lib/notify'
+import { isVersionRegression, queueLatestArtifact } from '../src/reconcile/queue'
 import { runReconciliation } from '../src/reconcile/run'
 import { createApiKey, createExtension, request, seedTenantWithUser } from './helpers'
 
@@ -487,6 +488,205 @@ describe('runReconciliation — failure isolation', () => {
     expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 1 })
     const target = await targetFor(db, extensionId)
     expect(target.lastErrorDetail).toMatch(/missing from R2/)
+  })
+})
+
+// ES256 test key for the safari adapter's real JWT signing.
+async function makeP8(): Promise<string> {
+  const pair = (await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign'])) as CryptoKeyPair
+  const pkcs8 = new Uint8Array((await crypto.subtle.exportKey('pkcs8', pair.privateKey)) as ArrayBuffer)
+  let binary = ''
+  for (const b of pkcs8) binary += String.fromCharCode(b)
+  return `-----BEGIN PRIVATE KEY-----\n${btoa(binary)}\n-----END PRIVATE KEY-----`
+}
+
+interface SafariVersionSeed {
+  version: string
+  status: DeploymentVersion['status']
+  platform: 'macos' | 'ios'
+  submittedAt?: string
+}
+
+async function setupSafariScenario(opts: { artifacts?: { version: string }[]; versions?: SafariVersionSeed[] } = {}) {
+  const db = createDb(env.DB)
+  const tenantId = newId('tenant')
+  const dekInfo = await provisionTenantDek(env)
+  await db.insert(tenants).values({
+    id: tenantId,
+    name: 't',
+    email: 't@test.com',
+    dekEncrypted: dekInfo.dekEncrypted,
+    dekKeyVersion: dekInfo.dekKeyVersion,
+  })
+  const extensionId = newId('extension')
+  await db.insert(extensions).values({
+    id: extensionId,
+    tenantId,
+    name: 'Ext',
+    slug: `ext-${extensionId.slice(-10).toLowerCase()}`,
+    publishingEnabled: true,
+  })
+  const dek = await tenantDek(env, dekInfo)
+  const encryptedPayload = await encryptJson(dek, { keyId: 'K1', issuerId: 'iss-1', privateKeyP8: await makeP8() })
+  const credentialId = newId('storeCredential')
+  await db.insert(storeCredentials).values({
+    id: credentialId,
+    tenantId,
+    store: 'safari',
+    label: 'safari',
+    hint: 'K1K1',
+    encryptedPayload,
+    keyVersion: dekInfo.dekKeyVersion,
+  })
+  await db.insert(publishTargets).values({
+    id: newId('publishTarget'),
+    tenantId,
+    extensionId,
+    store: 'safari',
+    storeItemId: 'app-1',
+    credentialId,
+  })
+  const artifactIdByVersion = new Map<string, string>()
+  for (const a of opts.artifacts ?? []) {
+    const r2Key = `artifacts/${tenantId}/${extensionId}/${a.version}/universal.zip`
+    const artifactId = newId('artifact')
+    await db.insert(artifacts).values({
+      id: artifactId,
+      tenantId,
+      extensionId,
+      version: a.version,
+      store: null,
+      source: 'cli_upload',
+      r2Key,
+      sha256: 'a'.repeat(64),
+      size: 4,
+    })
+    await env.ARTIFACTS.put(r2Key, new Uint8Array([1, 2, 3, 4]))
+    artifactIdByVersion.set(a.version, artifactId)
+  }
+  for (const v of opts.versions ?? []) {
+    await db.insert(deploymentVersions).values({
+      id: newId('deploymentVersion'),
+      tenantId,
+      extensionId,
+      store: 'safari',
+      platform: v.platform,
+      version: v.version,
+      status: v.status,
+      artifactId: v.status === 'queued' ? (artifactIdByVersion.get(v.version) ?? null) : null,
+      submittedAt: v.submittedAt,
+    })
+  }
+  return { db, tenantId, extensionId }
+}
+
+function ascVersion(versionString: string, appVersionState: string) {
+  return { attributes: { versionString, appVersionState } }
+}
+
+describe('runReconciliation — safari per-platform lifecycles', () => {
+  it('waits (queued, no error) while the macOS build has not appeared in ASC yet', async () => {
+    const { db, tenantId, extensionId } = await setupSafariScenario({
+      artifacts: [{ version: '0.0.2' }],
+      versions: [
+        { version: '0.0.1', status: 'online', platform: 'macos' },
+        { version: '0.0.2', status: 'queued', platform: 'macos' },
+      ],
+    })
+    globalThis.fetch = routedFetch([
+      {
+        test: (u) => u.includes('appVersionState') && u.includes('=MAC_OS'),
+        respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
+      },
+      { test: (u) => u.includes('appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
+      { test: (u) => u.includes('/v1/builds'), respond: () => ({ status: 200, body: { data: [] } }) },
+    ]).fetch
+    const { notifier, sent } = recordingNotifier()
+
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
+    expect(summary.errors).toBe(0)
+    expect(summary.submitted).toBe(0)
+
+    const rows = await versionsFor(db, extensionId)
+    const queued = rows.find((v) => v.version === '0.0.2')!
+    expect(queued.status).toBe('queued')
+    expect(queued.statusDetail).toMatch(/waiting for a processed macos build/)
+    expect((await eventsFor(db, extensionId)).filter((e) => e.type === 'error')).toHaveLength(0)
+    expect(sent).toHaveLength(0)
+  })
+
+  it('submits the macOS lifecycle once its build exists, without touching the untracked iOS lifecycle', async () => {
+    const { db, tenantId, extensionId } = await setupSafariScenario({
+      artifacts: [{ version: '0.0.2' }],
+      versions: [
+        { version: '0.0.1', status: 'online', platform: 'macos' },
+        { version: '0.0.2', status: 'queued', platform: 'macos' },
+      ],
+    })
+    globalThis.fetch = routedFetch([
+      {
+        test: (u) => u.includes('appVersionState') && u.includes('=MAC_OS'),
+        respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
+      },
+      { test: (u) => u.includes('appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
+      { test: (u) => u.includes('/v1/builds'), respond: () => ({ status: 200, body: { data: [{ id: 'build-1' }] } }) },
+      {
+        test: (u) => u.includes('appStoreVersions') && u.includes('versionString'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+      { test: (u, i) => u.endsWith('/v1/appStoreVersions') && i?.method === 'POST', respond: () => ({ status: 201, body: { data: { id: 'ver-1' } } }) },
+      { test: (u, i) => u.includes('/relationships/build') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+      {
+        test: (u) => u.includes('reviewSubmissions') && u.includes('READY_FOR_REVIEW'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+      { test: (u, i) => u.endsWith('/v1/reviewSubmissions') && i?.method === 'POST', respond: () => ({ status: 201, body: { data: { id: 'sub-1' } } }) },
+      { test: (u) => u.includes('/reviewSubmissions/sub-1/items'), respond: () => ({ status: 200, body: { data: [] } }) },
+      { test: (u, i) => u.endsWith('/v1/reviewSubmissionItems') && i?.method === 'POST', respond: () => ({ status: 201, body: {} }) },
+      { test: (u, i) => u.endsWith('/v1/reviewSubmissions/sub-1') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+    ]).fetch
+    const { notifier, sent } = recordingNotifier()
+
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
+    expect(summary).toMatchObject({ submitted: 1, errors: 0 })
+
+    const rows = await versionsFor(db, extensionId)
+    const macos = rows.find((v) => v.version === '0.0.2' && v.platform === 'macos')!
+    expect(macos.status).toBe('in_review')
+    expect(macos.submittedAt).not.toBeNull()
+    // The iOS lifecycle was never observed to exist — no phantom rows.
+    expect(rows.filter((v) => v.platform === 'ios')).toHaveLength(0)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.subject).toContain('v0.0.2')
+  })
+})
+
+describe('queueLatestArtifact — platform-aware', () => {
+  it('queues only for lifecycles where the version is newer, and never invents platforms', async () => {
+    const { db, tenantId, extensionId } = await setupSafariScenario({
+      artifacts: [{ version: '0.0.2' }],
+      versions: [
+        { version: '0.0.1', status: 'online', platform: 'macos' },
+        { version: '0.0.3', status: 'online', platform: 'ios' },
+      ],
+    })
+    await queueLatestArtifact(db, tenantId, extensionId, 'safari')
+    const rows = await versionsFor(db, extensionId)
+    const queued = rows.filter((v) => v.status === 'queued')
+    expect(queued).toHaveLength(1)
+    expect(queued[0]).toMatchObject({ version: '0.0.2', platform: 'macos' })
+  })
+
+  it('isVersionRegression accepts a push that helps at least one platform, rejects one that helps none', async () => {
+    const { db, extensionId } = await setupSafariScenario({
+      versions: [
+        { version: '0.0.1', status: 'online', platform: 'macos' },
+        { version: '0.0.3', status: 'online', platform: 'ios' },
+      ],
+    })
+    expect(await isVersionRegression(db, extensionId, 'safari', '0.0.2')).toBe(false) // newer for macos
+    expect(await isVersionRegression(db, extensionId, 'safari', '0.0.1')).toBe(true) // newer for nothing
+    expect(await isVersionRegression(db, extensionId, 'safari', '0.0.4')).toBe(false) // newer everywhere
   })
 })
 

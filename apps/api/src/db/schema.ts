@@ -188,6 +188,12 @@ export const deploymentVersions = sqliteTable(
     extensionId: text('extension_id').notNull().references(() => extensions.id),
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
     version: text('version').notNull(),
+    // Safari only: one App Store Connect app spans macOS and iOS with fully
+    // independent review timelines, so each platform runs its own lifecycle
+    // (docs/safari-pipeline.md). Null for every single-lifecycle store. The
+    // "at most one active queued + one in_review" invariant is per
+    // (extension, store, platform).
+    platform: text('platform', { enum: ['macos', 'ios'] }),
     // null = this row wasn't pushed through extport — it's a baseline the
     // reconciler observed already live when a store target was first added
     // (or a manual publish that happened outside extport).

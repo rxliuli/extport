@@ -88,7 +88,7 @@ function ExtensionsPage() {
                       const target = ext.targets.find((t) => t.store === s)
                       return (
                         <TableCell key={s}>
-                          {target ? <VersionSummary target={target} /> : <span className="text-muted-foreground/50">—</span>}
+                          {target ? <VersionSummary lifecycles={target.lifecycles} /> : <span className="text-muted-foreground/50">—</span>}
                         </TableCell>
                       )
                     })}

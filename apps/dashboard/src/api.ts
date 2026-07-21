@@ -16,7 +16,14 @@ export type Store = 'chrome' | 'firefox' | 'edge' | 'safari'
 /** The current, derived status for a (extension, store) target — see apps/api's reconcile/status.ts. */
 export type DeploymentStatus = 'synced' | 'queued' | 'in_review' | 'blocked' | 'rejected' | 'error'
 
-interface DerivedTargetStatus {
+export type SafariPlatform = 'macos' | 'ios'
+
+/**
+ * One lifecycle's current state. Most stores have exactly one (platform
+ * null); Safari has one per platform the app actually ships.
+ */
+export interface TargetLifecycle {
+  platform: SafariPlatform | null
   /** Coarse summary — for at-a-glance color/priority only, never paired with a single version for display. */
   status: DeploymentStatus
   liveVersion: string | null
@@ -30,12 +37,13 @@ interface DerivedTargetStatus {
   submittedAt: string | null
 }
 
-export interface MatrixTarget extends DerivedTargetStatus {
+export interface MatrixTarget {
   targetId: string
   store: Store
   enabled: boolean
   credentialLabel: string
   credentialStatus: 'active' | 'invalid' | 'expiring'
+  lifecycles: TargetLifecycle[]
   /** ISO date string (Date -> JSON) */
   lastReconciledAt: string | null
 }
@@ -48,7 +56,7 @@ export interface MatrixExtension {
   targets: MatrixTarget[]
 }
 
-export interface PublishTarget extends DerivedTargetStatus {
+export interface PublishTarget {
   id: string
   store: Store
   storeItemId: string
@@ -58,12 +66,15 @@ export interface PublishTarget extends DerivedTargetStatus {
   credentialId: string
   credentialLabel: string
   credentialStatus: 'active' | 'invalid' | 'expiring'
+  lifecycles: TargetLifecycle[]
 }
 
 /** One row per (extension, store, version) push — the Timeline's main content. See apps/api's deployment_versions table. */
 export interface DeploymentVersion {
   id: string
   store: Store
+  /** Safari only: which of the app's platforms this lifecycle row belongs to. */
+  platform: SafariPlatform | null
   version: string
   status: 'queued' | 'in_review' | 'online' | 'rejected' | 'skipped'
   statusDetail: string | null

@@ -61,7 +61,7 @@ describe('edge adapter — submit', () => {
       { status: 200, body: { status: 'Succeeded' } },
       { status: 202 },
     ])
-    const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8))
+    const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
     expect(result).toEqual({ submitted: true })
     expect(calls[0]!.url).toBe(`https://api.addons.microsoftedge.microsoft.com/v1/products/${PRODUCT}/submissions/draft/package`)
     expect(calls[1]!.url).toBe(`https://api.addons.microsoftedge.microsoft.com/v1/products/${PRODUCT}/submissions/draft/package/operations/op-1`)
@@ -76,7 +76,7 @@ describe('edge adapter — submit', () => {
       { status: 200, body: { status: 'Succeeded' } },
       { status: 202 },
     ])
-    const result = await createEdgeAdapter(fetch, FAST_POLL).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8))
+    const result = await createEdgeAdapter(fetch, FAST_POLL).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
     expect(result).toEqual({ submitted: true })
     expect(calls).toHaveLength(4)
   })
@@ -87,7 +87,7 @@ describe('edge adapter — submit', () => {
       ...Array.from({ length: FAST_POLL.attempts }, () => ({ status: 200, body: { status: 'InProgress' } })),
     ]
     const { fetch, calls } = queueFetch(entries)
-    const result = await createEdgeAdapter(fetch, FAST_POLL).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8))
+    const result = await createEdgeAdapter(fetch, FAST_POLL).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
     expect(result.submitted).toBe(false)
     expect(result.detail).toMatch(/still in progress/)
     // upload + FAST_POLL.attempts polls, no submissions call
@@ -99,7 +99,7 @@ describe('edge adapter — submit', () => {
       { status: 202, headers: OP_LOCATION },
       { status: 200, body: { status: 'Failed', errorCode: 'PackageValidationFailure', message: 'bad manifest' } },
     ])
-    const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8))
+    const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
     expect(result.submitted).toBe(false)
     expect(result.detail).toContain('PackageValidationFailure')
     expect(result.detail).toContain('bad manifest')
@@ -108,14 +108,14 @@ describe('edge adapter — submit', () => {
 
   it('reports a rejected package upload immediately', async () => {
     const { fetch, calls } = queueFetch([{ status: 400, body: 'bad zip' }])
-    const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8))
+    const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
     expect(result.submitted).toBe(false)
     expect(calls).toHaveLength(1)
   })
 
   it('fails cleanly when no operation id comes back', async () => {
     const { fetch, calls } = queueFetch([{ status: 202 }])
-    const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8))
+    const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
     expect(result.submitted).toBe(false)
     expect(result.detail).toMatch(/operation id/)
     expect(calls).toHaveLength(1)
@@ -127,7 +127,7 @@ describe('edge adapter — submit', () => {
       { status: 200, body: { status: 'Succeeded' } },
       { status: 400, body: 'InProgressSubmission' },
     ])
-    const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8))
+    const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
     expect(result.submitted).toBe(false)
   })
 })
