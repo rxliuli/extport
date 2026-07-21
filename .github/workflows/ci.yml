@@ -1,0 +1,34 @@
+name: CI
+
+# Tests and typecheck only — building and deploying is Cloudflare Workers
+# Builds' job (the repo is connected to the Worker in the Cloudflare
+# dashboard; every push to main builds the dashboard, applies D1 migrations,
+# and deploys from Cloudflare's own pipeline, no API token in GitHub).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The workers-pool integration tests read secrets from .dev.vars
+      # (gitignored) — any structurally valid KEK works, tests provision
+      # their own tenant DEKs wrapped by whatever KEK is present.
+      - name: Create throwaway .dev.vars for tests
+        run: |
+          {
+            echo "KEK_V1=$(openssl rand -base64 32)"
+            echo "GITHUB_CLIENT_SECRET=ci-placeholder"
+            echo "DASHBOARD_URL=http://localhost:5173"
+          } > apps/api/.dev.vars
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
