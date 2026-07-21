@@ -635,6 +635,14 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
       { test: (u, i) => u.endsWith('/v1/appStoreVersions') && i?.method === 'POST', respond: () => ({ status: 201, body: { data: { id: 'ver-1' } } }) },
       { test: (u, i) => u.includes('/relationships/build') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
       {
+        test: (u) => u.includes('appStoreVersionLocalizations') && u.includes('/ver-1/'),
+        respond: () => ({ status: 200, body: { data: [{ id: 'loc-1', attributes: { whatsNew: null } }] } }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/appStoreVersionLocalizations/loc-1') && i?.method === 'PATCH',
+        respond: () => ({ status: 200, body: {} }),
+      },
+      {
         test: (u) => u.includes('reviewSubmissions') && u.includes('READY_FOR_REVIEW'),
         respond: () => ({ status: 200, body: { data: [] } }),
       },
@@ -656,6 +664,80 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
     expect(rows.filter((v) => v.platform === 'ios')).toHaveLength(0)
     expect(sent).toHaveLength(1)
     expect(sent[0]!.subject).toContain('v0.0.2')
+  })
+
+  it('one platform failing does not stop its sibling from submitting', async () => {
+    const { db, tenantId, extensionId } = await setupSafariScenario({
+      artifacts: [{ version: '0.0.2' }],
+      versions: [
+        { version: '0.0.1', status: 'online', platform: 'macos' },
+        { version: '0.0.2', status: 'queued', platform: 'macos' },
+        { version: '0.0.1', status: 'online', platform: 'ios' },
+        { version: '0.0.2', status: 'queued', platform: 'ios' },
+      ],
+    })
+    globalThis.fetch = routedFetch([
+      {
+        test: (u) => u.includes('appVersionState') && u.includes('=MAC_OS'),
+        respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
+      },
+      {
+        test: (u) => u.includes('appVersionState') && u.includes('=IOS'),
+        respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
+      },
+      { test: (u) => u.includes('/v1/builds') && u.includes('=MAC_OS'), respond: () => ({ status: 200, body: { data: [{ id: 'build-mac' }] } }) },
+      { test: (u) => u.includes('/v1/builds') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [{ id: 'build-ios' }] } }) },
+      {
+        test: (u) => u.includes('appStoreVersions') && u.includes('versionString') && u.includes('=MAC_OS'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+      {
+        test: (u) => u.includes('appStoreVersions') && u.includes('versionString') && u.includes('=IOS'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/appStoreVersions') && i?.method === 'POST' && String(i.body).includes('MAC_OS'),
+        respond: () => ({ status: 201, body: { data: { id: 'ver-mac' } } }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/appStoreVersions') && i?.method === 'POST' && String(i.body).includes('IOS'),
+        respond: () => ({ status: 201, body: { data: { id: 'ver-ios' } } }),
+      },
+      { test: (u, i) => u.includes('/appStoreVersions/ver-mac/relationships/build') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+      { test: (u, i) => u.includes('/appStoreVersions/ver-ios/relationships/build') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+      // macOS's own localizations lookup fails — this platform's only failure.
+      { test: (u) => u.includes('/appStoreVersions/ver-mac/appStoreVersionLocalizations'), respond: () => ({ status: 500, body: 'boom' }) },
+      {
+        test: (u) => u.includes('/appStoreVersions/ver-ios/appStoreVersionLocalizations'),
+        respond: () => ({ status: 200, body: { data: [{ id: 'loc-ios', attributes: { whatsNew: null } }] } }),
+      },
+      { test: (u, i) => u.endsWith('/v1/appStoreVersionLocalizations/loc-ios') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+      { test: (u) => u.includes('reviewSubmissions') && u.includes('READY_FOR_REVIEW'), respond: () => ({ status: 200, body: { data: [] } }) },
+      { test: (u, i) => u.endsWith('/v1/reviewSubmissions') && i?.method === 'POST', respond: () => ({ status: 201, body: { data: { id: 'sub-ios' } } }) },
+      { test: (u) => u.includes('/reviewSubmissions/sub-ios/items'), respond: () => ({ status: 200, body: { data: [] } }) },
+      { test: (u, i) => u.endsWith('/v1/reviewSubmissionItems') && i?.method === 'POST', respond: () => ({ status: 201, body: {} }) },
+      { test: (u, i) => u.endsWith('/v1/reviewSubmissions/sub-ios') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+    ]).fetch
+    const { notifier, sent } = recordingNotifier()
+
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
+    expect(summary).toMatchObject({ errors: 1 })
+
+    const rows = await versionsFor(db, extensionId)
+    const ios = rows.find((v) => v.version === '0.0.2' && v.platform === 'ios')!
+    expect(ios.status).toBe('in_review')
+    expect(ios.submittedAt).not.toBeNull()
+    const macos = rows.find((v) => v.version === '0.0.2' && v.platform === 'macos')!
+    expect(macos.status).toBe('queued')
+
+    const target = await targetFor(db, extensionId)
+    expect(target.lastErrorDetail).toMatch(/macos: .*localizations lookup failed/)
+
+    const events = await eventsFor(db, extensionId)
+    expect(events.filter((e) => e.type === 'error')).toHaveLength(1)
+    expect(events.filter((e) => e.type === 'recovered')).toHaveLength(0)
+    expect(sent.some((n) => n.subject.includes('v0.0.2 submitted'))).toBe(true)
+    expect(sent.some((n) => n.subject.includes('publishing error'))).toBe(true)
   })
 })
 

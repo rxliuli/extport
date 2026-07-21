@@ -27,6 +27,9 @@ const LIVE_STATES = new Set([
 export const SAFARI_PLATFORMS = ['macos', 'ios'] as const
 const ASC_PLATFORM: Record<string, string> = { macos: 'MAC_OS', ios: 'IOS' }
 
+/** Filled into empty "What's New" fields — required for review, not inherited. */
+const DEFAULT_WHATS_NEW = 'Bug fixes and improvements.'
+
 function ascPlatform(platform: string | undefined): string {
   const mapped = platform ? ASC_PLATFORM[platform] : undefined
   if (!mapped) throw new Error(`safari adapter requires a platform (macos | ios), got ${JSON.stringify(platform)}`)
@@ -168,6 +171,32 @@ async function submit(
     body: JSON.stringify({ data: { type: 'builds', id: build.id } }),
   })
   if (!attachRes.ok) return fail('build attach', attachRes)
+
+  // 3.5 The App Store requires per-version release notes ("What's New")
+  //     before a version may enter review, and they are NOT inherited from
+  //     the previous version — a freshly created version always lacks them,
+  //     which Apple surfaces as a cryptic 409 on the submission item ("is
+  //     not in valid state"). Fill exactly the localizations that are empty;
+  //     notes someone hand-wrote in App Store Connect always win. Default
+  //     text matches safari-webext-publish-action's release-notes default.
+  const locsRes = await fetchImpl(
+    `${API_BASE}/v1/appStoreVersions/${appStoreVersion.id}/appStoreVersionLocalizations?limit=50`,
+    { headers: { authorization } },
+  )
+  if (!locsRes.ok) return fail('localizations lookup', locsRes)
+  const localizations = ((await locsRes.json()) as { data?: AscResource[] }).data ?? []
+  for (const localization of localizations) {
+    const whatsNew = localization.attributes?.whatsNew
+    if (typeof whatsNew === 'string' && whatsNew.trim()) continue
+    const notesRes = await fetchImpl(`${API_BASE}/v1/appStoreVersionLocalizations/${localization.id}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({
+        data: { type: 'appStoreVersionLocalizations', id: localization.id, attributes: { whatsNew: DEFAULT_WHATS_NEW } },
+      }),
+    })
+    if (!notesRes.ok) return fail('release notes update', notesRes)
+  }
 
   // 4. Reuse an open draft review submission for this platform, or create one.
   const openRes = await fetchImpl(

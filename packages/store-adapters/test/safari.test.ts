@@ -103,12 +103,14 @@ describe('safari adapter — submit (review orchestration, binary uploaded out-o
     expect(calls[0]!.url).toContain('filter[processingState]=VALID')
   })
 
-  it('runs the full flow: build → create version → attach → create submission → add item → submit', async () => {
+  it('runs the full flow: build → create version → attach → release notes → create submission → add item → submit', async () => {
     const { fetch, calls } = queueFetch([
       { status: 200, body: { data: [{ id: 'build-1' }] } }, // builds lookup
       { status: 200, body: { data: [] } }, // version lookup — none yet
       { status: 201, body: { data: { id: 'ver-1' } } }, // create version
       { status: 200, body: {} }, // attach build
+      { status: 200, body: { data: [{ id: 'loc-1', attributes: { whatsNew: null } }] } }, // localizations — empty notes
+      { status: 200, body: {} }, // PATCH whatsNew
       { status: 200, body: { data: [] } }, // open submissions — none
       { status: 201, body: { data: { id: 'sub-1' } } }, // create submission
       { status: 200, body: { data: [] } }, // items lookup — empty
@@ -124,11 +126,41 @@ describe('safari adapter — submit (review orchestration, binary uploaded out-o
     expect(createVersion.data.attributes).toEqual({ platform: 'IOS', versionString: '1.2.0' })
     expect(calls[3]!.url).toBe('https://api.appstoreconnect.apple.com/v1/appStoreVersions/ver-1/relationships/build')
     expect(JSON.parse(String(calls[3]!.init?.body)).data.id).toBe('build-1')
-    const addItem = JSON.parse(String(calls[7]!.init?.body))
+    expect(calls[4]!.url).toContain('/v1/appStoreVersions/ver-1/appStoreVersionLocalizations')
+    const notes = JSON.parse(String(calls[5]!.init?.body))
+    expect(calls[5]!.url).toContain('/v1/appStoreVersionLocalizations/loc-1')
+    expect(notes.data.attributes.whatsNew).toBe('Bug fixes and improvements.')
+    const addItem = JSON.parse(String(calls[9]!.init?.body))
     expect(addItem.data.relationships.reviewSubmission.data.id).toBe('sub-1')
     expect(addItem.data.relationships.appStoreVersion.data.id).toBe('ver-1')
-    const patch = JSON.parse(String(calls[8]!.init?.body))
+    const patch = JSON.parse(String(calls[10]!.init?.body))
     expect(patch.data.attributes.submitted).toBe(true)
+  })
+
+  it('fills "What\'s New" only where it is empty — hand-written notes win', async () => {
+    const { fetch, calls } = queueFetch([
+      { status: 200, body: { data: [{ id: 'build-1' }] } },
+      { status: 200, body: { data: [{ id: 'ver-1' }] } },
+      { status: 200, body: {} }, // attach build
+      {
+        status: 200,
+        body: {
+          data: [
+            { id: 'loc-en', attributes: { whatsNew: 'Hand-written release notes.' } },
+            { id: 'loc-zh', attributes: { whatsNew: '' } },
+          ],
+        },
+      },
+      { status: 200, body: {} }, // PATCH whatsNew — loc-zh only
+      { status: 200, body: { data: [{ id: 'sub-1' }] } },
+      { status: 200, body: { data: [{ relationships: { appStoreVersion: { data: { id: 'ver-1' } } } }] } },
+      { status: 200, body: {} }, // PATCH submitted:true
+    ])
+    const result = await createSafariAdapter(fetch).submit(await creds(), { storeItemId: APP_ID }, zip, '1.2.0', 'macos')
+    expect(result.submitted).toBe(true)
+    const notePatches = calls.filter((c) => c.url.includes('/v1/appStoreVersionLocalizations/'))
+    expect(notePatches).toHaveLength(1)
+    expect(notePatches[0]!.url).toContain('loc-zh')
   })
 
   it('is idempotent against partial progress — reuses the version, the open draft, and an already-added item', async () => {
@@ -136,6 +168,7 @@ describe('safari adapter — submit (review orchestration, binary uploaded out-o
       { status: 200, body: { data: [{ id: 'build-1' }] } }, // builds lookup
       { status: 200, body: { data: [{ id: 'ver-1' }] } }, // version already exists
       { status: 200, body: {} }, // attach build
+      { status: 200, body: { data: [{ id: 'loc-1', attributes: { whatsNew: 'Bug fixes and improvements.' } }] } }, // notes already set
       { status: 200, body: { data: [{ id: 'sub-1' }] } }, // open draft submission exists
       { status: 200, body: { data: [{ relationships: { appStoreVersion: { data: { id: 'ver-1' } } } }] } }, // item already added
       { status: 200, body: {} }, // PATCH submitted:true

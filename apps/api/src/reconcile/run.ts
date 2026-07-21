@@ -314,9 +314,10 @@ async function reconcileLifecycle(
 
 /**
  * One (extension, store) target through a full reconcile tick — one
- * lifecycle per adapter-declared platform (or a single unnamed one). Throws
- * on any failure — the caller catches per-target and persists the error
- * uniformly, so a bad target never takes its siblings down with it.
+ * lifecycle per adapter-declared platform (or a single unnamed one), each
+ * isolated so one platform's failure can't stall its siblings. Rethrows the
+ * collected failures at the end — the caller catches per-target and persists
+ * the error uniformly, so a bad target never takes its siblings down with it.
  */
 async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow, credentials: unknown, versionRows: DeploymentVersion[]): Promise<'noop' | 'submitted' | 'blocked'> {
   const { target } = row
@@ -325,37 +326,40 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
 
   let submitted = false
   let blocked = false
-  let healthConfirmed = false
+  const failures: string[] = []
   for (const platform of platforms) {
     const lifecycleRows = versionRows.filter((v) => (v.platform ?? null) === (platform ?? null))
-    const outcome = await reconcileLifecycle(env, db, notifier, row, credentials, lifecycleRows, platform)
-
-    // First lifecycle got past the store call — the target itself is healthy,
-    // whatever went wrong on a previous tick no longer applies. `recovered`
-    // closes the story the `error` transition event opened; audit trail only,
-    // no email (whoever fixed it already knows). The in-memory row is cleared
-    // too so a failure later in this same tick still registers as a fresh
-    // healthy → erroring transition.
-    if (!healthConfirmed) {
-      healthConfirmed = true
-      if (target.lastErrorDetail) {
-        await db.update(publishTargets).set({ lastErrorDetail: null, lastErrorAt: null }).where(eq(publishTargets.id, target.id))
-        await db.insert(publishEvents).values({
-          id: newId('publishEvent'),
-          tenantId: row.extension.tenantId,
-          extensionId: row.extension.id,
-          store: target.store,
-          type: 'recovered',
-          payloadJson: '{}',
-        })
-        target.lastErrorDetail = null
-      }
+    try {
+      const outcome = await reconcileLifecycle(env, db, notifier, row, credentials, lifecycleRows, platform)
+      if (outcome === 'submitted') submitted = true
+      else if (outcome === 'blocked') blocked = true
+    } catch (err) {
+      // One platform's failure must not abandon its siblings — a macOS
+      // metadata problem shouldn't stall the iOS submission. Collected and
+      // rethrown below so the caller records the target's error as usual.
+      failures.push(platform ? `${platform}: ${(err as Error).message}` : (err as Error).message)
     }
+  }
 
-    if (outcome === 'submitted') submitted = true
-    else if (outcome === 'blocked') blocked = true
+  // Health is target-level: cleared (with a `recovered` audit event, no
+  // email — whoever fixed it already knows) only when EVERY lifecycle got
+  // through cleanly. Clearing on a partial success would flip the target
+  // healthy → erroring every tick while one platform stays broken, and each
+  // flip would re-send the transition email.
+  if (failures.length === 0 && target.lastErrorDetail) {
+    await db.update(publishTargets).set({ lastErrorDetail: null, lastErrorAt: null }).where(eq(publishTargets.id, target.id))
+    await db.insert(publishEvents).values({
+      id: newId('publishEvent'),
+      tenantId: row.extension.tenantId,
+      extensionId: row.extension.id,
+      store: target.store,
+      type: 'recovered',
+      payloadJson: '{}',
+    })
+    target.lastErrorDetail = null
   }
   await db.update(publishTargets).set({ lastReconciledAt: new Date().toISOString() }).where(eq(publishTargets.id, target.id))
+  if (failures.length > 0) throw new Error(failures.join('\n'))
 
   return submitted ? 'submitted' : blocked ? 'blocked' : 'noop'
 }
