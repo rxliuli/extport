@@ -1,4 +1,5 @@
 import { api, ApiError, type ApiKeyRow, type CredentialRow } from '@/api'
+import { DatePicker } from '@/components/date-picker'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -156,7 +157,7 @@ function CredentialsSection() {
   const { data: rows = [] } = useQuery(credentialsQuery)
   const [store, setStore] = useState<CredentialRow['store']>('chrome')
   const [label, setLabel] = useState('')
-  const [expiresAt, setExpiresAt] = useState('')
+  const [expiresAt, setExpiresAt] = useState<Date | undefined>(undefined)
   const [fields, setFields] = useState<Record<string, string>>({})
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: credentialsQuery.queryKey })
@@ -168,14 +169,14 @@ function CredentialsSection() {
         body: JSON.stringify({
           store,
           label: label || undefined,
-          expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
+          expiresAt: expiresAt ? expiresAt.toISOString() : undefined,
           credentials: fields,
         }),
       }),
     onSuccess: () => {
       setFields({})
       setLabel('')
-      setExpiresAt('')
+      setExpiresAt(undefined)
       void invalidate()
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -281,7 +282,7 @@ function CredentialsSection() {
                 <Label htmlFor="expiry" className="text-xs text-muted-foreground">
                   API key expiry (rotates every ~72 days)
                 </Label>
-                <Input id="expiry" type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+                <DatePicker id="expiry" value={expiresAt} onChange={setExpiresAt} />
               </div>
             )}
             <Button type="submit" disabled={add.isPending} className="justify-self-start">
