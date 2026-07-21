@@ -34,10 +34,25 @@ export async function ascAuthHeader(credentials: SafariCredentials): Promise<str
   return `Bearer ${jwt}`
 }
 
+const RELEVANT_STATES = [...LIVE_STATES, ...IN_REVIEW_STATES, ...REJECTED_STATES]
+
 async function getState(credentials: SafariCredentials, appId: string, fetchImpl: FetchLike): Promise<StoreState> {
   const authorization = await ascAuthHeader(credentials)
+  // No `sort` param exists on this endpoint (confirmed against the API docs —
+  // requesting one is a 400) — filter server-side by the states we actually
+  // care about instead of paging through everything and hoping the version
+  // we want is recent enough to be in a small, arbitrarily-ordered page.
+  //
+  // MAC_OS only, deliberately: one ASC app covers both macOS and iOS with
+  // independent per-platform version timelines, and without this filter the
+  // response mixes them in arbitrary order — first-match would flip between
+  // platforms whenever their versions diverge. Tracking macOS alone is an
+  // explicit interim stance, not a limitation of the API; per-platform
+  // lifecycles (one safari target, two tracked timelines) are deferred to
+  // the Safari submit pipeline work (spec §8), which is what actually needs
+  // them.
   const res = await fetchImpl(
-    `${API_BASE}/v1/apps/${appId}/appStoreVersions?limit=5&sort=-createdDate&fields[appStoreVersions]=versionString,appVersionState`,
+    `${API_BASE}/v1/apps/${appId}/appStoreVersions?limit=10&filter[platform]=MAC_OS&filter[appVersionState]=${RELEVANT_STATES.join(',')}&fields[appStoreVersions]=versionString,appVersionState`,
     { headers: { authorization } },
   )
   if (!res.ok) throw new Error(`app store connect versions lookup failed (${res.status}): ${truncate(await res.text())}`)
@@ -115,7 +130,7 @@ export function createSafariAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o)
       if (res.status >= 500) throw new Error(`app store connect unavailable (${res.status})`)
       return { ok: false, reason: `app store connect rejected the key: ${truncate(await res.text())}` }
     },
-    getState: (credentials, appId) => getState(credentials, appId, fetchImpl),
+    getState: (credentials, target) => getState(credentials, target.storeItemId, fetchImpl),
     submit: () =>
       Promise.reject(
         new Error(
@@ -123,6 +138,6 @@ export function createSafariAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o)
             'produced by an external macOS pipeline (Xcode/Transporter) first. See spec §8 (Safari conversion pipeline).',
         ),
       ),
-    withdraw: (credentials, appId) => withdraw(credentials, appId, fetchImpl),
+    withdraw: (credentials, target) => withdraw(credentials, target.storeItemId, fetchImpl),
   }
 }

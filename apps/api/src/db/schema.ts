@@ -120,6 +120,12 @@ export const publishTargets = sqliteTable(
     extensionId: text('extension_id').notNull().references(() => extensions.id),
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
     storeItemId: text('store_item_id').notNull(),
+    // Edge only: Partner Center's Submission API needs storeItemId to be the
+    // internal GUID Product ID, but its public store-detail page (used as a
+    // getState fallback, since the Submission API can't query status at all)
+    // is keyed by the store-facing crx id instead — two different Microsoft
+    // ID namespaces for the same listing. Unused by every other store.
+    crxId: text('crx_id'),
     credentialId: text('credential_id').notNull().references(() => storeCredentials.id),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().$defaultFn(() => true),
     // Operational health, not business state — never touches a specific

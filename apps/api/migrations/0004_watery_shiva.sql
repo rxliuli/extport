@@ -1,0 +1,1 @@
+ALTER TABLE `publish_targets` ADD `crx_id` text;

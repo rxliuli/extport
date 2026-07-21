@@ -29,20 +29,35 @@ export interface SubmissionResult {
 }
 
 /**
+ * `storeItemId` is whatever identifies this listing to the store's real
+ * submission/management API — the thing that actually mutates state.
+ * `crxId` exists only for Edge: Partner Center's Submission API requires an
+ * internal GUID "Product ID" (storeItemId) that has no query endpoint at
+ * all, while the public store-detail page (used as a best-effort getState
+ * fallback) is keyed by the store-facing extension id instead — two
+ * different Microsoft ID namespaces for the same listing. Every other store
+ * uses one id for everything and ignores crxId.
+ */
+export interface StoreTarget {
+  storeItemId: string
+  crxId?: string
+}
+
+/**
  * One implementation per store (chrome | firefox | edge | safari).
  * Credentials arrive already decrypted (tenant DEK) and must never be logged.
  */
 export interface StoreAdapter<TCredentials = unknown> {
   readonly store: Store
   verifyCredentials(credentials: TCredentials): Promise<CredentialCheck>
-  getState(credentials: TCredentials, storeItemId: string): Promise<StoreState>
+  getState(credentials: TCredentials, target: StoreTarget): Promise<StoreState>
   submit(
     credentials: TCredentials,
-    storeItemId: string,
+    target: StoreTarget,
     artifact: ArrayBuffer,
   ): Promise<SubmissionResult>
   /** Only stores that can cancel an in-review submission implement this (Chrome, Safari). */
-  withdraw?(credentials: TCredentials, storeItemId: string): Promise<void>
+  withdraw?(credentials: TCredentials, target: StoreTarget): Promise<void>
 }
 
 // Credential payload shapes stored (encrypted) in store_credentials.encrypted_payload.

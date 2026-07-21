@@ -1,4 +1,4 @@
-import type { CredentialCheck, EdgeCredentials, StoreAdapter, StoreState, SubmissionResult } from './types'
+import type { CredentialCheck, EdgeCredentials, StoreAdapter, StoreState, StoreTarget, SubmissionResult } from './types'
 import { pollUntil, truncate, type FetchLike } from './util'
 
 const API_BASE = 'https://api.addons.microsoftedge.microsoft.com'
@@ -101,7 +101,7 @@ async function submit(
 
 const UNOBSERVABLE: StoreState = { live: { known: false }, inReview: { known: false } }
 
-async function getState(crxId: string, fetchImpl: FetchLike): Promise<StoreState> {
+async function getState(target: StoreTarget, fetchImpl: FetchLike): Promise<StoreState> {
   // Confirmed API gap: Partner Center has no endpoint to query live/pending
   // version at all. As a best-effort fallback, ask the same endpoint the
   // public store detail page uses — it can only tell us the *live* version
@@ -112,6 +112,12 @@ async function getState(crxId: string, fetchImpl: FetchLike): Promise<StoreState
   // ever make Edge's state more informative, never less reliable. See
   // apps/api/src/reconcile/decide.ts's merge rule for what `known: false`
   // ("unobservable", preserve whatever we already knew) means downstream.
+  //
+  // This endpoint is keyed by the store-facing crx id, not the Partner
+  // Center Product ID `submit()` needs (see StoreTarget) — falls back to
+  // storeItemId for targets created before crxId existed as a field; those
+  // predate this fallback anyway (storeItemId held the crx id back then).
+  const crxId = target.crxId ?? target.storeItemId
   try {
     const res = await fetchImpl(`${STORE_DETAIL_URL}/${encodeURIComponent(crxId)}`)
     if (!res.ok) return UNOBSERVABLE
@@ -146,8 +152,8 @@ export function createEdgeAdapter(
       if (res.status === 404 || res.ok) return { ok: true }
       throw new Error(`edge api unexpected response (${res.status})`)
     },
-    getState: (_credentials, crxId) => getState(crxId, fetchImpl),
-    submit: (credentials, productId, artifact) => submit(credentials, productId, artifact, fetchImpl, poll),
+    getState: (_credentials, target) => getState(target, fetchImpl),
+    submit: (credentials, target, artifact) => submit(credentials, target.storeItemId, artifact, fetchImpl, poll),
     // No withdraw: Partner Center's "Cancel submission" is UI-only, not part of the public API.
   }
 }

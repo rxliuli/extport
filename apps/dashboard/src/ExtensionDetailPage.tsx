@@ -30,6 +30,7 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
   const [store, setStore] = useState<Store>('chrome')
   const [credentialId, setCredentialId] = useState('')
   const [storeItemId, setStoreItemId] = useState('')
+  const [crxId, setCrxId] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   const reload = () => api<{ targets: PublishTarget[] }>(`/v1/extensions/${extensionId}/targets`).then((r) => setTargets(r.targets))
@@ -56,9 +57,15 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
     try {
       await api(`/v1/extensions/${extensionId}/targets`, {
         method: 'POST',
-        body: JSON.stringify({ store: selectedStore, credentialId: selectedCredentialId, storeItemId }),
+        body: JSON.stringify({
+          store: selectedStore,
+          credentialId: selectedCredentialId,
+          storeItemId,
+          ...(selectedStore === 'edge' && crxId ? { crxId } : {}),
+        }),
       })
       setStoreItemId('')
+      setCrxId('')
       setCredentialId('')
       await reload()
     } catch (err) {
@@ -100,6 +107,14 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
                 <td>{t.store}</td>
                 <td>
                   <code>{t.storeItemId}</code>
+                  {t.crxId && (
+                    <>
+                      <br />
+                      <span style={{ fontSize: 12, color: '#666' }}>
+                        crx: <code>{t.crxId}</code>
+                      </span>
+                    </>
+                  )}
                 </td>
                 <td>
                   {t.credentialLabel}{' '}
@@ -150,13 +165,27 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
             <input
               value={storeItemId}
               onChange={(e) => setStoreItemId(e.target.value)}
-              placeholder="Store item id"
+              placeholder={selectedStore === 'edge' ? 'Product ID (Partner Center → Extension identity)' : 'Store item id'}
               required
             />
+            {selectedStore === 'edge' && (
+              <input
+                value={crxId}
+                onChange={(e) => setCrxId(e.target.value)}
+                placeholder="CRX ID (optional — public status lookups)"
+              />
+            )}
             <button type="submit" disabled={matchingCredentials.length === 0}>
               Add
             </button>
           </form>
+          {selectedStore === 'edge' && (
+            <p style={{ fontSize: 13, color: '#666' }}>
+              Partner Center's submission API and its public status page use two different ids for the same
+              listing — Product ID is required for publishing; CRX ID is optional and only improves live-version
+              detection between reconciles.
+            </p>
+          )}
           {matchingCredentials.length === 0 && (
             <p style={{ fontSize: 13, color: '#666' }}>
               No {selectedStore} credential yet — add one in Settings → Store credentials first.

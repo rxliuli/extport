@@ -141,8 +141,8 @@ export function createFirefoxAdapter(
       if (res.status >= 500) throw new Error(`amo unavailable (${res.status})`)
       return { ok: false, reason: `amo rejected the JWT credentials: ${truncate(await res.text())}` }
     },
-    getState: (credentials, addonId) => getState(credentials, addonId, fetchImpl),
-    submit: (credentials, addonId, artifact) => submit(credentials, addonId, artifact, fetchImpl, poll),
+    getState: (credentials, target) => getState(credentials, target.storeItemId, fetchImpl),
+    submit: (credentials, target, artifact) => submit(credentials, target.storeItemId, artifact, fetchImpl, poll),
     // Firefox review is automated/near-instant for the vast majority of submissions —
     // there is nothing in-flight to cancel by the time we could act on it.
   }

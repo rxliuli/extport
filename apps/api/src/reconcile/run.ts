@@ -192,12 +192,13 @@ async function maybeEmitStaleReview(db: Db, notifier: Notifier, row: JoinedRow, 
 async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow, credentials: unknown, versionRows: DeploymentVersion[]): Promise<'noop' | 'submitted' | 'blocked'> {
   const { target } = row
   const adapter = getAdapter(target.store)
+  const storeTarget = { storeItemId: target.storeItemId, crxId: target.crxId ?? undefined }
 
   let queued = versionRows.find((v) => v.status === 'queued') ?? null
   let inReview = versionRows.find((v) => v.status === 'in_review') ?? null
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- credentials are opaque per-store, validated at save time
-  const actual = await adapter.getState(credentials as any, target.storeItemId)
+  const actual = await adapter.getState(credentials as any, storeTarget)
 
   // --- resolve step: reflect whatever the store told us this tick ---
   const liveReport = actual.live
@@ -278,7 +279,7 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
   const bytes = await object.arrayBuffer()
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = await adapter.submit(credentials as any, target.storeItemId, bytes)
+  const result = await adapter.submit(credentials as any, storeTarget, bytes)
   if (!result.submitted) throw new Error(result.detail ?? `${target.store} submit failed without a detail message`)
 
   await db

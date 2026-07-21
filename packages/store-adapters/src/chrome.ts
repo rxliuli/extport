@@ -150,8 +150,8 @@ export function createChromeAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o)
   return {
     store: 'chrome',
     verifyCredentials: (credentials) => verifyCredentials(credentials, fetchImpl),
-    getState: (credentials, storeItemId) => getState(credentials, storeItemId, fetchImpl),
-    submit: (credentials, storeItemId, artifact) => submit(credentials, storeItemId, artifact, fetchImpl),
-    withdraw: (credentials, storeItemId) => withdraw(credentials, storeItemId, fetchImpl),
+    getState: (credentials, target) => getState(credentials, target.storeItemId, fetchImpl),
+    submit: (credentials, target, artifact) => submit(credentials, target.storeItemId, artifact, fetchImpl),
+    withdraw: (credentials, target) => withdraw(credentials, target.storeItemId, fetchImpl),
   }
 }

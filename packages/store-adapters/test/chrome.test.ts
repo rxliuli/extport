@@ -67,7 +67,7 @@ describe('chrome adapter — getState', () => {
         },
       },
     ])
-    const state = await createChromeAdapter(fetch).getState(await creds(), ITEM)
+    const state = await createChromeAdapter(fetch).getState(await creds(), { storeItemId: ITEM })
     expect(state).toEqual({ live: { known: true, version: '1.0.0' }, inReview: { known: true, version: '1.1.0' }, reviewStatus: 'pending' })
     expect(calls[1]!.url).toBe(`https://chromewebstore.googleapis.com/v2/publishers/pub-1/items/${ITEM}:fetchStatus`)
   })
@@ -83,7 +83,7 @@ describe('chrome adapter — getState', () => {
         },
       },
     ])
-    const state = await createChromeAdapter(fetch).getState(await creds(), ITEM)
+    const state = await createChromeAdapter(fetch).getState(await creds(), { storeItemId: ITEM })
     expect(state.live).toEqual({ known: true, version: '1.0.0' })
     expect(state.inReview).toEqual({ known: true })
     expect(state.reviewStatus).toBe('rejected')
@@ -92,7 +92,7 @@ describe('chrome adapter — getState', () => {
 
   it('handles a brand-new item with nothing submitted yet', async () => {
     const { fetch } = queueFetch([{ status: 200, body: { access_token: 'at' } }, { status: 200, body: {} }])
-    const state = await createChromeAdapter(fetch).getState(await creds(), ITEM)
+    const state = await createChromeAdapter(fetch).getState(await creds(), { storeItemId: ITEM })
     expect(state).toEqual({ live: { known: true }, inReview: { known: true } })
   })
 })
@@ -104,7 +104,7 @@ describe('chrome adapter — submit', () => {
       { status: 200, body: { uploadState: 'SUCCEEDED' } },
       { status: 200, body: {} },
     ])
-    const result = await createChromeAdapter(fetch).submit(await creds(), ITEM, new ArrayBuffer(8))
+    const result = await createChromeAdapter(fetch).submit(await creds(), { storeItemId: ITEM }, new ArrayBuffer(8))
     expect(result).toEqual({ submitted: true })
     expect(calls[1]!.url).toBe(`https://chromewebstore.googleapis.com/upload/v2/publishers/pub-1/items/${ITEM}:upload`)
     expect(calls[2]!.url).toBe(`https://chromewebstore.googleapis.com/v2/publishers/pub-1/items/${ITEM}:publish`)
@@ -116,7 +116,7 @@ describe('chrome adapter — submit', () => {
       { status: 200, body: { access_token: 'at' } },
       { status: 200, body: { uploadState: 'FAILURE', itemError: [{ error_code: 'PKG_MANIFEST_PARSE_ERROR' }] } },
     ])
-    const result = await createChromeAdapter(fetch).submit(await creds(), ITEM, new ArrayBuffer(8))
+    const result = await createChromeAdapter(fetch).submit(await creds(), { storeItemId: ITEM }, new ArrayBuffer(8))
     expect(result.submitted).toBe(false)
     expect(result.detail).toContain('PKG_MANIFEST_PARSE_ERROR')
     expect(calls).toHaveLength(2)
@@ -128,7 +128,7 @@ describe('chrome adapter — submit', () => {
       { status: 200, body: { uploadState: 'SUCCEEDED' } },
       { status: 400, body: 'bad request' },
     ])
-    const result = await createChromeAdapter(fetch).submit(await creds(), ITEM, new ArrayBuffer(8))
+    const result = await createChromeAdapter(fetch).submit(await creds(), { storeItemId: ITEM }, new ArrayBuffer(8))
     expect(result.submitted).toBe(false)
   })
 })
@@ -136,14 +136,14 @@ describe('chrome adapter — submit', () => {
 describe('chrome adapter — withdraw', () => {
   it('cancels the active submission', async () => {
     const { fetch, calls } = queueFetch([{ status: 200, body: { access_token: 'at' } }, { status: 200, body: {} }])
-    await createChromeAdapter(fetch).withdraw!(await creds(), ITEM)
+    await createChromeAdapter(fetch).withdraw!(await creds(), { storeItemId: ITEM })
     expect(calls[1]!.url).toBe(`https://chromewebstore.googleapis.com/v2/publishers/pub-1/items/${ITEM}:cancelSubmission`)
     expect(calls[1]!.init?.body).toBe('{}')
   })
 
   it('throws on failure', async () => {
     const { fetch } = queueFetch([{ status: 200, body: { access_token: 'at' } }, { status: 500, body: 'oops' }])
-    await expect(createChromeAdapter(fetch).withdraw!(await creds(), ITEM)).rejects.toThrow(/cancelSubmission failed/)
+    await expect(createChromeAdapter(fetch).withdraw!(await creds(), { storeItemId: ITEM })).rejects.toThrow(/cancelSubmission failed/)
   })
 })
 

@@ -52,6 +52,8 @@ export interface PublishTarget extends DerivedTargetStatus {
   id: string
   store: Store
   storeItemId: string
+  /** Edge only — Partner Center's Submission API needs storeItemId to be the Product ID; this is the separate crx id its public status fallback needs. */
+  crxId: string | null
   enabled: boolean
   credentialId: string
   credentialLabel: string

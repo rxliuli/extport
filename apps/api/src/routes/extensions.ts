@@ -260,7 +260,7 @@ route.post('/:id/targets', async (c) => {
   if (!extension) return c.json({ error: 'not found' }, 404)
 
   const body = await c.req
-    .json<{ store?: string; storeItemId?: string; credentialId?: string }>()
+    .json<{ store?: string; storeItemId?: string; crxId?: string; credentialId?: string }>()
     .catch(() => ({}) as Record<string, never>)
   if (!body.store || !(STORES as readonly string[]).includes(body.store)) {
     return c.json({ error: `store must be one of: ${STORES.join(', ')}` }, 400)
@@ -268,6 +268,8 @@ route.post('/:id/targets', async (c) => {
   const store = body.store as Store
   const storeItemId = body.storeItemId?.trim()
   if (!storeItemId) return c.json({ error: 'storeItemId is required' }, 400)
+  // Edge only — see StoreTarget in @extport/store-adapters for why.
+  const crxId = body.crxId?.trim() || undefined
   if (!body.credentialId) return c.json({ error: 'credentialId is required' }, 400)
 
   const [credential] = await db
@@ -306,7 +308,7 @@ route.post('/:id/targets', async (c) => {
     const dek = await tenantDek(c.env, tenant)
     const decrypted = await decryptJson(dek, credential.encryptedPayload)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- credentials are opaque per-store, validated at save time
-    actual = await getAdapter(store).getState(decrypted as any, storeItemId)
+    actual = await getAdapter(store).getState(decrypted as any, { storeItemId, crxId })
   } catch (err) {
     return c.json({ error: `couldn't verify this item on ${store} — check the item id and credential`, detail: (err as Error).message }, 502)
   }
@@ -318,6 +320,7 @@ route.post('/:id/targets', async (c) => {
     extensionId: extension.id,
     store,
     storeItemId,
+    crxId,
     credentialId: credential.id,
     lastReconciledAt: new Date().toISOString(),
   })
@@ -378,11 +381,15 @@ route.patch('/:id/targets/:targetId', async (c) => {
     .where(and(eq(publishTargets.id, c.req.param('targetId')), eq(publishTargets.extensionId, extension.id)))
   if (!target) return c.json({ error: 'not found' }, 404)
 
-  type Patch = { storeItemId?: string; credentialId?: string; enabled?: boolean }
+  type Patch = { storeItemId?: string; crxId?: string; credentialId?: string; enabled?: boolean }
   const body = await c.req.json<Patch>().catch((): Patch => ({}))
   const patch: Partial<typeof publishTargets.$inferInsert> = {}
 
   if (typeof body.storeItemId === 'string' && body.storeItemId.trim()) patch.storeItemId = body.storeItemId.trim()
+  // Edge only — see StoreTarget in @extport/store-adapters for why. Empty
+  // string clears it back to falling through to storeItemId (pre-existing
+  // targets' behavior), rather than being unable to unset it once set.
+  if (typeof body.crxId === 'string') patch.crxId = body.crxId.trim() || null
   if (typeof body.enabled === 'boolean') patch.enabled = body.enabled
   if (typeof body.credentialId === 'string') {
     const [credential] = await db
