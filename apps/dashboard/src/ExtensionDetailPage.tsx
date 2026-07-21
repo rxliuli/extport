@@ -1,3 +1,4 @@
+import { CircleCheck, CircleDashed, CircleX, Clock, SkipForward, type LucideIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import {
   api,
@@ -5,11 +6,10 @@ import {
   type CredentialRow,
   type DeploymentVersion,
   type Extension,
-  type PublishEvent,
   type PublishTarget,
   type Store,
 } from './api'
-import { STATUS_COLOR } from './status'
+import { ageDays, STATUS_COLOR } from './status'
 import { VersionSummary } from './VersionSummary'
 
 const STORES: Store[] = ['chrome', 'firefox', 'edge', 'safari']
@@ -198,101 +198,124 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
   )
 }
 
-const VERSION_STATUS_LABEL: Record<DeploymentVersion['status'], string> = {
-  queued: 'queued',
-  in_review: 'in review',
-  online: 'live',
-  rejected: 'rejected',
-  skipped: 'skipped',
+// Cell vocabulary for the version × store matrix. Shape carries the meaning,
+// color only reinforces it (color alone is invisible to color-blind readers).
+const CELL: Record<DeploymentVersion['status'], { Icon: LucideIcon; color: string; label: string }> = {
+  online: { Icon: CircleCheck, color: '#1a7f37', label: 'live' },
+  in_review: { Icon: Clock, color: '#9a6700', label: 'in review' },
+  queued: { Icon: CircleDashed, color: '#9a6700', label: 'queued' },
+  skipped: { Icon: SkipForward, color: '#6e7781', label: 'skipped' },
+  rejected: { Icon: CircleX, color: '#cf222e', label: 'rejected' },
 }
 
-const VERSION_STATUS_COLOR: Record<DeploymentVersion['status'], string> = {
-  queued: '#9a6700',
-  in_review: '#9a6700',
-  online: '#1a7f37',
-  rejected: '#cf222e',
-  skipped: '#6e7781',
+/** Numeric-aware compare, same semantics as @extport/shared's compareVersions (1.10 > 1.9). */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(Number)
+  const pb = b.split('.').map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0)
+    if (diff !== 0) return diff
+  }
+  return 0
 }
 
-const EVENT_LABEL: Record<PublishEvent['type'], string> = {
-  error: 'error',
-  stale_review: 'stale review',
+function cellTitle(row: DeploymentVersion, isCurrentLive: boolean): string {
+  const days = ageDays(row.submittedAt)
+  const parts: string[] = []
+  if (row.status === 'online') parts.push(isCurrentLive ? 'live now' : 'was live')
+  else if (row.status === 'in_review' && days !== null) parts.push(`in review for ${days}d`)
+  else parts.push(CELL[row.status].label)
+  if (row.statusDetail) parts.push(row.statusDetail)
+  parts.push(`updated ${relativeTime(row.updatedAt)}`)
+  return parts.join(' · ')
 }
 
-const EVENT_COLOR: Record<PublishEvent['type'], string> = {
-  error: '#cf222e',
-  stale_review: '#9a6700',
-}
-
-function eventDetail(event: PublishEvent): string | null {
-  const payload = JSON.parse(event.payloadJson) as Record<string, unknown>
-  if (event.type === 'error') return typeof payload.message === 'string' ? payload.message : null
-  const version = typeof payload.version === 'string' ? ` v${payload.version}` : ''
-  return `${payload.ageDays}+ days${version}`
-}
-
-// The Timeline is deployment_versions (every push, and what happened to it —
-// queued/in_review/online/rejected/skipped all live on one row that mutates
-// in place) merged with publish_events (only error/stale_review, which
-// aren't about any one version) and sorted by time. "Current state" lives
-// entirely in the Store targets table above; this is purely history.
-type TimelineRow =
-  | { kind: 'version'; id: string; store: Store; createdAt: string; version: DeploymentVersion }
-  | { kind: 'event'; id: string; store: Store; createdAt: string; event: PublishEvent }
-
-function TimelineSection({ extensionId }: { extensionId: string }) {
-  const [rows, setRows] = useState<TimelineRow[]>([])
+// deployment_versions pivoted into rows = versions, columns = stores — the
+// release-progress view. One glance along a row answers "where is 0.0.7
+// live?"; down a column, a store's full history. Target-level health
+// (error/stale_review) has no version, so it deliberately doesn't appear
+// here — that lives on the Store targets table above.
+function VersionMatrixSection({ extensionId }: { extensionId: string }) {
+  const [versions, setVersions] = useState<DeploymentVersion[]>([])
 
   useEffect(() => {
-    void api<{ versions: DeploymentVersion[]; events: PublishEvent[] }>(`/v1/extensions/${extensionId}/timeline`).then((r) => {
-      const merged: TimelineRow[] = [
-        ...r.versions.map((v): TimelineRow => ({ kind: 'version', id: v.id, store: v.store, createdAt: v.createdAt, version: v })),
-        ...r.events.map((e): TimelineRow => ({ kind: 'event', id: e.id, store: e.store, createdAt: e.createdAt, event: e })),
-      ]
-      merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      setRows(merged)
-    })
+    void api<{ versions: DeploymentVersion[] }>(`/v1/extensions/${extensionId}/timeline`).then((r) => setVersions(r.versions))
   }, [extensionId])
+
+  const stores = STORES.filter((s) => versions.some((v) => v.store === s))
+  const versionNumbers = [...new Set(versions.map((v) => v.version))].sort((a, b) => compareVersions(b, a))
+
+  // The endpoint returns newest-first; keep the first (freshest) row per cell.
+  const byCell = new Map<string, DeploymentVersion>()
+  for (const v of versions) {
+    const key = `${v.store}:${v.version}`
+    if (!byCell.has(key)) byCell.set(key, v)
+  }
+
+  // Per column, only the MAX online version is live right now; older online
+  // rows are history ("was live") and render faded so it can't read as
+  // several versions being live at once.
+  const currentLive = new Map<Store, string>()
+  for (const store of stores) {
+    const online = versions.filter((v) => v.store === store && v.status === 'online').map((v) => v.version)
+    if (online.length > 0) currentLive.set(store, online.sort(compareVersions).at(-1)!)
+  }
 
   return (
     <section>
-      <h3>Timeline</h3>
-      {rows.length === 0 && <p>No activity yet.</p>}
-      {rows.length > 0 && (
-        <table cellPadding={6} style={{ borderCollapse: 'collapse', width: '100%' }}>
-          <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>
-              <th>Time</th>
-              <th>Store</th>
-              <th>Version</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                <td style={{ color: '#666', fontSize: 12, whiteSpace: 'nowrap' }}>{relativeTime(row.createdAt)}</td>
-                <td>{row.store}</td>
-                <td>{row.kind === 'version' ? <code>{row.version.version}</code> : '—'}</td>
-                <td>
-                  {row.kind === 'version' ? (
-                    <>
-                      <span style={{ color: VERSION_STATUS_COLOR[row.version.status], fontWeight: 600 }}>
-                        {VERSION_STATUS_LABEL[row.version.status]}
-                      </span>
-                      {row.version.statusDetail && <div style={{ fontSize: 12, color: '#666' }}>{row.version.statusDetail}</div>}
-                    </>
-                  ) : (
-                    <>
-                      <span style={{ color: EVENT_COLOR[row.event.type], fontWeight: 600 }}>{EVENT_LABEL[row.event.type]}</span>
-                      <div style={{ fontSize: 12, color: '#666' }}>{eventDetail(row.event)}</div>
-                    </>
-                  )}
-                </td>
+      <h3>Versions</h3>
+      {versionNumbers.length === 0 && <p>No versions tracked yet.</p>}
+      {versionNumbers.length > 0 && (
+        <>
+          <table cellPadding={6} style={{ borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #ccc' }}>
+                <th style={{ textAlign: 'left' }}>Version</th>
+                {stores.map((s) => (
+                  <th key={s} style={{ textAlign: 'center', padding: '4px 14px' }}>
+                    {s}
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {versionNumbers.map((version) => (
+                <tr key={version} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                  <td>
+                    <code>{version}</code>
+                  </td>
+                  {stores.map((store) => {
+                    const row = byCell.get(`${store}:${version}`)
+                    if (!row) return <td key={store} />
+                    const isCurrentLive = row.status === 'online' && currentLive.get(store) === version
+                    const wasLive = row.status === 'online' && !isCurrentLive
+                    const days = row.status === 'in_review' ? ageDays(row.submittedAt) : null
+                    const { Icon, color, label } = CELL[row.status]
+                    return (
+                      <td key={store} title={cellTitle(row, isCurrentLive)} style={{ textAlign: 'center', cursor: 'default' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, color, opacity: wasLive ? 0.35 : 1 }}>
+                          <Icon size={16} strokeWidth={2.25} aria-label={label} />
+                          {days !== null && <span style={{ fontSize: 11 }}>{days}d</span>}
+                        </span>
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p style={{ fontSize: 12, color: '#666', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {(Object.keys(CELL) as DeploymentVersion['status'][]).map((status) => {
+              const { Icon, color, label } = CELL[status]
+              return (
+                <span key={status} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <Icon size={13} strokeWidth={2.25} color={color} /> {label}
+                </span>
+              )
+            })}
+            <span>— hover a cell for details</span>
+          </p>
+        </>
       )}
     </section>
   )
@@ -393,7 +416,7 @@ export function ExtensionDetailPage({ extensionId, onBack }: { extensionId: stri
       {tab === 'publishing' ? (
         <div key={refreshKey}>
           <TargetsSection extensionId={extensionId} />
-          <TimelineSection extensionId={extensionId} />
+          <VersionMatrixSection extensionId={extensionId} />
         </div>
       ) : (
         <p style={{ color: STATUS_COLOR.blocked }}>

@@ -71,6 +71,8 @@ export interface DeploymentVersion {
   submittedAt: string | null
   /** ISO date string (Date -> JSON) */
   createdAt: string
+  /** ISO date string (Date -> JSON) */
+  updatedAt: string
 }
 
 /** Only things that aren't about a specific version's lifecycle. */
