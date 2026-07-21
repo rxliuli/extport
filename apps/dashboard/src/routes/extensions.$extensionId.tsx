@@ -448,16 +448,6 @@ function ExtensionDetailPage() {
   const queryClient = useQueryClient()
   const { data: extension, isPending } = useQuery(extensionQuery(extensionId))
 
-  const togglePublishing = useMutation({
-    mutationFn: () =>
-      api(`/api/v1/extensions/${extensionId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ publishingEnabled: !extension?.publishingEnabled }),
-      }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['extensions'] }),
-    onError: (err) => toast.error(errorMessage(err)),
-  })
-
   const reconcile = useMutation({
     mutationFn: () =>
       api<{ summary: { processed: number; submitted: number; blocked: number; errors: number } }>(
@@ -503,14 +493,6 @@ function ExtensionDetailPage() {
             <code className="text-xs text-muted-foreground">{extension.slug}</code>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => togglePublishing.mutate()}
-              disabled={togglePublishing.isPending}
-            >
-              Publishing: {extension.publishingEnabled ? 'ON' : 'OFF'}
-            </Button>
             <Button variant="outline" size="sm" onClick={() => reconcile.mutate()} disabled={reconcile.isPending}>
               {reconcile.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
               Reconcile now

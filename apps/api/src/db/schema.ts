@@ -78,7 +78,9 @@ export const extensions = sqliteTable(
     name: text('name').notNull(),
     slug: text('slug').notNull(),
     iconUrl: text('icon_url'),
-    publishingEnabled: integer('publishing_enabled', { mode: 'boolean' }).notNull().$defaultFn(() => false),
+    // Publishing has no extension-level switch: configuring a store target IS
+    // the opt-in, and pausing is per-target (publish_targets.enabled).
+    // Licensing stays opt-in because it changes end-user runtime behavior.
     licensingEnabled: integer('licensing_enabled', { mode: 'boolean' }).notNull().$defaultFn(() => false),
     ...timestamps,
   },

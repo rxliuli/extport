@@ -19,12 +19,12 @@ Usage:
 Options:
   --extension <id|slug>   Target extension (required)
   --version <x.y.z>       Artifact version, 1-4 numeric parts (required)
-  --store <name>          chrome | firefox | edge | apple (omit for a universal zip)
+  --store <name>          chrome | firefox | edge | safari (omit for a universal zip)
   --api-url <url>         Platform URL (or env EXTPORT_API_URL)
   --api-key <key>         API key sk_live_… (or env EXTPORT_API_KEY)
 `
 
-const STORES = ['chrome', 'firefox', 'edge', 'apple']
+const STORES = ['chrome', 'firefox', 'edge', 'safari']
 
 /**
  * @param {string[]} argv - args after the "push" command

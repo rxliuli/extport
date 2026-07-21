@@ -82,7 +82,6 @@ route.get('/matrix', async (c) => {
       id: extension.id,
       name: extension.name,
       slug: extension.slug,
-      publishingEnabled: extension.publishingEnabled,
       targets: targetsByExtension.get(extension.id) ?? [],
     })),
   })
@@ -137,11 +136,10 @@ route.get('/:id', async (c) => {
 route.patch('/:id', async (c) => {
   const db = c.get('db')
   const tenant = c.get('tenant')
-  type Patch = { name?: string; publishingEnabled?: boolean; licensingEnabled?: boolean }
+  type Patch = { name?: string; licensingEnabled?: boolean }
   const body = await c.req.json<Patch>().catch((): Patch => ({}))
   const patch: Partial<typeof extensions.$inferInsert> = {}
   if (typeof body.name === 'string' && body.name.trim()) patch.name = body.name.trim()
-  if (typeof body.publishingEnabled === 'boolean') patch.publishingEnabled = body.publishingEnabled
   if (typeof body.licensingEnabled === 'boolean') patch.licensingEnabled = body.licensingEnabled
   if (Object.keys(patch).length === 0) return c.json({ error: 'nothing to update' }, 400)
 

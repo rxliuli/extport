@@ -43,6 +43,13 @@
       "when": 1784623025574,
       "tag": "0005_safari_platforms",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1784623025575,
+      "tag": "0006_drop_publishing_enabled",
+      "breakpoints": true
     }
   ]
 }

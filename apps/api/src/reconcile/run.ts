@@ -367,7 +367,7 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
  * "reconcile now" button.
  */
 export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilter = {}, notifier: Notifier = createEmailNotifier(env)): Promise<ReconcileSummary> {
-  const conditions = [eq(extensions.publishingEnabled, true), eq(publishTargets.enabled, true)]
+  const conditions = [eq(publishTargets.enabled, true)]
   if (filter.tenantId) conditions.push(eq(extensions.tenantId, filter.tenantId))
   if (filter.extensionId) conditions.push(eq(publishTargets.extensionId, filter.extensionId))
 

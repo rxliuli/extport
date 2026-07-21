@@ -8,7 +8,6 @@ export interface Extension {
   id: string
   name: string
   slug: string
-  publishingEnabled: boolean
   licensingEnabled: boolean
 }
 
@@ -52,7 +51,6 @@ export interface MatrixExtension {
   id: string
   name: string
   slug: string
-  publishingEnabled: boolean
   targets: MatrixTarget[]
 }
 
