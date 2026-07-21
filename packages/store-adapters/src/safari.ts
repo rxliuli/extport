@@ -4,13 +4,13 @@ import { truncate, type FetchLike } from './util'
 
 const API_BASE = 'https://api.appstoreconnect.apple.com'
 
-const IN_REVIEW_STATES = new Set([
-  'PREPARE_FOR_SUBMISSION',
-  'READY_FOR_REVIEW',
-  'WAITING_FOR_REVIEW',
-  'IN_REVIEW',
-  'WAITING_FOR_EXPORT_COMPLIANCE',
-])
+// PREPARE_FOR_SUBMISSION is deliberately excluded — it's just an editable
+// draft (exactly what our own submit() creates before a reviewSubmission
+// succeeds), not a genuine Apple review in progress. Bucketing it as
+// "in review" would make the very draft a failed submit() leaves behind
+// look like a success on the next tick — decide() would then stop
+// retrying forever while the version sits untouched at Apple.
+const IN_REVIEW_STATES = new Set(['READY_FOR_REVIEW', 'WAITING_FOR_REVIEW', 'IN_REVIEW', 'WAITING_FOR_EXPORT_COMPLIANCE'])
 const REJECTED_STATES = new Set(['REJECTED', 'METADATA_REJECTED', 'INVALID_BINARY', 'DEVELOPER_REJECTED'])
 const LIVE_STATES = new Set([
   'READY_FOR_DISTRIBUTION',

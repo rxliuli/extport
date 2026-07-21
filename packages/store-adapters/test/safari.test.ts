@@ -61,6 +61,18 @@ describe('safari adapter — getState', () => {
     const { fetch } = queueFetch([{ status: 500, body: 'oops' }])
     await expect(createSafariAdapter(fetch).getState(await creds(), { storeItemId: APP_ID })).rejects.toThrow(/versions lookup failed/)
   })
+
+  it('does not report a PREPARE_FOR_SUBMISSION draft as in review — it is an editable draft, not a genuine Apple review', async () => {
+    // Also asserts the filter query never asks ASC for this state at all —
+    // treating it as "nothing happening" requires excluding it up front,
+    // not just ignoring it after the fact.
+    const { fetch, calls } = queueFetch([
+      { status: 200, body: { data: [version('1.1.0', 'PREPARE_FOR_SUBMISSION'), version('1.0.0', 'READY_FOR_DISTRIBUTION')] } },
+    ])
+    const state = await createSafariAdapter(fetch).getState(await creds(), { storeItemId: APP_ID })
+    expect(state).toEqual({ live: { known: true, version: '1.0.0' }, inReview: { known: true, version: undefined }, reviewStatus: undefined, rejectionReason: undefined })
+    expect(calls[0]!.url).not.toContain('PREPARE_FOR_SUBMISSION')
+  })
 })
 
 describe('safari adapter — withdraw', () => {

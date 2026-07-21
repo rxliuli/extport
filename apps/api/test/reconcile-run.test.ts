@@ -583,6 +583,57 @@ function ascVersion(versionString: string, appVersionState: string) {
 }
 
 describe('runReconciliation — safari per-platform lifecycles', () => {
+  it('retries a version stuck as a PREPARE_FOR_SUBMISSION draft from an earlier failed attempt, instead of mistaking it for already submitted', async () => {
+    // Reproduces a real incident: a prior submit() attempt got as far as
+    // creating the appStoreVersion and attaching the build, then failed at
+    // the review-submission step, leaving a bare editable draft at ASC. The
+    // row is still 'queued' in our DB. getState() must not surface that
+    // draft as "in review" (PREPARE_FOR_SUBMISSION is excluded from the
+    // filter query entirely) — otherwise decide() would treat it as already
+    // submitted and never retry, silently stalling forever.
+    const { db, tenantId, extensionId } = await setupSafariScenario({
+      artifacts: [{ version: '0.0.2' }],
+      versions: [
+        { version: '0.0.1', status: 'online', platform: 'macos' },
+        { version: '0.0.2', status: 'queued', platform: 'macos' },
+      ],
+    })
+    globalThis.fetch = routedFetch([
+      {
+        test: (u) => u.includes('appVersionState') && u.includes('=MAC_OS'),
+        respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
+      },
+      { test: (u) => u.includes('appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
+      { test: (u) => u.includes('/v1/builds'), respond: () => ({ status: 200, body: { data: [{ id: 'build-1' }] } }) },
+      // The stuck draft is found here — submit()'s version lookup has no state filter.
+      {
+        test: (u) => u.includes('appStoreVersions') && u.includes('versionString'),
+        respond: () => ({ status: 200, body: { data: [{ id: 'ver-1' }] } }),
+      },
+      { test: (u, i) => u.includes('/relationships/build') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+      {
+        test: (u) => u.includes('appStoreVersionLocalizations') && u.includes('/ver-1/'),
+        respond: () => ({ status: 200, body: { data: [{ id: 'loc-1', attributes: { whatsNew: null } }] } }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/appStoreVersionLocalizations/loc-1') && i?.method === 'PATCH',
+        respond: () => ({ status: 200, body: {} }),
+      },
+      { test: (u) => u.includes('reviewSubmissions') && u.includes('READY_FOR_REVIEW'), respond: () => ({ status: 200, body: { data: [] } }) },
+      { test: (u, i) => u.endsWith('/v1/reviewSubmissions') && i?.method === 'POST', respond: () => ({ status: 201, body: { data: { id: 'sub-1' } } }) },
+      { test: (u) => u.includes('/reviewSubmissions/sub-1/items'), respond: () => ({ status: 200, body: { data: [] } }) },
+      { test: (u, i) => u.endsWith('/v1/reviewSubmissionItems') && i?.method === 'POST', respond: () => ({ status: 201, body: {} }) },
+      { test: (u, i) => u.endsWith('/v1/reviewSubmissions/sub-1') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+    ]).fetch
+
+    const summary = await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
+    expect(summary).toMatchObject({ submitted: 1, errors: 0 })
+
+    const macos = (await versionsFor(db, extensionId)).find((v) => v.version === '0.0.2' && v.platform === 'macos')!
+    expect(macos.status).toBe('in_review')
+    expect(macos.submittedAt).not.toBeNull()
+  })
+
   it('waits (queued, no error) while the macOS build has not appeared in ASC yet', async () => {
     const { db, tenantId, extensionId } = await setupSafariScenario({
       artifacts: [{ version: '0.0.2' }],
