@@ -3,6 +3,18 @@
 import { readFile } from 'node:fs/promises'
 import process from 'node:process'
 import { buildPushUrl, parsePushArgs, USAGE } from './args.mjs'
+import { exec } from './exec.mjs'
+import { SAFARI_BUILD_USAGE, parseSafariBuildArgs } from './safari-build-args.mjs'
+import { runSafariBuild } from './safari-build.mjs'
+
+const TOP_USAGE = `extport — publish browser extension artifacts
+
+Commands:
+  push           Upload an artifact to extport
+  safari-build   Build, sign, and upload a Safari extension to App Store Connect
+
+Run "extport <command> --help" for command-specific options.
+`
 
 /** @param {string} message */
 function fail(message) {
@@ -10,18 +22,8 @@ function fail(message) {
   process.exit(1)
 }
 
-async function main() {
-  const [command, ...rest] = process.argv.slice(2)
-
-  if (!command || command === 'help' || command === '--help' || command === '-h') {
-    console.log(USAGE)
-    return
-  }
-  if (command !== 'push') {
-    fail(`unknown command "${command}"\n\n${USAGE}`)
-    return
-  }
-
+/** @param {string[]} rest */
+async function runPush(rest) {
   let options
   try {
     options = parsePushArgs(rest, process.env)
@@ -66,6 +68,62 @@ async function main() {
   } else {
     fail(`${json.error ?? `upload failed (${res.status})`}`)
   }
+}
+
+/** @param {string[]} rest */
+async function runSafariBuildCommand(rest) {
+  if (process.platform !== 'darwin') {
+    fail(`safari-build requires macOS (xcodebuild is not available on ${process.platform})`)
+    return
+  }
+
+  let options
+  try {
+    options = parseSafariBuildArgs(rest, process.env)
+  } catch (err) {
+    fail(`${/** @type {Error} */ (err).message}\n\n${SAFARI_BUILD_USAGE}`)
+    return
+  }
+
+  const results = await runSafariBuild(options, exec)
+
+  console.log('')
+  let anyFailed = false
+  for (const result of results) {
+    if (result.ok) {
+      console.log(`✅ ${result.platform}: uploaded`)
+    } else {
+      anyFailed = true
+      console.log(`❌ ${result.platform}: ${result.error}`)
+    }
+  }
+  if (anyFailed) process.exit(1)
+}
+
+async function main() {
+  const [command, ...rest] = process.argv.slice(2)
+
+  if (!command || command === 'help' || command === '--help' || command === '-h') {
+    console.log(TOP_USAGE)
+    return
+  }
+  if (command === 'push') {
+    if (rest[0] === '--help' || rest[0] === '-h') {
+      console.log(USAGE)
+      return
+    }
+    await runPush(rest)
+    return
+  }
+  if (command === 'safari-build') {
+    if (rest[0] === '--help' || rest[0] === '-h') {
+      console.log(SAFARI_BUILD_USAGE)
+      return
+    }
+    await runSafariBuildCommand(rest)
+    return
+  }
+  fail(`unknown command "${command}"\n\n${TOP_USAGE}`)
 }
 
 main().catch((err) => fail(err instanceof Error ? err.message : String(err)))

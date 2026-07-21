@@ -1,7 +1,13 @@
 # §8 — Safari publish pipeline (design)
 
-Status: **design settled, not yet implemented** (2026-07-21). This is the
-blueprint the `spec §8` comments in the code point at.
+Status: **implemented and verified end-to-end** (2026-07-21), both phases,
+against the real Scrub app. Phase A: server-side platform dimension + ASC
+review-submission orchestration, verified by a real reconcile that
+submitted macOS and iOS v0.0.7 for Apple review. Phase B: `extport
+safari-build` built, signed, and uploaded real macOS and iOS v0.0.8
+binaries in one run each — confirmed independently via the ASC `/v1/builds`
+API (both `processingState: VALID`), not just the CLI's own reported
+success.
 
 ## The constraint that shapes everything
 
@@ -66,10 +72,29 @@ columns. Until this lands, `getState()` deliberately tracks macOS only
 
 - The one seam that must be verified end-to-end: the queued version string
   must equal the uploaded build's `CFBundleShortVersionString` — version
-  stamping is the conversion pipeline's responsibility.
-- Replace `altool` with `notarytool`/Transporter while absorbing the
-  action's build mode (altool upload is deprecated by Apple).
+  stamping is the conversion pipeline's responsibility. `extport safari-build
+  --version x.y.z` is a safety net, not an owner of this: it reads the built
+  app's actual version after archiving and fails loudly on a mismatch,
+  before ever attempting an export/upload.
+- **Not `notarytool`/Transporter as originally guessed** — research turned
+  up a better fit: `xcodebuild -exportArchive` with `destination: upload` in
+  the export options plist is Apple's own current replacement for altool's
+  upload step (confirmed against Apple's docs, 2026). Combined with
+  automatic signing (`CODE_SIGN_STYLE=Automatic` + `-allowProvisioningUpdates`
+  + an ASC API key), one `xcodebuild archive` and one `xcodebuild
+  -exportArchive` per platform does the entire build → sign → package →
+  upload — no manual `codesign`/`productbuild`, no certificate or
+  provisioning-profile files, no signing-identity strings for the tenant to
+  supply. This is a deliberate departure from the action's approach (manual
+  codesign of the app + nested `.appex`, then `productbuild`, then
+  `altool --upload-app`), which exists because CI runners start with no
+  keychain state at all and need explicit cert/profile import; a tenant's
+  own Mac (or a CI runner that already did that import) doesn't need any of
+  that ceremony. **Verified**: a real run against Scrub's project (macOS +
+  iOS, each independently) succeeded on the first try — automatic signing
+  resolved the nested Safari extension `.appex` correctly, no manual
+  codesign step needed.
 - Migration for the author's own extensions: the action's submit mode is
   deleted outright (reconcile replaces it, and adds queue/blocked/skip,
   stale-review notifications, and the Timeline — which the action never
-  had); build mode shrinks to setup + CLI invocation.
+  had); build mode shrinks to setup + CLI invocation (`extport safari-build`).
