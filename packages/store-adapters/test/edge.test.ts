@@ -9,8 +9,36 @@ const OP_LOCATION = { location: 'https://api.addons.microsoftedge.microsoft.com/
 const FAST_POLL = { intervalMs: 1, attempts: 3 }
 
 describe('edge adapter — getState', () => {
-  it('reports known: false for both (unobservable, not "confirmed empty") without making a network call', async () => {
+  it('reports the live version from the unofficial store-detail fallback', async () => {
+    const { fetch, calls } = queueFetch([{ status: 200, body: { version: '1.2.3' } }])
+    const state = await createEdgeAdapter(fetch).getState(creds, PRODUCT)
+    expect(state).toEqual({ live: { known: true, version: '1.2.3' }, inReview: { known: false } })
+    expect(calls[0]!.url).toBe(`https://microsoftedge.microsoft.com/addons/getproductdetailsbycrxid/${PRODUCT}`)
+  })
+
+  // inReview can never be observed this way — the fallback is the public store
+  // detail page's own data source, and review-in-progress state is never shown
+  // to consumers.
+  it('never reports inReview as known, even when live is', async () => {
+    const { fetch } = queueFetch([{ status: 200, body: { version: '1.2.3' } }])
+    const state = await createEdgeAdapter(fetch).getState(creds, PRODUCT)
+    expect(state.inReview).toEqual({ known: false })
+  })
+
+  it('falls back to known: false (not a thrown error) when the endpoint is unreachable', async () => {
     const state = await createEdgeAdapter(unreachableFetch).getState(creds, PRODUCT)
+    expect(state).toEqual({ live: { known: false }, inReview: { known: false } })
+  })
+
+  it('falls back to known: false when the endpoint responds but not with 200', async () => {
+    const { fetch } = queueFetch([{ status: 404, body: 'not found' }])
+    const state = await createEdgeAdapter(fetch).getState(creds, PRODUCT)
+    expect(state).toEqual({ live: { known: false }, inReview: { known: false } })
+  })
+
+  it('falls back to known: false when the response has no version field (unofficial endpoint changed shape)', async () => {
+    const { fetch } = queueFetch([{ status: 200, body: { name: 'Some Extension' } }])
+    const state = await createEdgeAdapter(fetch).getState(creds, PRODUCT)
     expect(state).toEqual({ live: { known: false }, inReview: { known: false } })
   })
 })

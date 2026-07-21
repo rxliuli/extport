@@ -3,6 +3,11 @@ import { pollUntil, truncate, type FetchLike } from './util'
 
 const API_BASE = 'https://api.addons.microsoftedge.microsoft.com'
 const PROBE_ID = '00000000-0000-0000-0000-000000000000'
+// The consumer-facing store detail page's own data source, discovered by
+// inspecting its network traffic — not part of any documented Partner
+// Center API, unauthenticated, and could change shape or disappear without
+// notice. Only ever used as a best-effort fallback (see getState below).
+const STORE_DETAIL_URL = 'https://microsoftedge.microsoft.com/addons/getproductdetailsbycrxid'
 
 export function edgeHeaders(credentials: EdgeCredentials): Record<string, string> {
   return {
@@ -94,13 +99,28 @@ async function submit(
   return { submitted: true }
 }
 
-async function getState(): Promise<StoreState> {
-  // Confirmed API gap: Edge has no endpoint to query live/pending version at
-  // all. `known: false` (not an authoritative "nothing here") tells the
-  // reconciler "unobservable" so it preserves whatever it already knows from
-  // a prior successful submit, rather than overwriting real state with a
-  // false "nothing here" — see apps/api/src/reconcile/decide.ts's merge rule.
-  return { live: { known: false }, inReview: { known: false } }
+const UNOBSERVABLE: StoreState = { live: { known: false }, inReview: { known: false } }
+
+async function getState(crxId: string, fetchImpl: FetchLike): Promise<StoreState> {
+  // Confirmed API gap: Partner Center has no endpoint to query live/pending
+  // version at all. As a best-effort fallback, ask the same endpoint the
+  // public store detail page uses — it can only tell us the *live* version
+  // (review-in-progress state is never shown to consumers, so `inReview`
+  // stays unobservable regardless). Any failure here — network error, an
+  // unexpected response shape, the endpoint disappearing entirely — falls
+  // back to the same `known: false` this always returned, so this can only
+  // ever make Edge's state more informative, never less reliable. See
+  // apps/api/src/reconcile/decide.ts's merge rule for what `known: false`
+  // ("unobservable", preserve whatever we already knew) means downstream.
+  try {
+    const res = await fetchImpl(`${STORE_DETAIL_URL}/${encodeURIComponent(crxId)}`)
+    if (!res.ok) return UNOBSERVABLE
+    const body = (await res.json()) as { version?: string }
+    if (!body.version) return UNOBSERVABLE
+    return { live: { known: true, version: body.version }, inReview: { known: false } }
+  } catch {
+    return UNOBSERVABLE
+  }
 }
 
 /**
@@ -126,7 +146,7 @@ export function createEdgeAdapter(
       if (res.status === 404 || res.ok) return { ok: true }
       throw new Error(`edge api unexpected response (${res.status})`)
     },
-    getState,
+    getState: (_credentials, crxId) => getState(crxId, fetchImpl),
     submit: (credentials, productId, artifact) => submit(credentials, productId, artifact, fetchImpl, poll),
     // No withdraw: Partner Center's "Cancel submission" is UI-only, not part of the public API.
   }

@@ -1,7 +1,9 @@
-import { newId, PLAN_LIMITS, STORES, type Store } from '@extport/shared'
+import { decryptJson, newId, PLAN_LIMITS, STORES, type Store } from '@extport/shared'
+import { getAdapter } from '@extport/store-adapters'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { artifacts, deploymentVersions, extensions, products, publishEvents, publishTargets, storeCredentials, type Db } from '../db'
+import { tenantDek } from '../lib/kms'
 import { requireAuth, type AppEnv } from '../middleware/auth'
 import { queueLatestArtifact } from '../reconcile/queue'
 import { runReconciliation } from '../reconcile/run'
@@ -269,7 +271,7 @@ route.post('/:id/targets', async (c) => {
   if (!body.credentialId) return c.json({ error: 'credentialId is required' }, 400)
 
   const [credential] = await db
-    .select({ id: storeCredentials.id, store: storeCredentials.store })
+    .select()
     .from(storeCredentials)
     .where(and(eq(storeCredentials.tenantId, tenant.id), eq(storeCredentials.id, body.credentialId)))
   if (!credential) return c.json({ error: 'credential not found' }, 404)
@@ -294,6 +296,21 @@ route.post('/:id/targets', async (c) => {
     .where(and(eq(publishTargets.extensionId, extension.id), eq(publishTargets.store, store)))
   if (existing.length > 0) return c.json({ error: `${store} is already configured for this extension` }, 409)
 
+  // Verify storeItemId is real (and this credential can actually see it)
+  // before creating anything — the same "check against the live store before
+  // persisting" contract POST /v1/credentials already applies to the
+  // credential itself. This also hands back real state, so the target
+  // starts with an accurate baseline instead of "—" until a later reconcile.
+  let actual
+  try {
+    const dek = await tenantDek(c.env, tenant)
+    const decrypted = await decryptJson(dek, credential.encryptedPayload)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- credentials are opaque per-store, validated at save time
+    actual = await getAdapter(store).getState(decrypted as any, storeItemId)
+  } catch (err) {
+    return c.json({ error: `couldn't verify this item on ${store} — check the item id and credential`, detail: (err as Error).message }, 502)
+  }
+
   const id = newId('publishTarget')
   await db.insert(publishTargets).values({
     id,
@@ -302,13 +319,47 @@ route.post('/:id/targets', async (c) => {
     store,
     storeItemId,
     credentialId: credential.id,
+    lastReconciledAt: new Date().toISOString(),
   })
   const [created] = await db.select().from(publishTargets).where(eq(publishTargets.id, id))
 
-  // Pick up anything already pushed before this target existed to receive it,
-  // then reconcile immediately — this also discovers the store's current
-  // live version as a baseline, instead of waiting up to 30 minutes for it
-  // to show up anywhere.
+  // Record whatever the store just told us as the baseline. deployment_versions
+  // is keyed by (extension, store), not by this target's id — a target that
+  // was removed and re-added for the same store can leave history behind, so
+  // this isn't necessarily a target's first-ever tick; skip anything already
+  // recorded instead of assuming a clean slate.
+  const existingRows = await db
+    .select()
+    .from(deploymentVersions)
+    .where(and(eq(deploymentVersions.extensionId, extension.id), eq(deploymentVersions.store, store)))
+  const liveVersion = actual.live.known ? actual.live.version : undefined
+  if (liveVersion && !existingRows.some((v) => v.status === 'online' && v.version === liveVersion)) {
+    await db.insert(deploymentVersions).values({
+      id: newId('deploymentVersion'),
+      tenantId: tenant.id,
+      extensionId: extension.id,
+      store,
+      version: liveVersion,
+      artifactId: null,
+      status: 'online',
+    })
+  }
+  const inReviewVersion = actual.inReview.known ? actual.inReview.version : undefined
+  if (inReviewVersion && !existingRows.some((v) => v.status === 'in_review' && v.version === inReviewVersion)) {
+    await db.insert(deploymentVersions).values({
+      id: newId('deploymentVersion'),
+      tenantId: tenant.id,
+      extensionId: extension.id,
+      store,
+      version: inReviewVersion,
+      artifactId: null,
+      status: 'in_review',
+    })
+  }
+
+  // Pick up anything already pushed before this target existed to receive
+  // it, then reconcile in the background in case that's newer than what's
+  // live/in-review above and can be submitted right away.
   await queueLatestArtifact(db, tenant.id, extension.id, store)
   c.executionCtx.waitUntil(runReconciliation(c.env, db, { tenantId: tenant.id, extensionId: extension.id }))
 

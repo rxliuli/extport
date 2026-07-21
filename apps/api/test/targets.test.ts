@@ -1,9 +1,24 @@
 import { newId } from '@extport/shared'
+import { and, eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { deploymentVersions, publishEvents } from '../src/db'
 import { createExtension, request, seedTenantWithUser } from './helpers'
 
 const realFetch = globalThis.fetch
+
+// Neutral enough to satisfy chrome (access_token exchange + :fetchStatus),
+// firefox (addon lookup + versions list), and credential verification for
+// all stores — none of them get a shape they recognize, so they all read as
+// "nothing live/in review yet" rather than throwing. Edge never calls fetch
+// at all for getState(), so it doesn't need this.
+async function withStoreApiStub<T>(fn: () => Promise<T>): Promise<T> {
+  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ access_token: 'at' }), { status: 200 }))) as typeof fetch
+  try {
+    return await fn()
+  } finally {
+    globalThis.fetch = realFetch
+  }
+}
 
 async function createCredential(
   sessionCookie: string,
@@ -11,16 +26,27 @@ async function createCredential(
   fields: Record<string, string>,
   label = store,
 ): Promise<{ id: string }> {
-  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ access_token: 'at' }), { status: 200 }))) as typeof fetch
-  const res = await request('/v1/credentials', {
-    method: 'POST',
-    headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ store, label, credentials: fields }),
-  })
-  globalThis.fetch = realFetch
+  const res = await withStoreApiStub(() =>
+    request('/v1/credentials', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ store, label, credentials: fields }),
+    }),
+  )
   const body = (await res.json()) as { credential?: { id: string }; error?: string }
   if (!body.credential) throw new Error(`credential setup failed: ${body.error}`)
   return body.credential
+}
+
+/** Adding a target now verifies storeItemId against the real store — same stub as credential creation. */
+function addTarget(extensionId: string, sessionCookie: string, body: unknown): Promise<Response> {
+  return withStoreApiStub(() =>
+    request(`/v1/extensions/${extensionId}/targets`, {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  )
 }
 
 const EDGE_FIELDS = { clientId: 'cid', apiKey: 'edge-key-1234' }
@@ -63,11 +89,7 @@ describe('publish targets', () => {
     const extension = await createExtension(sessionCookie)
     const credential = await createCredential(sessionCookie, 'edge', EDGE_FIELDS)
 
-    const createRes = await request(`/v1/extensions/${extension.id}/targets`, {
-      method: 'POST',
-      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ store: 'edge', storeItemId: 'product-1', credentialId: credential.id }),
-    })
+    const createRes = await addTarget(extension.id, sessionCookie, { store: 'edge', storeItemId: 'product-1', credentialId: credential.id })
     expect(createRes.status).toBe(201)
     const created = (await createRes.json()) as { target: { id: string } }
 
@@ -99,11 +121,7 @@ describe('publish targets', () => {
     const extension = await createExtension(sessionCookie)
     const credential = await createCredential(sessionCookie, 'edge', EDGE_FIELDS)
 
-    const res = await request(`/v1/extensions/${extension.id}/targets`, {
-      method: 'POST',
-      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ store: 'firefox', storeItemId: 'x', credentialId: credential.id }),
-    })
+    const res = await addTarget(extension.id, sessionCookie, { store: 'firefox', storeItemId: 'x', credentialId: credential.id })
     expect(res.status).toBe(400)
   })
 
@@ -111,14 +129,10 @@ describe('publish targets', () => {
     const { sessionCookie } = await seedTenantWithUser()
     const extension = await createExtension(sessionCookie)
     const credential = await createCredential(sessionCookie, 'edge', EDGE_FIELDS)
-    const body = JSON.stringify({ store: 'edge', storeItemId: 'x', credentialId: credential.id })
+    const body = { store: 'edge', storeItemId: 'x', credentialId: credential.id }
 
-    expect(
-      (await request(`/v1/extensions/${extension.id}/targets`, { method: 'POST', headers: { cookie: sessionCookie, 'content-type': 'application/json' }, body })).status,
-    ).toBe(201)
-    expect(
-      (await request(`/v1/extensions/${extension.id}/targets`, { method: 'POST', headers: { cookie: sessionCookie, 'content-type': 'application/json' }, body })).status,
-    ).toBe(409)
+    expect((await addTarget(extension.id, sessionCookie, body)).status).toBe(201)
+    expect((await addTarget(extension.id, sessionCookie, body)).status).toBe(409)
   })
 
   it('enforces the free-plan store-per-extension limit', async () => {
@@ -127,16 +141,8 @@ describe('publish targets', () => {
     const edge = await createCredential(sessionCookie, 'edge', EDGE_FIELDS, 'edge-cred')
     const firefox = await createCredential(sessionCookie, 'firefox', { jwtIssuer: 'user:1:2', jwtSecret: 'sekrit' }, 'ff-cred')
 
-    await request(`/v1/extensions/${extension.id}/targets`, {
-      method: 'POST',
-      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ store: 'edge', storeItemId: 'x', credentialId: edge.id }),
-    })
-    await request(`/v1/extensions/${extension.id}/targets`, {
-      method: 'POST',
-      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ store: 'firefox', storeItemId: 'y', credentialId: firefox.id }),
-    })
+    await addTarget(extension.id, sessionCookie, { store: 'edge', storeItemId: 'x', credentialId: edge.id })
+    await addTarget(extension.id, sessionCookie, { store: 'firefox', storeItemId: 'y', credentialId: firefox.id })
     // Free plan allows 2 stores per extension — a 3rd should be rejected.
     const chrome = await createCredential(
       sessionCookie,
@@ -144,11 +150,7 @@ describe('publish targets', () => {
       { publisherId: 'p', clientEmail: 'sa@x.iam.gserviceaccount.com', privateKey: CHROME_TEST_PRIVATE_KEY },
       'chrome-cred',
     )
-    const res = await request(`/v1/extensions/${extension.id}/targets`, {
-      method: 'POST',
-      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ store: 'chrome', storeItemId: 'z', credentialId: chrome.id }),
-    })
+    const res = await addTarget(extension.id, sessionCookie, { store: 'chrome', storeItemId: 'z', credentialId: chrome.id })
     expect(res.status).toBe(403)
   })
 
@@ -158,12 +160,97 @@ describe('publish targets', () => {
     const extension = await createExtension(a.sessionCookie)
     const bCredential = await createCredential(b.sessionCookie, 'edge', EDGE_FIELDS)
 
-    const res = await request(`/v1/extensions/${extension.id}/targets`, {
-      method: 'POST',
-      headers: { cookie: a.sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ store: 'edge', storeItemId: 'x', credentialId: bCredential.id }),
-    })
+    const res = await addTarget(extension.id, a.sessionCookie, { store: 'edge', storeItemId: 'x', credentialId: bCredential.id })
     expect(res.status).toBe(404)
+  })
+
+  it('rejects when the store item cannot be verified, and creates nothing', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const credential = await createCredential(sessionCookie, 'firefox', { jwtIssuer: 'user:1:2', jwtSecret: 'sekrit' })
+
+    globalThis.fetch = (() => Promise.resolve(new Response('not found', { status: 404 }))) as typeof fetch
+    let res: Response
+    try {
+      res = await request(`/v1/extensions/${extension.id}/targets`, {
+        method: 'POST',
+        headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ store: 'firefox', storeItemId: 'bogus-id', credentialId: credential.id }),
+      })
+    } finally {
+      globalThis.fetch = realFetch
+    }
+    expect(res.status).toBe(502)
+
+    const list = await request(`/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
+    expect(((await list.json()) as { targets: unknown[] }).targets).toHaveLength(0)
+  })
+
+  it('records the real store state as a baseline immediately — no manual reconcile needed', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const credential = await createCredential(sessionCookie, 'firefox', { jwtIssuer: 'user:1:2', jwtSecret: 'sekrit' })
+
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/versions/')) return Promise.resolve(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+      return Promise.resolve(new Response(JSON.stringify({ current_version: { version: '2.5.0' } }), { status: 200 }))
+    }) as typeof fetch
+    let res: Response
+    try {
+      res = await request(`/v1/extensions/${extension.id}/targets`, {
+        method: 'POST',
+        headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ store: 'firefox', storeItemId: 'addon-1', credentialId: credential.id }),
+      })
+    } finally {
+      globalThis.fetch = realFetch
+    }
+    expect(res.status).toBe(201)
+
+    const list = await request(`/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
+    const body = (await list.json()) as { targets: Array<{ liveVersion: string | null; status: string }> }
+    expect(body.targets[0]).toMatchObject({ liveVersion: '2.5.0', status: 'synced' })
+  })
+
+  it('does not duplicate baseline rows when a target is removed and re-added for the same store', async () => {
+    const { db, sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const credential = await createCredential(sessionCookie, 'firefox', { jwtIssuer: 'user:1:2', jwtSecret: 'sekrit' })
+
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/versions/')) return Promise.resolve(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+      return Promise.resolve(new Response(JSON.stringify({ current_version: { version: '3.0.0' } }), { status: 200 }))
+    }) as typeof fetch
+    try {
+      const first = await request(`/v1/extensions/${extension.id}/targets`, {
+        method: 'POST',
+        headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ store: 'firefox', storeItemId: 'addon-1', credentialId: credential.id }),
+      })
+      expect(first.status).toBe(201)
+      const { target } = (await first.json()) as { target: { id: string } }
+
+      await request(`/v1/extensions/${extension.id}/targets/${target.id}`, { method: 'DELETE', headers: { cookie: sessionCookie } })
+
+      // deployment_versions history from the removed target is still there —
+      // re-adding the same store shouldn't produce a second identical row.
+      const second = await request(`/v1/extensions/${extension.id}/targets`, {
+        method: 'POST',
+        headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ store: 'firefox', storeItemId: 'addon-1', credentialId: credential.id }),
+      })
+      expect(second.status).toBe(201)
+    } finally {
+      globalThis.fetch = realFetch
+    }
+
+    const rows = await db
+      .select()
+      .from(deploymentVersions)
+      .where(and(eq(deploymentVersions.extensionId, extension.id), eq(deploymentVersions.store, 'firefox')))
+    expect(rows).toMatchObject([{ version: '3.0.0', status: 'online' }])
   })
 })
 
@@ -172,11 +259,7 @@ describe('GET /v1/extensions/matrix', () => {
     const { sessionCookie } = await seedTenantWithUser()
     const extension = await createExtension(sessionCookie)
     const credential = await createCredential(sessionCookie, 'edge', EDGE_FIELDS)
-    await request(`/v1/extensions/${extension.id}/targets`, {
-      method: 'POST',
-      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ store: 'edge', storeItemId: 'x', credentialId: credential.id }),
-    })
+    await addTarget(extension.id, sessionCookie, { store: 'edge', storeItemId: 'x', credentialId: credential.id })
 
     const res = await request('/v1/extensions/matrix', { headers: { cookie: sessionCookie } })
     expect(res.status).toBe(200)

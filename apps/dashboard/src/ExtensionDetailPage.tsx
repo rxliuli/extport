@@ -40,7 +40,15 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
   }, [extensionId])
 
   const availableStores = STORES.filter((s) => !targets.some((t) => t.store === s))
-  const matchingCredentials = credentials.filter((c) => c.store === store)
+  // `store` can point at a store that's no longer available (chrome already
+  // configured by the time this mounts, or just added via this same form) —
+  // the <select> then silently shows its first <option> while `store` stays
+  // stale, desyncing the credential list from what's visually selected.
+  const selectedStore = availableStores.includes(store) ? store : (availableStores[0] ?? store)
+  const matchingCredentials = credentials.filter((c) => c.store === selectedStore)
+  // Same idea as selectedStore: default to the first (often only) match
+  // instead of making the tenant re-pick something that isn't actually a choice.
+  const selectedCredentialId = matchingCredentials.some((c) => c.id === credentialId) ? credentialId : (matchingCredentials[0]?.id ?? '')
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -48,7 +56,7 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
     try {
       await api(`/v1/extensions/${extensionId}/targets`, {
         method: 'POST',
-        body: JSON.stringify({ store, credentialId, storeItemId }),
+        body: JSON.stringify({ store: selectedStore, credentialId: selectedCredentialId, storeItemId }),
       })
       setStoreItemId('')
       setCredentialId('')
@@ -117,7 +125,7 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
           <h4>Add a store</h4>
           <form onSubmit={add} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <select
-              value={store}
+              value={selectedStore}
               onChange={(e) => {
                 setStore(e.target.value as Store)
                 setCredentialId('')
@@ -129,7 +137,7 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
                 </option>
               ))}
             </select>
-            <select value={credentialId} onChange={(e) => setCredentialId(e.target.value)} required>
+            <select value={selectedCredentialId} onChange={(e) => setCredentialId(e.target.value)} required>
               <option value="" disabled>
                 Select credential…
               </option>
@@ -151,7 +159,7 @@ function TargetsSection({ extensionId }: { extensionId: string }) {
           </form>
           {matchingCredentials.length === 0 && (
             <p style={{ fontSize: 13, color: '#666' }}>
-              No {store} credential yet — add one in Settings → Store credentials first.
+              No {selectedStore} credential yet — add one in Settings → Store credentials first.
             </p>
           )}
         </>
