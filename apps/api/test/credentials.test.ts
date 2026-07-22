@@ -211,6 +211,107 @@ describe('credentials', () => {
     expect(ok.status).toBe(200)
   })
 
+  it('rotates a credential in place — same id, fresh secret, verified like a fresh create', async () => {
+    stubStoreApi(200, { access_token: 'at' })
+    const { db, sessionCookie, tenantId } = await seedTenantWithUser()
+    const created = (await (await post(sessionCookie, chromeBody())).json()) as {
+      credential: { id: string; hint: string }
+    }
+
+    const res = await request(`/api/v1/credentials/${created.credential.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        credentials: {
+          publisherId: 'pub-newnew99',
+          clientEmail: 'rotated@my-project.iam.gserviceaccount.com',
+          privateKey: CHROME_TEST_PRIVATE_KEY,
+        },
+      }),
+    })
+    expect(res.status).toBe(200)
+    const { credential } = (await res.json()) as { credential: { id: string; hint: string; status: string } }
+    expect(credential.id).toBe(created.credential.id)
+    expect(credential.hint).toBe('ew99')
+    expect(credential.status).toBe('active')
+
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId))
+    const [row] = await db.select().from(storeCredentials).where(eq(storeCredentials.id, created.credential.id))
+    const dek = await tenantDek(env, tenant!)
+    const decrypted = await decryptJson<{ clientEmail: string }>(dek, row!.encryptedPayload)
+    expect(decrypted.clientEmail).toBe('rotated@my-project.iam.gserviceaccount.com')
+  })
+
+  it('rotating a credential in active use never needs the target re-linked', async () => {
+    stubStoreApi(200, { access_token: 'at' })
+    const { db, sessionCookie, tenantId } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const created = (await (await post(sessionCookie, chromeBody())).json()) as {
+      credential: { id: string }
+    }
+    await db.insert(publishTargets).values({
+      id: newId('publishTarget'),
+      tenantId,
+      extensionId: extension.id,
+      store: 'chrome',
+      storeItemId: 'abcdefg',
+      credentialId: created.credential.id,
+    })
+
+    const res = await request(`/api/v1/credentials/${created.credential.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        credentials: {
+          publisherId: 'pub-newnew99',
+          clientEmail: 'rotated@my-project.iam.gserviceaccount.com',
+          privateKey: CHROME_TEST_PRIVATE_KEY,
+        },
+      }),
+    })
+    expect(res.status).toBe(200)
+
+    const [target] = await db.select().from(publishTargets).where(eq(publishTargets.credentialId, created.credential.id))
+    expect(target).toBeDefined()
+  })
+
+  it('rejects a bad rotation without touching the existing credential', async () => {
+    stubStoreApi(200, { access_token: 'at' })
+    const { db, sessionCookie } = await seedTenantWithUser()
+    const created = (await (await post(sessionCookie, chromeBody())).json()) as {
+      credential: { id: string; hint: string }
+    }
+    const [before] = await db.select().from(storeCredentials).where(eq(storeCredentials.id, created.credential.id))
+
+    stubStoreApi(400, { error: 'invalid_grant' })
+    const res = await request(`/api/v1/credentials/${created.credential.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        credentials: {
+          publisherId: 'pub-badbad00',
+          clientEmail: 'bad@my-project.iam.gserviceaccount.com',
+          privateKey: CHROME_TEST_PRIVATE_KEY,
+        },
+      }),
+    })
+    expect(res.status).toBe(422)
+
+    const [after] = await db.select().from(storeCredentials).where(eq(storeCredentials.id, created.credential.id))
+    expect(after!.encryptedPayload).toBe(before!.encryptedPayload)
+    expect(after!.hint).toBe(before!.hint)
+  })
+
+  it('404s rotating a credential that does not exist', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const res = await request(`/api/v1/credentials/${newId('storeCredential')}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ credentials: { clientId: 'c', apiKey: 'x' } }),
+    })
+    expect(res.status).toBe(404)
+  })
+
   it('is session-only — API keys cannot touch credentials', async () => {
     const { sessionCookie } = await seedTenantWithUser()
     const key = await createApiKey(sessionCookie)

@@ -13,7 +13,7 @@ import { credentialsQuery, keysQuery } from '@/queries'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { KeyRound, Loader2, Plus } from 'lucide-react'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { toast } from 'sonner'
 
 export const Route = createFileRoute('/settings')({ component: SettingsPage })
@@ -152,6 +152,44 @@ const CREDENTIAL_STATUS_CLASS: Record<CredentialRow['status'], string> = {
   invalid: 'text-red-600 dark:text-red-400',
 }
 
+// Shared by the "Add credential" form and the inline "Rotate" form — same
+// fields either way, since rotating is just providing a fresh secret for the
+// same store, verified the same way a new credential would be.
+function CredentialFieldInputs({
+  store,
+  fields,
+  onChange,
+}: {
+  store: CredentialRow['store']
+  fields: Record<string, string>
+  onChange: (fields: Record<string, string>) => void
+}) {
+  return (
+    <>
+      {CREDENTIAL_FIELDS[store].map((f) =>
+        f.textarea ? (
+          <Textarea
+            key={f.key}
+            rows={5}
+            placeholder={f.label}
+            value={fields[f.key] ?? ''}
+            onChange={(e) => onChange({ ...fields, [f.key]: e.target.value })}
+            required
+          />
+        ) : (
+          <Input
+            key={f.key}
+            placeholder={f.label}
+            value={fields[f.key] ?? ''}
+            onChange={(e) => onChange({ ...fields, [f.key]: e.target.value })}
+            required
+          />
+        ),
+      )}
+    </>
+  )
+}
+
 function CredentialsSection() {
   const queryClient = useQueryClient()
   const { data: rows = [] } = useQuery(credentialsQuery)
@@ -159,6 +197,8 @@ function CredentialsSection() {
   const [label, setLabel] = useState('')
   const [expiresAt, setExpiresAt] = useState<Date | undefined>(undefined)
   const [fields, setFields] = useState<Record<string, string>>({})
+  const [rotatingId, setRotatingId] = useState<string | null>(null)
+  const [rotateFields, setRotateFields] = useState<Record<string, string>>({})
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: credentialsQuery.queryKey })
 
@@ -193,6 +233,19 @@ function CredentialsSection() {
     onError: (err) => toast.error(errorMessage(err)),
   })
 
+  // Same id, fresh secret — any publish target pointing at it keeps working
+  // with nothing to re-link, which is the whole point over delete-and-recreate.
+  const rotate = useMutation({
+    mutationFn: ({ id, credentials }: { id: string; credentials: Record<string, string> }) =>
+      api(`/api/v1/credentials/${id}`, { method: 'PATCH', body: JSON.stringify({ credentials }) }),
+    onSuccess: () => {
+      setRotatingId(null)
+      setRotateFields({})
+      void invalidate()
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  })
+
   return (
     <Card>
       <CardHeader>
@@ -207,22 +260,62 @@ function CredentialsSection() {
           <Table>
             <TableBody>
               {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="font-medium">{row.store}</TableCell>
-                  <TableCell>{row.label}</TableCell>
-                  <TableCell>
-                    <code className="text-xs">…{row.hint}</code>
-                  </TableCell>
-                  <TableCell className={`font-semibold ${CREDENTIAL_STATUS_CLASS[row.status]}`}>{row.status}</TableCell>
-                  <TableCell className="space-x-2 text-right">
-                    <Button variant="outline" size="sm" onClick={() => verify.mutate(row.id)} disabled={verify.isPending}>
-                      Verify
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => remove.mutate(row.id)} disabled={remove.isPending}>
-                      Delete
-                    </Button>
-                  </TableCell>
-                </TableRow>
+                <Fragment key={row.id}>
+                  <TableRow>
+                    <TableCell className="font-medium">{row.store}</TableCell>
+                    <TableCell>{row.label}</TableCell>
+                    <TableCell>
+                      <code className="text-xs">…{row.hint}</code>
+                    </TableCell>
+                    <TableCell className={`font-semibold ${CREDENTIAL_STATUS_CLASS[row.status]}`}>{row.status}</TableCell>
+                    <TableCell className="space-x-2 text-right">
+                      <Button variant="outline" size="sm" onClick={() => verify.mutate(row.id)} disabled={verify.isPending}>
+                        Verify
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setRotateFields({})
+                          setRotatingId(rotatingId === row.id ? null : row.id)
+                        }}
+                      >
+                        Rotate
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => remove.mutate(row.id)} disabled={remove.isPending}>
+                        Delete
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                  {rotatingId === row.id && (
+                    <TableRow key={`${row.id}-rotate`}>
+                      <TableCell colSpan={5}>
+                        <form
+                          className="grid max-w-md gap-3 py-2"
+                          onSubmit={(e) => {
+                            e.preventDefault()
+                            rotate.mutate({ id: row.id, credentials: rotateFields })
+                          }}
+                        >
+                          <p className="text-xs text-muted-foreground">
+                            New {STORE_OPTION_LABEL[row.store]} credentials — verified the same way as adding one, kept under
+                            the same id so nothing referencing it needs to change.
+                          </p>
+                          <CredentialFieldInputs store={row.store} fields={rotateFields} onChange={setRotateFields} />
+                          <div className="flex gap-2">
+                            <Button type="submit" size="sm" disabled={rotate.isPending}>
+                              {rotate.isPending && <Loader2 className="animate-spin" />}
+                              {rotate.isPending ? 'Verifying…' : 'Verify & rotate'}
+                            </Button>
+                            <Button type="button" variant="ghost" size="sm" onClick={() => setRotatingId(null)}>
+                              Cancel
+                            </Button>
+                          </div>
+                        </form>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </Fragment>
               ))}
             </TableBody>
           </Table>
@@ -257,26 +350,7 @@ function CredentialsSection() {
               </SelectContent>
             </Select>
             <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label (optional)" />
-            {CREDENTIAL_FIELDS[store].map((f) =>
-              f.textarea ? (
-                <Textarea
-                  key={f.key}
-                  rows={5}
-                  placeholder={f.label}
-                  value={fields[f.key] ?? ''}
-                  onChange={(e) => setFields({ ...fields, [f.key]: e.target.value })}
-                  required
-                />
-              ) : (
-                <Input
-                  key={f.key}
-                  placeholder={f.label}
-                  value={fields[f.key] ?? ''}
-                  onChange={(e) => setFields({ ...fields, [f.key]: e.target.value })}
-                  required
-                />
-              ),
-            )}
+            <CredentialFieldInputs store={store} fields={fields} onChange={setFields} />
             {store === 'edge' && (
               <div className="grid gap-1.5">
                 <Label htmlFor="expiry" className="text-xs text-muted-foreground">
