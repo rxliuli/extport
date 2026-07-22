@@ -79,6 +79,21 @@ export const apiKeys = sqliteTable(
   ],
 )
 
+// `extport login`'s loopback flow: the dashboard mints a real API key and a
+// short-lived one-time code standing in for it (POST /cli-auth/start), the
+// CLI's local callback server receives the code from the browser redirect
+// and exchanges it server-side for the real key (POST /cli-auth/exchange) —
+// the key itself never appears in a URL a browser would keep in history.
+// Deliberately holds the plaintext key, unlike api_keys' hash-only storage:
+// this row's whole job is to hand that plaintext back out, exactly once,
+// within minutes, then it's deleted.
+export const cliAuthExchanges = sqliteTable('cli_auth_exchanges', {
+  code: text('code').primaryKey(),
+  apiKey: text('api_key').notNull(),
+  expiresAt: text('expires_at').notNull(),
+  createdAt: text('created_at').notNull().$defaultFn(now),
+})
+
 // ===== 扩展(一等实体) =====
 
 export const extensions = sqliteTable(

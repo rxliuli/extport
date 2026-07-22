@@ -24,20 +24,25 @@ export function detectPlatforms(schemes: string[], projectName: string): Partial
 }
 
 /**
- * App Store Connect API key lookup, mirroring the conventional paths Apple's
- * own tools (altool, Transporter) already search — so a key placed for one
- * tool works for this CLI without extra configuration.
+ * App Store Connect API key lookup — the same four conventional paths, in
+ * the same order, that Apple's own tools (altool, xcodebuild) search when
+ * given a key id without an explicit path: a key placed for one tool works
+ * for this CLI without extra configuration, and vice versa.
+ * https://github.com/codemagic-ci-cd/cli-tools/blob/master/docs/app-store-connect/README.md
  */
-export function resolveKeyPath(opts: { keyId: string; keyPath?: string }, home: string, exists: (path: string) => boolean): string {
+export function resolveKeyPath(opts: { keyId: string; keyPath?: string }, home: string, cwd: string, exists: (path: string) => boolean): string {
   if (opts.keyPath) return opts.keyPath
+  const filename = `AuthKey_${opts.keyId}.p8`
   const candidates = [
-    join(home, '.appstoreconnect', 'private_keys', `AuthKey_${opts.keyId}.p8`),
-    join(home, 'private_keys', `AuthKey_${opts.keyId}.p8`),
+    join(cwd, 'private_keys', filename),
+    join(home, 'private_keys', filename),
+    join(home, '.private_keys', filename),
+    join(home, '.appstoreconnect', 'private_keys', filename),
   ]
   const found = candidates.find(exists)
   if (!found) {
     throw new Error(
-      `could not find AuthKey_${opts.keyId}.p8 in ~/.appstoreconnect/private_keys or ~/private_keys — pass --key-path or set ASC_KEY_PATH`,
+      `could not find ${filename} in ./private_keys, ~/private_keys, ~/.private_keys, or ~/.appstoreconnect/private_keys — pass --key-path or set ASC_KEY_PATH`,
     )
   }
   return found
@@ -120,6 +125,7 @@ export type PlatformResult = { platform: SafariPlatform; ok: true } | { platform
 export interface RunSafariBuildDeps {
   log?: (msg: string) => void
   homedir?: string
+  cwd?: string
   exists?: (path: string) => boolean
 }
 
@@ -132,6 +138,7 @@ export interface RunSafariBuildDeps {
 export async function runSafariBuild(options: SafariBuildOptions, exec: Exec, deps: RunSafariBuildDeps = {}): Promise<PlatformResult[]> {
   const log = deps.log ?? console.log
   const home = deps.homedir ?? homedir()
+  const cwd = deps.cwd ?? process.cwd()
   const exists = deps.exists ?? existsSync
 
   const entries = await readdir(options.projectPath)
@@ -151,7 +158,7 @@ export async function runSafariBuild(options: SafariBuildOptions, exec: Exec, de
     if (!schemes[p]) throw new Error(`--platform ${p} requested but the project has no ${p} scheme`)
   }
 
-  const keyPath = resolveKeyPath(options, home, exists)
+  const keyPath = resolveKeyPath(options, home, cwd, exists)
   const auth = authArgs({ keyId: options.keyId, issuerId: options.issuerId, keyPath })
 
   const workDir = await mkdtemp(join(tmpdir(), 'extport-safari-build-'))

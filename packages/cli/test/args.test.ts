@@ -67,6 +67,21 @@ describe('parsePushArgs', () => {
       /--source-zip is only valid with --store firefox/,
     )
   })
+
+  it('falls back to defaults (project config / extport login) when a flag and env are both absent', () => {
+    const options = parsePushArgs(['d.zip', '--version', '1'], {}, { extension: 'scrub', apiKey: 'sk_live_from_login', apiUrl: 'https://dash.extport.dev/' })
+    expect(options).toMatchObject({ extension: 'scrub', apiKey: 'sk_live_from_login', apiUrl: 'https://dash.extport.dev' })
+  })
+
+  it('flags beat env, and env beats defaults', () => {
+    const options = parsePushArgs(
+      ['d.zip', '--version', '1', '--extension', 'flag-ext'],
+      { EXTPORT_API_KEY: 'sk_live_env' },
+      { extension: 'default-ext', apiKey: 'sk_live_default' },
+    )
+    expect(options.extension).toBe('flag-ext')
+    expect(options.apiKey).toBe('sk_live_env')
+  })
 })
 
 describe('buildPushUrl', () => {

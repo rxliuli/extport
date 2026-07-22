@@ -52,4 +52,22 @@ describe('parseSafariBuildArgs', () => {
     expect(() => parseSafariBuildArgs(['--project-path'], env)).toThrow(/requires a value/)
     expect(() => parseSafariBuildArgs(['stray'], env)).toThrow(/unexpected argument/)
   })
+
+  it('falls back to defaults (extport.config.json) when a flag is absent', () => {
+    const options = parseSafariBuildArgs([], env, { projectPath: './ios', teamId: 'TEAM1', issuerId: 'iss-default', keyId: 'KEY-default' })
+    expect(options).toMatchObject({ projectPath: './ios', teamId: 'TEAM1' })
+    // env still wins over defaults for issuer/key id.
+    expect(options.issuerId).toBe('iss-1')
+    expect(options.keyId).toBe('KEY1')
+  })
+
+  it('flags beat both env and defaults', () => {
+    const options = parseSafariBuildArgs(
+      ['--project-path', './flag-path', '--team-id', 'FLAG-TEAM'],
+      env,
+      { projectPath: './default-path', teamId: 'DEFAULT-TEAM' },
+    )
+    expect(options.projectPath).toBe('./flag-path')
+    expect(options.teamId).toBe('FLAG-TEAM')
+  })
 })

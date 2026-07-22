@@ -34,24 +34,37 @@ describe('detectPlatforms', () => {
 
 describe('resolveKeyPath', () => {
   const home = '/Users/tenant'
+  const cwd = '/Users/tenant/project'
 
-  it('an explicit keyPath always wins', () => {
-    expect(resolveKeyPath({ keyId: 'K1', keyPath: '/custom/key.p8' }, home, () => false)).toBe('/custom/key.p8')
+  // Apple's own tools (altool, xcodebuild) search these same four locations,
+  // in this same order, for AuthKey_<key-id>.p8 given only a key id.
+  const inOrder = [
+    join(cwd, 'private_keys', 'AuthKey_K1.p8'),
+    join(home, 'private_keys', 'AuthKey_K1.p8'),
+    join(home, '.private_keys', 'AuthKey_K1.p8'),
+    join(home, '.appstoreconnect', 'private_keys', 'AuthKey_K1.p8'),
+  ]
+
+  it('an explicit keyPath always wins, without touching the filesystem', () => {
+    expect(resolveKeyPath({ keyId: 'K1', keyPath: '/custom/key.p8' }, home, cwd, () => false)).toBe('/custom/key.p8')
   })
 
-  it('prefers ~/.appstoreconnect/private_keys over ~/private_keys', () => {
-    const found = resolveKeyPath({ keyId: 'K1' }, home, () => true)
-    expect(found).toBe(join(home, '.appstoreconnect', 'private_keys', 'AuthKey_K1.p8'))
+  it('checks all four conventional locations in Apple tooling order, picking the first that exists', () => {
+    for (let i = 0; i < inOrder.length; i++) {
+      const found = resolveKeyPath({ keyId: 'K1' }, home, cwd, (p) => p === inOrder[i])
+      expect(found).toBe(inOrder[i])
+    }
   })
 
-  it('falls back to ~/private_keys when the first candidate is absent', () => {
-    const legacy = join(home, 'private_keys', 'AuthKey_K1.p8')
-    const found = resolveKeyPath({ keyId: 'K1' }, home, (p) => p === legacy)
-    expect(found).toBe(legacy)
+  it('prefers an earlier candidate over a later one when both exist', () => {
+    const found = resolveKeyPath({ keyId: 'K1' }, home, cwd, (p) => p === inOrder[1] || p === inOrder[3])
+    expect(found).toBe(inOrder[1])
   })
 
-  it('throws with guidance when neither candidate exists', () => {
-    expect(() => resolveKeyPath({ keyId: 'K1' }, home, () => false)).toThrow(/--key-path or set ASC_KEY_PATH/)
+  it('throws with guidance listing all four paths when none exist', () => {
+    expect(() => resolveKeyPath({ keyId: 'K1' }, home, cwd, () => false)).toThrow(
+      /\.\/private_keys, ~\/private_keys, ~\/\.private_keys, or ~\/\.appstoreconnect\/private_keys/,
+    )
   })
 })
 

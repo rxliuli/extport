@@ -64,6 +64,13 @@
       "when": 1784693447571,
       "tag": "0008_drop_foreign_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1784701440025,
+      "tag": "0009_cli_auth_exchanges",
+      "breakpoints": true
     }
   ]
 }

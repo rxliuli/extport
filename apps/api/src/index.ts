@@ -5,6 +5,7 @@ import { checkCredentialExpiry } from './reconcile/expiry'
 import { runReconciliation } from './reconcile/run'
 import artifactsRoutes from './routes/artifacts'
 import authRoutes from './routes/auth'
+import cliAuthRoutes from './routes/cli-auth'
 import credentialsRoutes from './routes/credentials'
 import extensionsRoutes from './routes/extensions'
 import keysRoutes from './routes/keys'
@@ -23,6 +24,7 @@ const api = new Hono<AppEnv>()
 api.get('/healthz', (c) => c.json({ ok: true }))
 
 api.route('/auth', authRoutes)
+api.route('/v1/cli-auth', cliAuthRoutes)
 api.route('/v1/keys', keysRoutes)
 api.route('/v1/extensions', extensionsRoutes)
 api.route('/v1/artifacts', artifactsRoutes)

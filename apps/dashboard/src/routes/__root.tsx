@@ -7,12 +7,34 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { meQuery } from '@/queries'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createRootRoute, Link, Outlet } from '@tanstack/react-router'
+import { useEffect } from 'react'
 
 export const Route = createRootRoute({ component: RootLayout })
+
+const RETURN_TO_KEY = 'extport:return-to'
 
 function RootLayout() {
   const { data: me, isPending } = useQuery(meQuery)
   const queryClient = useQueryClient()
+
+  // GitHub OAuth always redirects back to the dashboard root, not wherever
+  // the tenant actually was — most of the time that's fine (there's nothing
+  // else to return to), but extport login's /cli-auth?port=... link needs to
+  // survive a fresh sign-in, so stash it before leaving and restore it once
+  // `me` resolves.
+  useEffect(() => {
+    if (isPending) return
+    const current = window.location.pathname + window.location.search
+    if (!me) {
+      sessionStorage.setItem(RETURN_TO_KEY, current)
+      return
+    }
+    const returnTo = sessionStorage.getItem(RETURN_TO_KEY)
+    if (returnTo) {
+      sessionStorage.removeItem(RETURN_TO_KEY)
+      if (returnTo !== current) window.location.href = returnTo
+    }
+  }, [me, isPending])
 
   if (isPending) {
     return (
