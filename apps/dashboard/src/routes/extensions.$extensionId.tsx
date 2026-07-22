@@ -384,21 +384,15 @@ function VersionMatrixSection({ extensionId }: { extensionId: string }) {
                         if (!row) return <TableCell key={column.key} />
                         const isCurrentLive = row.status === 'online' && currentLive.get(column.key) === version
                         const wasLive = row.status === 'online' && !isCurrentLive
-                        const days = row.status === 'in_review' ? ageDays(row.submittedAt) : null
                         const { Icon, className, label } = CELL[row.status]
                         return (
                           <TableCell key={column.key} className="text-center">
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                {/* Fixed-width box so the icon lands at the same x position in
-                                    every row of this column — centering variable-width content
-                                    (icon alone vs. icon + "Nd") shifts the icon itself left/right
-                                    depending on whether trailing text is present. */}
-                                <span
-                                  className={`inline-flex w-10 items-center gap-0.5 ${className} ${wasLive ? 'opacity-35' : ''}`}
-                                >
+                                {/* Icon only — age, statusDetail, and exactly what "in review"
+                                    means for this row all live in the tooltip, not duplicated here. */}
+                                <span className={`inline-flex items-center ${className} ${wasLive ? 'opacity-35' : ''}`}>
                                   <Icon size={16} strokeWidth={2.25} aria-label={label} />
-                                  {days !== null && <span className="text-[11px]">{days}d</span>}
                                 </span>
                               </TooltipTrigger>
                               <TooltipContent>{cellTitle(row, isCurrentLive)}</TooltipContent>

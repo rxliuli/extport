@@ -1,50 +1,31 @@
 import type { TargetLifecycle } from './api'
-import { ageDays } from './status'
 import { TriangleAlert } from 'lucide-react'
 
-const FACT_CLASS = {
-  live: 'text-green-700 dark:text-green-500',
-  in_review: 'text-amber-600 dark:text-amber-400',
-  queued: 'text-amber-600 dark:text-amber-400',
-  rejected: 'text-red-600 dark:text-red-400',
-}
-
-// Up to three versions can be true for a lifecycle at once (live, in
-// review, queued) — this renders every one that's present with its own
-// label instead of picking a single "version + status" pair, which always
-// misdescribes whichever version it didn't pick (see apps/api's
-// deriveTargetStatus).
+// Store targets is "what's live right now, and is anything broken" —
+// in_review/queued/rejected duplicate the Versions matrix below (which has
+// full history plus hover detail for every fact), so they're not repeated
+// here. error replaces the live version entirely rather than sitting next to
+// it: it's blocking and needs attention, unlike live/in_review/queued, which
+// are just states passing through their normal flow. The live version isn't
+// lost — it's still in the matrix a scroll away.
 function LifecycleLine({ lifecycle }: { lifecycle: TargetLifecycle }) {
-  const days = ageDays(lifecycle.submittedAt)
-  const facts: { key: string; label: string; version: string; className: string }[] = []
-  if (lifecycle.liveVersion) facts.push({ key: 'live', label: 'live', version: lifecycle.liveVersion, className: FACT_CLASS.live })
-  if (lifecycle.inReviewVersion) {
-    const suffix = days !== null ? ` (${days}d)` : ''
-    facts.push({ key: 'in_review', label: `in review${suffix}`, version: lifecycle.inReviewVersion, className: FACT_CLASS.in_review })
+  if (lifecycle.status === 'error') {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-sm font-semibold text-red-600 dark:text-red-400"
+        title={lifecycle.statusDetail ?? undefined}
+      >
+        <TriangleAlert size={13} /> error
+      </span>
+    )
   }
-  if (lifecycle.rejectedVersion)
-    facts.push({ key: 'rejected', label: 'rejected', version: lifecycle.rejectedVersion, className: FACT_CLASS.rejected })
-  if (lifecycle.queuedVersion)
-    facts.push({ key: 'queued', label: 'queued', version: lifecycle.queuedVersion, className: FACT_CLASS.queued })
-
-  if (facts.length === 0 && lifecycle.status !== 'error') {
+  if (!lifecycle.liveVersion) {
     return <span className="text-muted-foreground/50">—</span>
   }
-
   return (
-    <span className="text-sm" title={lifecycle.statusDetail ?? undefined}>
-      {lifecycle.status === 'error' && (
-        <span className="mr-1 inline-flex items-center gap-1 font-semibold text-red-600 dark:text-red-400">
-          <TriangleAlert size={13} /> error{facts.length > 0 ? ' ·' : ''}
-        </span>
-      )}
-      {facts.map((f, i) => (
-        <span key={f.key} className="whitespace-nowrap">
-          {i > 0 && <span className="text-muted-foreground/60"> · </span>}
-          <span className={`font-semibold ${f.className}`}>{f.version}</span>{' '}
-          <span className="text-muted-foreground">{f.label}</span>
-        </span>
-      ))}
+    <span className="text-sm">
+      <span className="font-semibold text-green-700 dark:text-green-500">{lifecycle.liveVersion}</span>{' '}
+      <span className="text-muted-foreground">live</span>
     </span>
   )
 }
