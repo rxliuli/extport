@@ -1,9 +1,12 @@
 {
   "name": "@extport/cli",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.0.1",
   "description": "CLI for the extport extension publishing platform",
+  "license": "MIT",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "extport": "./dist/cli.mjs"
   },
@@ -15,6 +18,7 @@
   },
   "scripts": {
     "build": "tsdown",
+    "prepublishOnly": "pnpm build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
