@@ -1,5 +1,16 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
+// No SQL-level FOREIGN KEY constraints anywhere in this schema — every
+// "references" relationship below (tenantId, extensionId, artifactId, etc.)
+// is enforced by the write paths in routes/ and reconcile/, the same way ids
+// and default values already are. Two reasons: D1's remote backend doesn't
+// reliably defer FK checks across the DROP-TABLE-and-rename SQLite normally
+// uses to change a column (nullability, type, adding a constraint) — see the
+// migration 0007 postmortem and migration 0008, which hit and then removed
+// this entirely — so every future schema change to a referenced table was a
+// landmine. And the cascade behavior FKs would normally buy isn't even in
+// use: D1 doesn't enforce it either way, so dependent cleanup (e.g.
+// extensions' DELETE handler) was already hand-written application code.
 const now = () => new Date().toISOString()
 
 const timestamps = {
@@ -25,7 +36,7 @@ export const users = sqliteTable(
   'users',
   {
     id: text('id').primaryKey(),
-    tenantId: text('tenant_id').notNull().references(() => tenants.id),
+    tenantId: text('tenant_id').notNull(),
     email: text('email').notNull(),
     displayName: text('display_name'),
     authProvider: text('auth_provider').notNull(),
@@ -42,7 +53,7 @@ export const sessions = sqliteTable(
   'sessions',
   {
     id: text('id').primaryKey(),
-    userId: text('user_id').notNull().references(() => users.id),
+    userId: text('user_id').notNull(),
     tokenHash: text('token_hash').notNull(),
     expiresAt: text('expires_at').notNull(),
     createdAt: text('created_at').notNull().$defaultFn(now),
@@ -54,7 +65,7 @@ export const apiKeys = sqliteTable(
   'api_keys',
   {
     id: text('id').primaryKey(),
-    tenantId: text('tenant_id').notNull().references(() => tenants.id),
+    tenantId: text('tenant_id').notNull(),
     name: text('name').notNull(),
     keyHash: text('key_hash').notNull(),
     last4: text('last4').notNull(),
@@ -74,7 +85,7 @@ export const extensions = sqliteTable(
   'extensions',
   {
     id: text('id').primaryKey(),
-    tenantId: text('tenant_id').notNull().references(() => tenants.id),
+    tenantId: text('tenant_id').notNull(),
     name: text('name').notNull(),
     slug: text('slug').notNull(),
     iconUrl: text('icon_url'),
@@ -96,7 +107,7 @@ export const storeCredentials = sqliteTable(
   'store_credentials',
   {
     id: text('id').primaryKey(),
-    tenantId: text('tenant_id').notNull().references(() => tenants.id),
+    tenantId: text('tenant_id').notNull(),
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
     label: text('label').notNull().$defaultFn(() => ''),
     // Last four characters of the most identifying secret field — the only
@@ -118,8 +129,8 @@ export const publishTargets = sqliteTable(
   'publish_targets',
   {
     id: text('id').primaryKey(),
-    tenantId: text('tenant_id').notNull().references(() => tenants.id),
-    extensionId: text('extension_id').notNull().references(() => extensions.id),
+    tenantId: text('tenant_id').notNull(),
+    extensionId: text('extension_id').notNull(),
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
     storeItemId: text('store_item_id').notNull(),
     // Edge only: Partner Center's Submission API needs storeItemId to be the
@@ -128,7 +139,7 @@ export const publishTargets = sqliteTable(
     // is keyed by the store-facing crx id instead — two different Microsoft
     // ID namespaces for the same listing. Unused by every other store.
     crxId: text('crx_id'),
-    credentialId: text('credential_id').notNull().references(() => storeCredentials.id),
+    credentialId: text('credential_id').notNull(),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().$defaultFn(() => true),
     // Operational health, not business state — never touches a specific
     // version's lifecycle. Cleared on the next tick that gets past getState().
@@ -147,8 +158,8 @@ export const artifacts = sqliteTable(
   'artifacts',
   {
     id: text('id').primaryKey(),
-    tenantId: text('tenant_id').notNull().references(() => tenants.id),
-    extensionId: text('extension_id').notNull().references(() => extensions.id),
+    tenantId: text('tenant_id').notNull(),
+    extensionId: text('extension_id').notNull(),
     version: text('version').notNull(),
     // null = universal zip for all stores; set = store-specific build.
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }),
@@ -193,8 +204,8 @@ export const deploymentVersions = sqliteTable(
   'deployment_versions',
   {
     id: text('id').primaryKey(),
-    tenantId: text('tenant_id').notNull().references(() => tenants.id),
-    extensionId: text('extension_id').notNull().references(() => extensions.id),
+    tenantId: text('tenant_id').notNull(),
+    extensionId: text('extension_id').notNull(),
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
     version: text('version').notNull(),
     // Safari only: one App Store Connect app spans macOS and iOS with fully
@@ -206,7 +217,7 @@ export const deploymentVersions = sqliteTable(
     // null = this row wasn't pushed through extport — it's a baseline the
     // reconciler observed already live when a store target was first added
     // (or a manual publish that happened outside extport).
-    artifactId: text('artifact_id').references(() => artifacts.id),
+    artifactId: text('artifact_id'),
     status: text('status', {
       enum: ['queued', 'in_review', 'online', 'rejected', 'skipped'],
     }).notNull().$defaultFn(() => 'queued'),
@@ -229,8 +240,8 @@ export const publishEvents = sqliteTable(
   'publish_events',
   {
     id: text('id').primaryKey(),
-    tenantId: text('tenant_id').notNull().references(() => tenants.id),
-    extensionId: text('extension_id').notNull().references(() => extensions.id),
+    tenantId: text('tenant_id').notNull(),
+    extensionId: text('extension_id').notNull(),
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
     type: text('type', { enum: ['error', 'recovered', 'stale_review'] }).notNull(),
     payloadJson: text('payload_json').notNull().$defaultFn(() => '{}'),
@@ -248,8 +259,8 @@ export const products = sqliteTable(
   'products',
   {
     id: text('id').primaryKey(),
-    tenantId: text('tenant_id').notNull().references(() => tenants.id),
-    extensionId: text('extension_id').notNull().references(() => extensions.id),
+    tenantId: text('tenant_id').notNull(),
+    extensionId: text('extension_id').notNull(),
     name: text('name').notNull(),
     entitlementType: text('entitlement_type', {
       enum: ['perpetual', 'balance', 'recurring'],
@@ -265,8 +276,8 @@ export const licenses = sqliteTable(
   'licenses',
   {
     id: text('id').primaryKey(),
-    tenantId: text('tenant_id').notNull().references(() => tenants.id),
-    productId: text('product_id').notNull().references(() => products.id),
+    tenantId: text('tenant_id').notNull(),
+    productId: text('product_id').notNull(),
     key: text('key').notNull(),
     buyerEmail: text('buyer_email').notNull(),
     entitlementType: text('entitlement_type', {
@@ -289,8 +300,8 @@ export const activations = sqliteTable(
   'activations',
   {
     id: text('id').primaryKey(),
-    tenantId: text('tenant_id').notNull().references(() => tenants.id),
-    licenseId: text('license_id').notNull().references(() => licenses.id),
+    tenantId: text('tenant_id').notNull(),
+    licenseId: text('license_id').notNull(),
     deviceFingerprint: text('device_fingerprint').notNull(),
     lastHeartbeatAt: text('last_heartbeat_at'),
     activatedAt: text('activated_at').notNull().$defaultFn(now),
@@ -309,8 +320,8 @@ export const licenseEvents = sqliteTable(
   'license_events',
   {
     id: text('id').primaryKey(),
-    tenantId: text('tenant_id').notNull().references(() => tenants.id),
-    licenseId: text('license_id').notNull().references(() => licenses.id),
+    tenantId: text('tenant_id').notNull(),
+    licenseId: text('license_id').notNull(),
     type: text('type', {
       enum: ['issued', 'activated', 'reset', 'locked', 'heartbeat_expired'],
     }).notNull(),
@@ -324,7 +335,7 @@ export const tenantSigningKeys = sqliteTable(
   'tenant_signing_keys',
   {
     id: text('id').primaryKey(),
-    tenantId: text('tenant_id').notNull().references(() => tenants.id),
+    tenantId: text('tenant_id').notNull(),
     privateKeyEncrypted: text('private_key_encrypted').notNull(),
     publicKey: text('public_key').notNull(),
     keyVersion: integer('key_version').notNull().$defaultFn(() => 1),

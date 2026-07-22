@@ -57,6 +57,13 @@
       "when": 1784623025576,
       "tag": "0007_artifact_source_zip",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1784693447571,
+      "tag": "0008_drop_foreign_keys",
+      "breakpoints": true
     }
   ]
 }
