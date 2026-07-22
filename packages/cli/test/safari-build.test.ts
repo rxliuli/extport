@@ -11,7 +11,7 @@ import {
   exportOptionsPlist,
   resolveKeyPath,
   runSafariBuild,
-} from '../src/safari-build.mjs'
+} from '../src/safari-build.js'
 
 describe('detectPlatforms', () => {
   it('detects both platforms from suffixed schemes', () => {

@@ -293,6 +293,9 @@ export function createSafariAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o)
   return {
     store: 'safari',
     platforms: SAFARI_PLATFORMS,
+    // The binary reaches App Store Connect directly via the tenant's own
+    // pipeline — a push for safari pins a version with no file at all.
+    requiresArtifact: false,
     async verifyCredentials(credentials): Promise<CredentialCheck> {
       let authorization: string
       try {

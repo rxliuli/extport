@@ -1,15 +1,11 @@
-// @ts-check
 import { existsSync } from 'node:fs'
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { Exec } from './exec.js'
+import type { SafariBuildOptions, SafariPlatform } from './safari-build-args.js'
 
-/**
- * @typedef {(cmd: string, args: string[]) => Promise<{ stdout: string, status: number }>} Exec
- * @typedef {'macos' | 'ios'} Platform
- */
-
-const PLATFORMS = /** @type {const} */ (['macos', 'ios'])
+const PLATFORMS = ['macos', 'ios'] as const satisfies readonly SafariPlatform[]
 
 /**
  * Reads the Xcode project's own scheme list to find out which platforms it
@@ -18,12 +14,8 @@ const PLATFORMS = /** @type {const} */ (['macos', 'ios'])
  * safari-webext-publish-action already uses: a "(macOS)"/"(iOS)" suffixed
  * scheme per platform, or — for a single-platform project — one scheme
  * exactly matching the project name.
- *
- * @param {string[]} schemes
- * @param {string} projectName
- * @returns {{ macos?: string, ios?: string }}
  */
-export function detectPlatforms(schemes, projectName) {
+export function detectPlatforms(schemes: string[], projectName: string): Partial<Record<SafariPlatform, string>> {
   const macos = schemes.includes(`${projectName} (macOS)`) ? `${projectName} (macOS)` : undefined
   const ios = schemes.includes(`${projectName} (iOS)`) ? `${projectName} (iOS)` : undefined
   if (macos || ios) return { macos, ios }
@@ -35,13 +27,8 @@ export function detectPlatforms(schemes, projectName) {
  * App Store Connect API key lookup, mirroring the conventional paths Apple's
  * own tools (altool, Transporter) already search — so a key placed for one
  * tool works for this CLI without extra configuration.
- *
- * @param {{ keyId: string, keyPath?: string }} opts
- * @param {string} home
- * @param {(path: string) => boolean} exists
- * @returns {string}
  */
-export function resolveKeyPath(opts, home, exists) {
+export function resolveKeyPath(opts: { keyId: string; keyPath?: string }, home: string, exists: (path: string) => boolean): string {
   if (opts.keyPath) return opts.keyPath
   const candidates = [
     join(home, '.appstoreconnect', 'private_keys', `AuthKey_${opts.keyId}.p8`),
@@ -56,11 +43,7 @@ export function resolveKeyPath(opts, home, exists) {
   return found
 }
 
-/**
- * @param {{ keyId: string, issuerId: string, keyPath: string }} opts
- * @returns {string[]}
- */
-export function authArgs(opts) {
+export function authArgs(opts: { keyId: string; issuerId: string; keyPath: string }): string[] {
   return ['-authenticationKeyID', opts.keyId, '-authenticationKeyIssuerID', opts.issuerId, '-authenticationKeyPath', opts.keyPath]
 }
 
@@ -71,13 +54,12 @@ export function authArgs(opts) {
  * identity strings for the tenant to supply (docs/safari-pipeline.md: "None
  * handled by the CLI"). This covers the app AND its nested Safari extension
  * .appex in one pass; Xcode resolves the whole target graph automatically.
- *
- * @param {{ xcodeprojPath: string, scheme: string, archivePath: string, teamId: string, macosDeploymentTarget: string }} opts
- * @param {Platform} platform
- * @param {string[]} auth
- * @returns {string[]}
  */
-export function archiveArgs(opts, platform, auth) {
+export function archiveArgs(
+  opts: { xcodeprojPath: string; scheme: string; archivePath: string; teamId: string; macosDeploymentTarget: string },
+  platform: SafariPlatform,
+  auth: string[],
+): string[] {
   const args = [
     '-project',
     opts.xcodeprojPath,
@@ -105,11 +87,8 @@ export function archiveArgs(opts, platform, auth) {
  * `destination: upload` is Xcode's own replacement for a separate altool
  * upload step (Apple's current guidance — altool is deprecated) — export
  * and upload happen in this single xcodebuild invocation.
- *
- * @param {string} teamId
- * @returns {string}
  */
-export function exportOptionsPlist(teamId) {
+export function exportOptionsPlist(teamId: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -127,42 +106,30 @@ export function exportOptionsPlist(teamId) {
 `
 }
 
-/**
- * @param {{ archivePath: string, exportOptionsPath: string, exportPath: string }} opts
- * @param {string[]} auth
- * @returns {string[]}
- */
-export function exportArgs(opts, auth) {
+export function exportArgs(opts: { archivePath: string; exportOptionsPath: string; exportPath: string }, auth: string[]): string[] {
   return ['-exportArchive', '-archivePath', opts.archivePath, '-exportOptionsPlist', opts.exportOptionsPath, '-exportPath', opts.exportPath, '-allowProvisioningUpdates', ...auth]
 }
 
-/**
- * @param {string} archivePath
- * @param {string} projectName
- * @param {Platform} platform
- * @returns {string}
- */
-export function builtInfoPlistPath(archivePath, projectName, platform) {
+export function builtInfoPlistPath(archivePath: string, projectName: string, platform: SafariPlatform): string {
   const appPath = join(archivePath, 'Products', 'Applications', `${projectName}.app`)
   return platform === 'macos' ? join(appPath, 'Contents', 'Info.plist') : join(appPath, 'Info.plist')
 }
 
-/**
- * @typedef {{ platform: Platform, ok: true } | { platform: Platform, ok: false, error: string }} PlatformResult
- */
+export type PlatformResult = { platform: SafariPlatform; ok: true } | { platform: SafariPlatform; ok: false; error: string }
+
+export interface RunSafariBuildDeps {
+  log?: (msg: string) => void
+  homedir?: string
+  exists?: (path: string) => boolean
+}
 
 /**
  * Builds, signs, and uploads every platform the project ships (or just the
  * one requested) — never submits for review (docs/safari-pipeline.md: that
  * stays reconcile's job, under the same queue semantics every store
  * follows). One platform failing doesn't stop its sibling.
- *
- * @param {import('./safari-build-args.mjs').SafariBuildOptions} options
- * @param {Exec} exec
- * @param {{ log?: (msg: string) => void, homedir?: string, exists?: (path: string) => boolean }} [deps]
- * @returns {Promise<PlatformResult[]>}
  */
-export async function runSafariBuild(options, exec, deps = {}) {
+export async function runSafariBuild(options: SafariBuildOptions, exec: Exec, deps: RunSafariBuildDeps = {}): Promise<PlatformResult[]> {
   const log = deps.log ?? console.log
   const home = deps.homedir ?? homedir()
   const exists = deps.exists ?? existsSync
@@ -175,11 +142,10 @@ export async function runSafariBuild(options, exec, deps = {}) {
 
   const listRes = await exec('xcodebuild', ['-project', xcodeprojPath, '-list', '-json'])
   if (listRes.status !== 0) throw new Error(`xcodebuild -list failed for ${xcodeprojPath}`)
-  /** @type {{ project: { schemes: string[] } }} */
-  const listJson = JSON.parse(listRes.stdout)
+  const listJson = JSON.parse(listRes.stdout) as { project: { schemes: string[] } }
   const schemes = detectPlatforms(listJson.project.schemes, projectName)
 
-  const platforms = options.platform ? [options.platform] : PLATFORMS.filter((p) => schemes[p])
+  const platforms: SafariPlatform[] = options.platform ? [options.platform] : PLATFORMS.filter((p) => schemes[p])
   if (platforms.length === 0) throw new Error('nothing to build — no platform detected and none requested')
   for (const p of platforms) {
     if (!schemes[p]) throw new Error(`--platform ${p} requested but the project has no ${p} scheme`)
@@ -189,11 +155,10 @@ export async function runSafariBuild(options, exec, deps = {}) {
   const auth = authArgs({ keyId: options.keyId, issuerId: options.issuerId, keyPath })
 
   const workDir = await mkdtemp(join(tmpdir(), 'extport-safari-build-'))
-  /** @type {PlatformResult[]} */
-  const results = []
+  const results: PlatformResult[] = []
   try {
     for (const platform of platforms) {
-      const scheme = /** @type {string} */ (schemes[platform])
+      const scheme = schemes[platform]!
       try {
         log(`── ${platform}: archiving "${scheme}" ──`)
         const archivePath = join(workDir, `${platform}.xcarchive`)
@@ -221,7 +186,7 @@ export async function runSafariBuild(options, exec, deps = {}) {
         log(`── ${platform}: uploaded ──`)
         results.push({ platform, ok: true })
       } catch (err) {
-        results.push({ platform, ok: false, error: /** @type {Error} */ (err).message })
+        results.push({ platform, ok: false, error: (err as Error).message })
       }
     }
   } finally {

@@ -61,15 +61,25 @@ export interface StoreTarget {
  * one full lifecycle per platform, passing it back into every call below.
  * Undefined = one unnamed lifecycle, platform arguments are never passed.
  *
+ * `requiresArtifact`: false only for Safari — its binary never travels
+ * through extport (the tenant's own pipeline uploads it to App Store Connect
+ * directly, docs/safari-pipeline.md), so a push for this store pins a
+ * version with no real file. Every other store defaults to true (undefined
+ * means true) and a push without a file is rejected before it ever reaches
+ * an adapter.
+ *
  * `version` on submit: chrome/firefox/edge upload the artifact zip, which
- * carries its own version. Safari's binary never travels through extport —
- * the tenant's macOS pipeline uploads it to App Store Connect directly
- * (docs/safari-pipeline.md), so submit() needs to be told which queued
- * version it is orchestrating.
+ * carries its own version. Safari needs to be told which queued version it
+ * is orchestrating instead.
+ *
+ * `sourceArtifact`: Firefox only — AMO requires source for bundled/minified
+ * submissions, uploaded alongside the main zip in the same version-creation
+ * call. Every other adapter ignores it.
  */
 export interface StoreAdapter<TCredentials = unknown> {
   readonly store: Store
   readonly platforms?: readonly string[]
+  readonly requiresArtifact?: boolean
   verifyCredentials(credentials: TCredentials): Promise<CredentialCheck>
   getState(credentials: TCredentials, target: StoreTarget, platform?: string): Promise<StoreState>
   submit(
@@ -78,6 +88,7 @@ export interface StoreAdapter<TCredentials = unknown> {
     artifact: ArrayBuffer,
     version: string,
     platform?: string,
+    sourceArtifact?: ArrayBuffer,
   ): Promise<SubmissionResult>
   /** Only stores that can cancel an in-review submission implement this (Chrome, Safari). */
   withdraw?(credentials: TCredentials, target: StoreTarget, platform?: string): Promise<void>

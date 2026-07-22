@@ -53,7 +53,25 @@ describe('firefox adapter — submit', () => {
     expect(result).toEqual({ submitted: true })
     expect(calls[0]!.url).toBe('https://addons.mozilla.org/api/v5/addons/upload/')
     expect(calls[2]!.url).toBe(`https://addons.mozilla.org/api/v5/addons/addon/${ADDON}/versions/`)
-    expect(JSON.parse(String(calls[2]!.init?.body))).toEqual({ upload: 'u1' })
+    const versionBody = calls[2]!.init?.body as FormData
+    expect(versionBody.get('upload')).toBe('u1')
+    // No source zip was given — AMO gets an empty source field, not a missing one.
+    expect(versionBody.get('source')).toBe('')
+  })
+
+  it('attaches a source zip when the tenant provided one — AMO requires it for bundled/minified submissions', async () => {
+    const { fetch, calls } = queueFetch([
+      { status: 200, body: { uuid: 'u1' } },
+      { status: 200, body: { processed: true, valid: true } },
+      { status: 201, body: {} },
+    ])
+    const sourceZip = new ArrayBuffer(16)
+    const result = await createFirefoxAdapter(fetch).submit(creds, { storeItemId: ADDON }, new ArrayBuffer(8), '1.0.0', undefined, sourceZip)
+    expect(result).toEqual({ submitted: true })
+    const versionBody = calls[2]!.init?.body as FormData
+    expect(versionBody.get('upload')).toBe('u1')
+    const source = versionBody.get('source') as Blob
+    expect(source.size).toBe(16)
   })
 
   it('polls a few times before validation completes', async () => {

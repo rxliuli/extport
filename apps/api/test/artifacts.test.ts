@@ -112,6 +112,110 @@ describe('artifact upload', () => {
     expect(res.status).toBe(404)
   })
 
+  it('accepts a fileless push for --store safari, pinning a version with no real content', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const key = await createApiKey(sessionCookie)
+
+    const res = await request(`/api/v1/artifacts?extension=${extension.slug}&version=0.0.8&store=safari`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${key}` },
+    })
+    expect(res.status).toBe(201)
+    const { artifact } = (await res.json()) as { artifact: { r2Key: string | null; sha256: string | null; size: number; store: string } }
+    expect(artifact.store).toBe('safari')
+    expect(artifact.r2Key).toBeNull()
+    expect(artifact.sha256).toBeNull()
+    expect(artifact.size).toBe(0)
+  })
+
+  it('is idempotent for repeated fileless safari pushes of the same version', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const key = await createApiKey(sessionCookie)
+    const query = `extension=${extension.slug}&version=0.0.8&store=safari`
+
+    const first = await request(`/api/v1/artifacts?${query}`, { method: 'POST', headers: { authorization: `Bearer ${key}` } })
+    expect(first.status).toBe(201)
+    const second = await request(`/api/v1/artifacts?${query}`, { method: 'POST', headers: { authorization: `Bearer ${key}` } })
+    expect(second.status).toBe(200)
+    expect(((await second.json()) as { deduplicated: boolean }).deduplicated).toBe(true)
+  })
+
+  it('still requires a real zip for every store other than safari', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const key = await createApiKey(sessionCookie)
+
+    const chrome = await request(`/api/v1/artifacts?extension=${extension.slug}&version=1.0.0&store=chrome`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${key}` },
+    })
+    expect(chrome.status).toBe(400)
+
+    const universal = await request(`/api/v1/artifacts?extension=${extension.slug}&version=1.0.0`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${key}` },
+    })
+    expect(universal.status).toBe(400)
+  })
+
+  it('accepts a firefox push with a companion source zip via multipart, and stores both in R2', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const key = await createApiKey(sessionCookie)
+
+    const form = new FormData()
+    form.set('file', new Blob([fakeZip(1)]), 'extension.zip')
+    form.set('source', new Blob([new Uint8Array([1, 2, 3, 4])]), 'source.zip')
+    const res = await request(`/api/v1/artifacts?extension=${extension.slug}&version=1.0.0&store=firefox`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${key}` },
+      body: form,
+    })
+    expect(res.status).toBe(201)
+    const { artifact } = (await res.json()) as { artifact: { r2Key: string; sourceR2Key: string | null; size: number } }
+    expect(artifact.r2Key).not.toBeNull()
+    expect(artifact.sourceR2Key).not.toBeNull()
+    expect(artifact.size).toBe(64)
+
+    expect(await env.ARTIFACTS.get(artifact.r2Key)).not.toBeNull()
+    expect(await env.ARTIFACTS.get(artifact.sourceR2Key!)).not.toBeNull()
+  })
+
+  it('accepts a firefox multipart push with no source part — same as a plain upload', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const key = await createApiKey(sessionCookie)
+
+    const form = new FormData()
+    form.set('file', new Blob([fakeZip(1)]), 'extension.zip')
+    const res = await request(`/api/v1/artifacts?extension=${extension.slug}&version=1.0.0&store=firefox`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${key}` },
+      body: form,
+    })
+    expect(res.status).toBe(201)
+    const { artifact } = (await res.json()) as { artifact: { sourceR2Key: string | null } }
+    expect(artifact.sourceR2Key).toBeNull()
+  })
+
+  it('rejects a source zip for any store other than firefox', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const key = await createApiKey(sessionCookie)
+
+    const form = new FormData()
+    form.set('file', new Blob([fakeZip(1)]), 'extension.zip')
+    form.set('source', new Blob([new Uint8Array([1, 2, 3, 4])]), 'source.zip')
+    const res = await request(`/api/v1/artifacts?extension=${extension.slug}&version=1.0.0&store=chrome`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${key}` },
+      body: form,
+    })
+    expect(res.status).toBe(400)
+  })
+
   it('lists artifacts for an extension', async () => {
     const { sessionCookie } = await seedTenantWithUser()
     const extension = await createExtension(sessionCookie)

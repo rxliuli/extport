@@ -286,12 +286,24 @@ async function reconcileLifecycle(
   if (!queued!.artifactId) throw new Error(`queued deployment_versions row ${queued!.id} has no pinned artifact`)
   const [artifactRow] = await db.select().from(artifacts).where(eq(artifacts.id, queued!.artifactId))
   if (!artifactRow) throw new Error(`artifact ${queued!.artifactId} for ${target.store} v${queued!.version} no longer exists`)
-  const object = await env.ARTIFACTS.get(artifactRow.r2Key)
-  if (!object) throw new Error(`artifact object missing from R2: ${artifactRow.r2Key}`)
-  const bytes = await object.arrayBuffer()
+
+  let bytes: ArrayBuffer = new ArrayBuffer(0)
+  let sourceBytes: ArrayBuffer | undefined
+  if (artifactRow.r2Key) {
+    const object = await env.ARTIFACTS.get(artifactRow.r2Key)
+    if (!object) throw new Error(`artifact object missing from R2: ${artifactRow.r2Key}`)
+    bytes = await object.arrayBuffer()
+    if (artifactRow.sourceR2Key) {
+      const sourceObject = await env.ARTIFACTS.get(artifactRow.sourceR2Key)
+      if (!sourceObject) throw new Error(`source artifact object missing from R2: ${artifactRow.sourceR2Key}`)
+      sourceBytes = await sourceObject.arrayBuffer()
+    }
+  }
+  // else: no real binary for this store (Safari) — the tenant's own pipeline
+  // already delivered it out-of-band; submit() only needs the version/platform.
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = await adapter.submit(credentials as any, storeTarget, bytes, queued!.version, platform)
+  const result = await adapter.submit(credentials as any, storeTarget, bytes, queued!.version, platform, sourceBytes)
   if (!result.submitted) {
     if (result.waiting) {
       // Not an error — e.g. Safari waiting for the tenant's macOS pipeline

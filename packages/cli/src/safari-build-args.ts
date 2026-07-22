@@ -1,17 +1,15 @@
-// @ts-check
+export type SafariPlatform = 'macos' | 'ios'
 
-/**
- * @typedef {{
- *   projectPath: string
- *   teamId: string
- *   issuerId: string
- *   keyId: string
- *   keyPath?: string
- *   version?: string
- *   platform?: 'macos' | 'ios'
- *   macosDeploymentTarget: string
- * }} SafariBuildOptions
- */
+export interface SafariBuildOptions {
+  projectPath: string
+  teamId: string
+  issuerId: string
+  keyId: string
+  keyPath?: string
+  version?: string
+  platform?: SafariPlatform
+  macosDeploymentTarget: string
+}
 
 export const SAFARI_BUILD_USAGE = `extport safari-build — build, sign, and upload a Safari web extension to App Store Connect
 
@@ -39,14 +37,8 @@ Options:
 
 const PLATFORMS = ['macos', 'ios']
 
-/**
- * @param {string[]} argv - args after the "safari-build" command
- * @param {Record<string, string | undefined>} env
- * @returns {SafariBuildOptions}
- */
-export function parseSafariBuildArgs(argv, env) {
-  /** @type {Record<string, string>} */
-  const flags = {}
+export function parseSafariBuildArgs(argv: string[], env: Record<string, string | undefined>): SafariBuildOptions {
+  const flags: Record<string, string> = {}
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === undefined) break
@@ -73,7 +65,7 @@ export function parseSafariBuildArgs(argv, env) {
     throw new Error('--version must be 1-4 dot-separated integers')
   }
 
-  const platform = /** @type {'macos' | 'ios' | undefined} */ (flags['platform'])
+  const platform = flags['platform'] as SafariPlatform | undefined
   if (platform !== undefined && !PLATFORMS.includes(platform)) {
     throw new Error(`--platform must be one of: ${PLATFORMS.join(', ')}`)
   }

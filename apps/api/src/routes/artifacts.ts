@@ -1,4 +1,5 @@
 import { isValidExtensionVersion, newId, sha256Hex, STORES, type Store } from '@extport/shared'
+import { getAdapter } from '@extport/store-adapters'
 import { and, desc, eq, isNull, or } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { artifacts, extensions, publishTargets, type Extension } from '../db'
@@ -12,8 +13,8 @@ const route = new Hono<AppEnv>()
 
 route.use('*', requireAuth)
 
-function r2Key(tenantId: string, extensionId: string, version: string, store: Store | null): string {
-  return `artifacts/${tenantId}/${extensionId}/${version}/${store ?? 'universal'}.zip`
+function r2Key(tenantId: string, extensionId: string, version: string, store: Store | null, suffix = ''): string {
+  return `artifacts/${tenantId}/${extensionId}/${version}/${store ?? 'universal'}${suffix}.zip`
 }
 
 async function resolveExtension(c: Context<AppEnv>, ref: string): Promise<Extension | null> {
@@ -53,15 +54,44 @@ route.post('/', async (c) => {
   if (!extension) return c.json({ error: `extension "${extensionRef}" not found` }, 404)
 
   const declaredLength = Number(c.req.header('content-length') ?? '0')
-  if (declaredLength > MAX_ARTIFACT_BYTES) return c.json({ error: 'artifact too large (max 64 MB)' }, 413)
-  const bytes = new Uint8Array(await c.req.arrayBuffer())
-  if (bytes.length === 0) return c.json({ error: 'request body must be the zip file' }, 400)
-  if (bytes.length > MAX_ARTIFACT_BYTES) return c.json({ error: 'artifact too large (max 64 MB)' }, 413)
-  if (!(bytes[0] === 0x50 && bytes[1] === 0x4b)) {
-    return c.json({ error: 'body does not look like a zip file' }, 400)
+  if (declaredLength > MAX_ARTIFACT_BYTES * 2) return c.json({ error: 'artifact too large (max 64 MB)' }, 413)
+
+  // Firefox can carry a companion source zip alongside the main one (AMO
+  // requires source for bundled/minified submissions) — sent as multipart
+  // with a "file" and optional "source" part. Every other push keeps the
+  // plain "body IS the zip" shape unchanged.
+  let bytes = new Uint8Array(0)
+  let sourceBytes: Uint8Array | undefined
+  const contentType = c.req.header('content-type') ?? ''
+  if (contentType.includes('multipart/form-data')) {
+    if (store !== 'firefox') return c.json({ error: 'a source zip is only accepted for --store firefox' }, 400)
+    const form = await c.req.formData()
+    const file = form.get('file')
+    if (!(file instanceof File)) return c.json({ error: 'multipart body must include a "file" part with the zip' }, 400)
+    bytes = new Uint8Array(await file.arrayBuffer())
+    const source = form.get('source')
+    if (source instanceof File && source.size > 0) sourceBytes = new Uint8Array(await source.arrayBuffer())
+  } else {
+    bytes = new Uint8Array(await c.req.arrayBuffer())
   }
 
-  const sha256 = await sha256Hex(bytes)
+  // Only a store whose adapter declares requiresArtifact: false (Safari) may
+  // push with no file — its binary reaches the store directly, so this just
+  // pins a version. Every other push (including a universal one, since some
+  // targeted store always needs a real file) requires real content.
+  const requiresArtifact = store ? (getAdapter(store).requiresArtifact ?? true) : true
+  if (bytes.length === 0 && requiresArtifact) {
+    return c.json({ error: 'request body must be the zip file' }, 400)
+  }
+  if (bytes.length > 0) {
+    if (bytes.length > MAX_ARTIFACT_BYTES) return c.json({ error: 'artifact too large (max 64 MB)' }, 413)
+    if (sourceBytes && sourceBytes.length > MAX_ARTIFACT_BYTES) return c.json({ error: 'source artifact too large (max 64 MB)' }, 413)
+    if (!(bytes[0] === 0x50 && bytes[1] === 0x4b)) {
+      return c.json({ error: 'body does not look like a zip file' }, 400)
+    }
+  }
+
+  const sha256 = bytes.length > 0 ? await sha256Hex(bytes) : null
 
   // Versions are immutable: same bytes → idempotent success, different bytes → conflict.
   const [existing] = await db
@@ -95,12 +125,23 @@ route.post('/', async (c) => {
     }
   }
 
-  const key = r2Key(tenant.id, extension.id, version, store)
-  await c.env.ARTIFACTS.put(key, bytes, {
-    httpMetadata: { contentType: 'application/zip' },
-    customMetadata: { sha256, tenantId: tenant.id, extensionId: extension.id, version },
-    sha256,
-  })
+  let key: string | null = null
+  let sourceKey: string | null = null
+  if (bytes.length > 0) {
+    key = r2Key(tenant.id, extension.id, version, store)
+    await c.env.ARTIFACTS.put(key, bytes, {
+      httpMetadata: { contentType: 'application/zip' },
+      customMetadata: { sha256: sha256!, tenantId: tenant.id, extensionId: extension.id, version },
+      sha256: sha256!,
+    })
+    if (sourceBytes) {
+      sourceKey = r2Key(tenant.id, extension.id, version, store, '-source')
+      await c.env.ARTIFACTS.put(sourceKey, sourceBytes, {
+        httpMetadata: { contentType: 'application/zip' },
+        customMetadata: { tenantId: tenant.id, extensionId: extension.id, version },
+      })
+    }
+  }
 
   const id = newId('artifact')
   await db.insert(artifacts).values({
@@ -111,6 +152,7 @@ route.post('/', async (c) => {
     store,
     source: 'cli_upload',
     r2Key: key,
+    sourceR2Key: sourceKey,
     sha256,
     size: bytes.length,
   })

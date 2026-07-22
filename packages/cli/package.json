@@ -5,13 +5,14 @@
   "description": "CLI for the extport extension publishing platform",
   "type": "module",
   "bin": {
-    "extport": "./src/cli.mjs"
+    "extport": "./dist/cli.js"
   },
-  "files": ["src"],
+  "files": ["dist"],
   "engines": {
     "node": ">=18"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

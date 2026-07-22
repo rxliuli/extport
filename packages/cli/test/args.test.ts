@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildPushUrl, parsePushArgs } from '../src/args.mjs'
+import { buildPushUrl, parsePushArgs } from '../src/args.js'
 
 const env = { EXTPORT_API_KEY: 'sk_live_' + 'a'.repeat(40) }
 
@@ -40,6 +40,32 @@ describe('parsePushArgs', () => {
       parsePushArgs(['d.zip', '--extension', 'e', '--version', '1', '--store', 'opera'], env),
     ).toThrow(/--store must be/)
     expect(() => parsePushArgs(['d.zip', '--extension'], env)).toThrow(/requires a value/)
+  })
+
+  it('allows --store safari with no file — the binary already reached ASC out-of-band', () => {
+    const options = parsePushArgs(['--extension', 'e', '--version', '1', '--store', 'safari'], env)
+    expect(options.file).toBeUndefined()
+    expect(options.store).toBe('safari')
+  })
+
+  it('still requires a file for every store other than safari', () => {
+    expect(() => parsePushArgs(['--extension', 'e', '--version', '1', '--store', 'chrome'], env)).toThrow(/zip file/)
+    expect(() => parsePushArgs(['--extension', 'e', '--version', '1'], env)).toThrow(/zip file/)
+  })
+
+  it('accepts --source-zip only alongside --store firefox', () => {
+    const options = parsePushArgs(
+      ['d.zip', '--extension', 'e', '--version', '1', '--store', 'firefox', '--source-zip', 'src.zip'],
+      env,
+    )
+    expect(options.sourceZip).toBe('src.zip')
+
+    expect(() =>
+      parsePushArgs(['d.zip', '--extension', 'e', '--version', '1', '--store', 'chrome', '--source-zip', 'src.zip'], env),
+    ).toThrow(/--source-zip is only valid with --store firefox/)
+    expect(() => parsePushArgs(['d.zip', '--extension', 'e', '--version', '1', '--source-zip', 'src.zip'], env)).toThrow(
+      /--source-zip is only valid with --store firefox/,
+    )
   })
 })
 

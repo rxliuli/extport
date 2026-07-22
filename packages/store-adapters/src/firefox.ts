@@ -78,6 +78,7 @@ async function submit(
   artifact: ArrayBuffer,
   fetchImpl: FetchLike,
   poll: PollOptions,
+  sourceArtifact?: ArrayBuffer,
 ): Promise<SubmissionResult> {
   const form = new FormData()
   form.append('channel', 'listed')
@@ -116,10 +117,19 @@ async function submit(
     return { submitted: false, detail: `validation failed: ${truncate(JSON.stringify(processed.validation ?? ''))}` }
   }
 
+  // AMO requires source for bundled/minified submissions, uploaded alongside
+  // the main zip in this same call — not a separate endpoint (confirmed
+  // against aklinker1/publish-browser-extension, the reference implementation
+  // wxt's own `wxt submit` uses). An empty `source` field is fine when the
+  // tenant didn't provide one; AMO only requires it when its own automated
+  // check flags the submission as needing one.
+  const versionBody = new FormData()
+  versionBody.set('upload', uuid)
+  versionBody.set('source', sourceArtifact ? new Blob([sourceArtifact], { type: 'application/zip' }) : '')
   const versionRes = await fetchImpl(addonUrl(addonId, '/versions/'), {
     method: 'POST',
-    headers: { authorization: await amoAuthHeader(credentials), 'content-type': 'application/json' },
-    body: JSON.stringify({ upload: uuid }),
+    headers: { authorization: await amoAuthHeader(credentials) },
+    body: versionBody,
   })
   if (!versionRes.ok) {
     return { submitted: false, detail: `version creation failed (${versionRes.status}): ${truncate(await versionRes.text())}` }
@@ -142,7 +152,8 @@ export function createFirefoxAdapter(
       return { ok: false, reason: `amo rejected the JWT credentials: ${truncate(await res.text())}` }
     },
     getState: (credentials, target) => getState(credentials, target.storeItemId, fetchImpl),
-    submit: (credentials, target, artifact) => submit(credentials, target.storeItemId, artifact, fetchImpl, poll),
+    submit: (credentials, target, artifact, _version, _platform, sourceArtifact) =>
+      submit(credentials, target.storeItemId, artifact, fetchImpl, poll, sourceArtifact),
     // Firefox review is automated/near-instant for the vast majority of submissions —
     // there is nothing in-flight to cancel by the time we could act on it.
   }

@@ -488,6 +488,79 @@ describe('runReconciliation — failure isolation', () => {
     const target = await targetFor(db, extensionId)
     expect(target.lastErrorDetail).toMatch(/missing from R2/)
   })
+
+  it('fetches a companion source object and submits successfully when it exists', async () => {
+    const { db, tenantId, extensionId } = await setupChromeScenario({})
+    const artifactId = newId('artifact')
+    const r2Key = `artifacts/${tenantId}/${extensionId}/1.0.0/universal.zip`
+    const sourceR2Key = `artifacts/${tenantId}/${extensionId}/1.0.0/universal-source.zip`
+    await db.insert(artifacts).values({
+      id: artifactId,
+      tenantId,
+      extensionId,
+      version: '1.0.0',
+      store: null,
+      source: 'cli_upload',
+      r2Key,
+      sourceR2Key,
+      sha256: 'b'.repeat(64),
+      size: 4,
+    })
+    await env.ARTIFACTS.put(r2Key, new Uint8Array([1, 2, 3, 4]))
+    await env.ARTIFACTS.put(sourceR2Key, new Uint8Array([5, 6, 7, 8]))
+    await db.insert(deploymentVersions).values({
+      id: newId('deploymentVersion'),
+      tenantId,
+      extensionId,
+      store: 'chrome',
+      version: '1.0.0',
+      status: 'queued',
+      artifactId,
+    })
+    globalThis.fetch = routedFetch(chromeRoutes()).fetch
+
+    // Chrome's own adapter ignores the extra sourceArtifact — this proves
+    // the reconcile-level plumbing (fetch the companion object, thread it
+    // through) works without erroring, independent of what the adapter does
+    // with it. packages/store-adapters/test/firefox.test.ts covers the
+    // adapter side that actually uses it.
+    const summary = await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
+    expect(summary).toEqual({ processed: 1, submitted: 1, blocked: 0, errors: 0 })
+  })
+
+  it('reports a missing companion source object as an error without crashing the whole tick', async () => {
+    const { db, tenantId, extensionId } = await setupChromeScenario({})
+    const artifactId = newId('artifact')
+    const r2Key = `artifacts/${tenantId}/${extensionId}/1.0.0/universal.zip`
+    await db.insert(artifacts).values({
+      id: artifactId,
+      tenantId,
+      extensionId,
+      version: '1.0.0',
+      store: null,
+      source: 'cli_upload',
+      r2Key,
+      sourceR2Key: 'artifacts/does/not/exist-source.zip',
+      sha256: 'b'.repeat(64),
+      size: 4,
+    })
+    await env.ARTIFACTS.put(r2Key, new Uint8Array([1, 2, 3, 4]))
+    await db.insert(deploymentVersions).values({
+      id: newId('deploymentVersion'),
+      tenantId,
+      extensionId,
+      store: 'chrome',
+      version: '1.0.0',
+      status: 'queued',
+      artifactId,
+    })
+    globalThis.fetch = routedFetch(chromeRoutes()).fetch
+
+    const summary = await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
+    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 1 })
+    const target = await targetFor(db, extensionId)
+    expect(target.lastErrorDetail).toMatch(/source artifact object missing from R2/)
+  })
 })
 
 // ES256 test key for the safari adapter's real JWT signing.
@@ -715,6 +788,72 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
     expect(rows.filter((v) => v.platform === 'ios')).toHaveLength(0)
     expect(sent).toHaveLength(1)
     expect(sent[0]!.subject).toContain('v0.0.2')
+  })
+
+  it('submits with no real artifact at all — safari pins a version with r2Key/sha256 null, and reconcile never touches R2 for it', async () => {
+    const { db, tenantId, extensionId } = await setupSafariScenario({
+      versions: [{ version: '0.0.1', status: 'online', platform: 'macos' }],
+    })
+    // Mirrors what routes/artifacts.ts now creates for a fileless safari push
+    // (requiresArtifact: false) — no r2Key, no sha256, size 0.
+    const artifactId = newId('artifact')
+    await db.insert(artifacts).values({
+      id: artifactId,
+      tenantId,
+      extensionId,
+      version: '0.0.2',
+      store: 'safari',
+      source: 'cli_upload',
+      r2Key: null,
+      sha256: null,
+      size: 0,
+    })
+    await db.insert(deploymentVersions).values({
+      id: newId('deploymentVersion'),
+      tenantId,
+      extensionId,
+      store: 'safari',
+      platform: 'macos',
+      version: '0.0.2',
+      status: 'queued',
+      artifactId,
+    })
+    globalThis.fetch = routedFetch([
+      {
+        test: (u) => u.includes('appVersionState') && u.includes('=MAC_OS'),
+        respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
+      },
+      { test: (u) => u.includes('appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
+      { test: (u) => u.includes('/v1/builds'), respond: () => ({ status: 200, body: { data: [{ id: 'build-1' }] } }) },
+      {
+        test: (u) => u.includes('appStoreVersions') && u.includes('versionString'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+      { test: (u, i) => u.endsWith('/v1/appStoreVersions') && i?.method === 'POST', respond: () => ({ status: 201, body: { data: { id: 'ver-1' } } }) },
+      { test: (u, i) => u.includes('/relationships/build') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+      {
+        test: (u) => u.includes('appStoreVersionLocalizations') && u.includes('/ver-1/'),
+        respond: () => ({ status: 200, body: { data: [{ id: 'loc-1', attributes: { whatsNew: null } }] } }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/appStoreVersionLocalizations/loc-1') && i?.method === 'PATCH',
+        respond: () => ({ status: 200, body: {} }),
+      },
+      {
+        test: (u) => u.includes('reviewSubmissions') && u.includes('READY_FOR_REVIEW'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+      { test: (u, i) => u.endsWith('/v1/reviewSubmissions') && i?.method === 'POST', respond: () => ({ status: 201, body: { data: { id: 'sub-1' } } }) },
+      { test: (u) => u.includes('/reviewSubmissions/sub-1/items'), respond: () => ({ status: 200, body: { data: [] } }) },
+      { test: (u, i) => u.endsWith('/v1/reviewSubmissionItems') && i?.method === 'POST', respond: () => ({ status: 201, body: {} }) },
+      { test: (u, i) => u.endsWith('/v1/reviewSubmissions/sub-1') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+    ]).fetch
+
+    const summary = await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
+    // Nothing was ever written to R2 for this artifact — if reconcile tried
+    // to fetch it anyway (ignoring the null r2Key), the object would come
+    // back missing and this would surface as an error instead.
+    expect(summary).toEqual({ processed: 1, submitted: 1, blocked: 0, errors: 0 })
   })
 
   it('one platform failing does not stop its sibling from submitting', async () => {
