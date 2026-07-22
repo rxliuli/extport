@@ -1,0 +1,53 @@
+name: CLI Release
+
+# Publishes @extport/cli to npm whenever its version changes, via npm's OIDC
+# Trusted Publishing — no NPM_TOKEN secret to store or rotate. Requires a
+# Trusted Publisher configured on npmjs.com for @extport/cli, pointing at
+# this repo, this workflow file, and (if used) the npm-publish environment.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/cli/package.json'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Check version change
+        id: version
+        uses: rxliuli/version-check@v1
+        with:
+          file: packages/cli/package.json
+
+  publish:
+    needs: version
+    if: needs.version.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @extport/cli test
+      - run: pnpm --filter @extport/cli build
+      - name: Publish to npm
+        # Detached-HEAD checkout fails pnpm's default git checks (branch,
+        # clean tree) even though the CI checkout already guarantees both.
+        run: pnpm --filter @extport/cli publish --access public --no-git-checks

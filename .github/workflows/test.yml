@@ -1,4 +1,4 @@
-name: CI
+name: Test
 
 # Tests and typecheck only — building and deploying is Cloudflare Workers
 # Builds' job (the repo is connected to the Worker in the Cloudflare
