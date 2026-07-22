@@ -312,12 +312,21 @@ function opsEventDetail(event: PublishEvent): string | null {
 // has no version to belong to, so it lives in the ops list below instead.
 function VersionMatrixSection({ extensionId }: { extensionId: string }) {
   const { data } = useQuery(timelineQuery(extensionId))
+  const { data: targets = [] } = useQuery(targetsQuery(extensionId))
   const versions = data?.versions ?? []
   const events = data?.events ?? []
 
+  // A store can have deployment_versions rows before it has a publish
+  // target — pushes are accepted early so tenants can wire up CI before
+  // every store's credentials are ready (queueLatestArtifact backfills the
+  // target once one's added). This matrix is meant to show the health of
+  // your CONFIGURED pipeline, not that leftover pre-target queue, so it
+  // only gets a column once a target actually exists for it.
+  const configuredStores = new Set(targets.map((t) => t.store))
+
   // One column per lifecycle: plain stores get one, Safari gets one per
   // platform present in the rows (labelled "safari (macos)" etc.).
-  const columns = STORES.flatMap((store) => {
+  const columns = STORES.filter((store) => configuredStores.has(store)).flatMap((store) => {
     const storeRows = versions.filter((v) => v.store === store)
     if (storeRows.length === 0) return []
     // Same platform order as the server's deriveTargetLifecycles: macos, ios.
