@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildPushUrl, resolvePushOptions } from '../src/args.js'
+import { buildPushUrl, resolvePushOptions } from '../src/args'
 
 const env = { EXTPORT_API_KEY: 'sk_live_' + 'a'.repeat(40) }
 

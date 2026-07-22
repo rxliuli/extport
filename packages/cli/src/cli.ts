@@ -3,13 +3,13 @@ import { cancel, confirm, intro, isCancel, log as clackLog, outro, select } from
 import { defineCommand, runMain } from 'citty'
 import { readFile } from 'node:fs/promises'
 import process from 'node:process'
-import { buildPushUrl, resolvePushOptions, type PushOptions, type RawPushArgs } from './args.js'
-import { clearGlobalConfig, loadGlobalConfig, loadProjectConfig, saveGlobalConfig, saveProjectConfig, type ProjectConfig } from './config.js'
-import { exec } from './exec.js'
-import { login } from './login.js'
-import { fillMissingPushDefaults, fillMissingSafariBuildDefaults, promptText, requiredField } from './prompts.js'
-import { resolveSafariBuildOptions, type RawSafariBuildArgs } from './safari-build-args.js'
-import { runSafariBuild } from './safari-build.js'
+import { buildPushUrl, resolvePushOptions, type PushOptions, type RawPushArgs } from './args'
+import { clearGlobalConfig, loadGlobalConfig, loadProjectConfig, saveGlobalConfig, saveProjectConfig, type ProjectConfig } from './config'
+import { exec } from './exec'
+import { login } from './login'
+import { fillMissingPushDefaults, fillMissingSafariBuildDefaults, promptText, requiredField } from './prompts'
+import { resolveSafariBuildOptions, type RawSafariBuildArgs } from './safari-build-args'
+import { runSafariBuild } from './safari-build'
 
 async function resolveApiUrl(flagApiUrl?: string): Promise<string> {
   const [globalConfig, projectConfig] = await Promise.all([loadGlobalConfig(), loadProjectConfig()])

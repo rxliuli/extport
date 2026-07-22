@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveSafariBuildOptions } from '../src/safari-build-args.js'
+import { resolveSafariBuildOptions } from '../src/safari-build-args'
 
 const env = { ASC_ISSUER_ID: 'iss-1', ASC_KEY_ID: 'KEY1' }
 const base = { macosDeploymentTarget: '12.0' }
