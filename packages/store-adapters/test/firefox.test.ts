@@ -70,8 +70,13 @@ describe('firefox adapter — submit', () => {
     expect(result).toEqual({ submitted: true })
     const versionBody = calls[2]!.init?.body as FormData
     expect(versionBody.get('upload')).toBe('u1')
-    const source = versionBody.get('source') as Blob
+    const source = versionBody.get('source') as File
     expect(source.size).toBe(16)
+    // Regression: omitting the filename here left the multipart part with no
+    // filename= in its Content-Disposition, and a real AMO submission read
+    // that as "not an archive" rather than as "a source zip" (caught via a
+    // real end-to-end push, not by this test — it only checked size before).
+    expect(source.name).toBe('source.zip')
   })
 
   it('polls a few times before validation completes', async () => {

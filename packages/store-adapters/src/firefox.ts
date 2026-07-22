@@ -125,7 +125,11 @@ async function submit(
   // check flags the submission as needing one.
   const versionBody = new FormData()
   versionBody.set('upload', uuid)
-  versionBody.set('source', sourceArtifact ? new Blob([sourceArtifact], { type: 'application/zip' }) : '')
+  // Same as the "upload" field above — omitting the filename leaves the
+  // multipart part with no filename= in its Content-Disposition, and AMO
+  // reads that as "not an archive" rather than as "no source provided".
+  if (sourceArtifact) versionBody.set('source', new Blob([sourceArtifact], { type: 'application/zip' }), 'source.zip')
+  else versionBody.set('source', '')
   const versionRes = await fetchImpl(addonUrl(addonId, '/versions/'), {
     method: 'POST',
     headers: { authorization: await amoAuthHeader(credentials) },
