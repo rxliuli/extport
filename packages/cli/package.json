@@ -21,6 +21,7 @@
   "devDependencies": {
     "@clack/prompts": "^1.7.0",
     "@types/node": "^26.1.1",
+    "citty": "^0.2.2",
     "tsdown": "^0.22.12",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"

@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fillMissingPushDefaults, fillMissingSafariBuildDefaults, promptText, PromptCancelled } from '../src/prompts'
 
 const CANCEL_SYMBOL = Symbol('clack-cancel')
 
@@ -14,6 +13,8 @@ vi.mock('@clack/prompts', () => ({
   password: (...args: unknown[]) => passwordMock(...args),
   isCancel: (v: unknown) => v === CANCEL_SYMBOL,
 }))
+
+const { fillMissingPushDefaults, fillMissingSafariBuildDefaults, promptText, PromptCancelled } = await import('../src/prompts.js')
 
 describe('promptText', () => {
   beforeEach(() => {
@@ -45,26 +46,26 @@ describe('fillMissingPushDefaults', () => {
     passwordMock.mockReset()
   })
 
-  it('prompts for extension and api key when neither flags, env, nor defaults have them', async () => {
+  it('prompts for extension and api key when neither citty args, env, nor defaults have them', async () => {
     textMock.mockResolvedValue('scrub')
     passwordMock.mockResolvedValue('sk_live_prompted')
 
-    const filled = await fillMissingPushDefaults([], {}, {})
+    const filled = await fillMissingPushDefaults({}, {}, {})
 
     expect(filled).toEqual({ extension: 'scrub', apiKey: 'sk_live_prompted' })
     expect(textMock).toHaveBeenCalledTimes(1)
     expect(passwordMock).toHaveBeenCalledTimes(1)
   })
 
-  it('does not prompt for a field already present in argv, env, or defaults', async () => {
-    const filled = await fillMissingPushDefaults(['--extension', 'scrub'], { EXTPORT_API_KEY: 'sk_live_env' }, {})
+  it('does not prompt for a field already present in citty args, env, or defaults', async () => {
+    const filled = await fillMissingPushDefaults({ extension: 'scrub' }, { EXTPORT_API_KEY: 'sk_live_env' }, {})
     expect(filled).toEqual({})
     expect(textMock).not.toHaveBeenCalled()
     expect(passwordMock).not.toHaveBeenCalled()
   })
 
   it('defaults already present (e.g. from extport.config.json / login) short-circuit the prompt too', async () => {
-    const filled = await fillMissingPushDefaults([], {}, { extension: 'scrub', apiKey: 'sk_live_saved' })
+    const filled = await fillMissingPushDefaults({}, {}, { extension: 'scrub', apiKey: 'sk_live_saved' })
     expect(filled).toEqual({ extension: 'scrub', apiKey: 'sk_live_saved' })
     expect(textMock).not.toHaveBeenCalled()
     expect(passwordMock).not.toHaveBeenCalled()
@@ -76,18 +77,20 @@ describe('fillMissingSafariBuildDefaults', () => {
     textMock.mockReset()
   })
 
+  const base = { macosDeploymentTarget: '12.0' }
+
   it('prompts for each of the four required fields in order, skipping ones already known', async () => {
     textMock.mockResolvedValueOnce('./ios').mockResolvedValueOnce('TEAM1')
 
-    const filled = await fillMissingSafariBuildDefaults([], { ASC_ISSUER_ID: 'iss-env', ASC_KEY_ID: 'key-env' }, {})
+    const filled = await fillMissingSafariBuildDefaults(base, { ASC_ISSUER_ID: 'iss-env', ASC_KEY_ID: 'key-env' }, {})
 
     expect(filled).toEqual({ projectPath: './ios', teamId: 'TEAM1' })
     expect(textMock).toHaveBeenCalledTimes(2)
   })
 
-  it('does not prompt for anything already resolvable from argv/env/defaults', async () => {
+  it('does not prompt for anything already resolvable from citty args/env/defaults', async () => {
     const filled = await fillMissingSafariBuildDefaults(
-      ['--project-path', './ios', '--team-id', 'TEAM1'],
+      { ...base, projectPath: './ios', teamId: 'TEAM1' },
       { ASC_ISSUER_ID: 'iss-env', ASC_KEY_ID: 'key-env' },
       {},
     )

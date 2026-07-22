@@ -1,81 +1,58 @@
 import { describe, expect, it } from 'vitest'
-import { buildPushUrl, parsePushArgs } from '../src/args'
+import { buildPushUrl, resolvePushOptions } from '../src/args.js'
 
 const env = { EXTPORT_API_KEY: 'sk_live_' + 'a'.repeat(40) }
 
-describe('parsePushArgs', () => {
-  it('parses a full invocation', () => {
-    const options = parsePushArgs(
-      ['dist.zip', '--extension', 'my-ext', '--version', '1.2.3', '--store', 'chrome'],
-      env,
-    )
-    expect(options).toMatchObject({
-      file: 'dist.zip',
-      extension: 'my-ext',
-      version: '1.2.3',
-      store: 'chrome',
-      apiUrl: 'https://dash.extport.dev',
-    })
+describe('resolvePushOptions', () => {
+  it('resolves a full invocation', () => {
+    const options = resolvePushOptions({ file: 'dist.zip', extension: 'my-ext', version: '1.2.3', store: 'chrome' }, env)
+    expect(options).toMatchObject({ file: 'dist.zip', extension: 'my-ext', version: '1.2.3', store: 'chrome', apiUrl: 'https://dash.extport.dev' })
   })
 
-  it('prefers flags over env for key and url', () => {
-    const options = parsePushArgs(
-      ['d.zip', '--extension', 'e', '--version', '1', '--api-key', 'sk_live_x', '--api-url', 'http://localhost:8787/'],
-      env,
-    )
+  it('prefers raw flags over env for key and url, and strips a trailing slash from the url', () => {
+    const options = resolvePushOptions({ file: 'd.zip', extension: 'e', version: '1', apiKey: 'sk_live_x', apiUrl: 'http://localhost:8787/' }, env)
     expect(options.apiKey).toBe('sk_live_x')
     expect(options.apiUrl).toBe('http://localhost:8787')
   })
 
-  it('requires extension, version, api key, and file', () => {
-    expect(() => parsePushArgs(['--extension', 'e', '--version', '1'], env)).toThrow(/zip file/)
-    expect(() => parsePushArgs(['d.zip', '--version', '1'], env)).toThrow(/--extension/)
-    expect(() => parsePushArgs(['d.zip', '--extension', 'e'], env)).toThrow(/--version/)
-    expect(() => parsePushArgs(['d.zip', '--extension', 'e', '--version', 'v1'], env)).toThrow(/--version/)
-    expect(() => parsePushArgs(['d.zip', '--extension', 'e', '--version', '1'], {})).toThrow(/API key/)
-  })
-
-  it('rejects unknown stores and dangling flags', () => {
-    expect(() =>
-      parsePushArgs(['d.zip', '--extension', 'e', '--version', '1', '--store', 'opera'], env),
-    ).toThrow(/--store must be/)
-    expect(() => parsePushArgs(['d.zip', '--extension'], env)).toThrow(/requires a value/)
+  it('requires a file for every store other than safari', () => {
+    expect(() => resolvePushOptions({ extension: 'e', version: '1', store: 'chrome' }, env)).toThrow(/zip file/)
+    expect(() => resolvePushOptions({ extension: 'e', version: '1' }, env)).toThrow(/zip file/)
   })
 
   it('allows --store safari with no file — the binary already reached ASC out-of-band', () => {
-    const options = parsePushArgs(['--extension', 'e', '--version', '1', '--store', 'safari'], env)
+    const options = resolvePushOptions({ extension: 'e', version: '1', store: 'safari' }, env)
     expect(options.file).toBeUndefined()
     expect(options.store).toBe('safari')
   })
 
-  it('still requires a file for every store other than safari', () => {
-    expect(() => parsePushArgs(['--extension', 'e', '--version', '1', '--store', 'chrome'], env)).toThrow(/zip file/)
-    expect(() => parsePushArgs(['--extension', 'e', '--version', '1'], env)).toThrow(/zip file/)
+  it('requires extension, version (1-4 dot-separated integers), and an api key', () => {
+    expect(() => resolvePushOptions({ file: 'd.zip', version: '1' }, env)).toThrow(/--extension/)
+    expect(() => resolvePushOptions({ file: 'd.zip', extension: 'e' }, env)).toThrow(/--version/)
+    expect(() => resolvePushOptions({ file: 'd.zip', extension: 'e', version: 'v1' }, env)).toThrow(/--version/)
+    expect(() => resolvePushOptions({ file: 'd.zip', extension: 'e', version: '1' }, {})).toThrow(/API key/)
   })
 
   it('accepts --source-zip only alongside --store firefox', () => {
-    const options = parsePushArgs(
-      ['d.zip', '--extension', 'e', '--version', '1', '--store', 'firefox', '--source-zip', 'src.zip'],
-      env,
-    )
+    const options = resolvePushOptions({ file: 'd.zip', extension: 'e', version: '1', store: 'firefox', sourceZip: 'src.zip' }, env)
     expect(options.sourceZip).toBe('src.zip')
 
-    expect(() =>
-      parsePushArgs(['d.zip', '--extension', 'e', '--version', '1', '--store', 'chrome', '--source-zip', 'src.zip'], env),
-    ).toThrow(/--source-zip is only valid with --store firefox/)
-    expect(() => parsePushArgs(['d.zip', '--extension', 'e', '--version', '1', '--source-zip', 'src.zip'], env)).toThrow(
+    expect(() => resolvePushOptions({ file: 'd.zip', extension: 'e', version: '1', store: 'chrome', sourceZip: 'src.zip' }, env)).toThrow(
+      /--source-zip is only valid with --store firefox/,
+    )
+    expect(() => resolvePushOptions({ file: 'd.zip', extension: 'e', version: '1', sourceZip: 'src.zip' }, env)).toThrow(
       /--source-zip is only valid with --store firefox/,
     )
   })
 
   it('falls back to defaults (project config / extport login) when a flag and env are both absent', () => {
-    const options = parsePushArgs(['d.zip', '--version', '1'], {}, { extension: 'scrub', apiKey: 'sk_live_from_login', apiUrl: 'https://dash.extport.dev/' })
+    const options = resolvePushOptions({ file: 'd.zip', version: '1' }, {}, { extension: 'scrub', apiKey: 'sk_live_from_login', apiUrl: 'https://dash.extport.dev/' })
     expect(options).toMatchObject({ extension: 'scrub', apiKey: 'sk_live_from_login', apiUrl: 'https://dash.extport.dev' })
   })
 
-  it('flags beat env, and env beats defaults', () => {
-    const options = parsePushArgs(
-      ['d.zip', '--version', '1', '--extension', 'flag-ext'],
+  it('raw flags beat env, and env beats defaults', () => {
+    const options = resolvePushOptions(
+      { file: 'd.zip', version: '1', extension: 'flag-ext' },
       { EXTPORT_API_KEY: 'sk_live_env' },
       { extension: 'default-ext', apiKey: 'sk_live_default' },
     )

@@ -1,52 +1,19 @@
 #!/usr/bin/env node
 import { cancel, confirm, intro, isCancel, log as clackLog, outro, select } from '@clack/prompts'
+import { defineCommand, runMain } from 'citty'
 import { readFile } from 'node:fs/promises'
 import process from 'node:process'
-import { buildPushUrl, parsePushArgs, USAGE, type PushOptions } from './args'
-import { clearGlobalConfig, loadGlobalConfig, loadProjectConfig, saveGlobalConfig, saveProjectConfig, type ProjectConfig } from './config'
-import { exec } from './exec'
-import { login } from './login'
-import { fillMissingPushDefaults, fillMissingSafariBuildDefaults, promptText, requiredField } from './prompts'
-import { SAFARI_BUILD_USAGE, parseSafariBuildArgs } from './safari-build-args'
-import { runSafariBuild } from './safari-build'
+import { buildPushUrl, resolvePushOptions, type PushOptions, type RawPushArgs } from './args.js'
+import { clearGlobalConfig, loadGlobalConfig, loadProjectConfig, saveGlobalConfig, saveProjectConfig, type ProjectConfig } from './config.js'
+import { exec } from './exec.js'
+import { login } from './login.js'
+import { fillMissingPushDefaults, fillMissingSafariBuildDefaults, promptText, requiredField } from './prompts.js'
+import { resolveSafariBuildOptions, type RawSafariBuildArgs } from './safari-build-args.js'
+import { runSafariBuild } from './safari-build.js'
 
-const TOP_USAGE = `extport — publish browser extension artifacts
-
-Commands:
-  login          Authorize this machine via your browser
-  logout         Forget the locally-stored API key
-  whoami         Show which tenant the current credentials belong to
-  init           Interactive setup — writes extport.config.json
-  push           Upload an artifact to extport
-  safari-build   Build, sign, and upload a Safari extension to App Store Connect
-
-Run "extport <command> --help" for command-specific options.
-`
-
-function fail(message: string): void {
-  console.error(`error: ${message}`)
-  process.exit(1)
-}
-
-/** Just enough to read --api-url/--api-key out of login/logout/whoami's short arg lists. */
-function parseSimpleFlags(argv: string[]): Record<string, string> {
-  const flags: Record<string, string> = {}
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]
-    if (arg?.startsWith('--')) {
-      const value = argv[i + 1]
-      if (value !== undefined && !value.startsWith('--')) {
-        flags[arg.slice(2)] = value
-        i++
-      }
-    }
-  }
-  return flags
-}
-
-async function resolveApiUrl(flags: Record<string, string>): Promise<string> {
+async function resolveApiUrl(flagApiUrl?: string): Promise<string> {
   const [globalConfig, projectConfig] = await Promise.all([loadGlobalConfig(), loadProjectConfig()])
-  return (flags['api-url'] ?? process.env.EXTPORT_API_URL ?? projectConfig.apiUrl ?? globalConfig.apiUrl ?? 'https://dash.extport.dev').replace(/\/+$/, '')
+  return (flagApiUrl ?? process.env.EXTPORT_API_URL ?? projectConfig.apiUrl ?? globalConfig.apiUrl ?? 'https://dash.extport.dev').replace(/\/+$/, '')
 }
 
 interface Me {
@@ -102,33 +69,15 @@ async function buildPushRequest(options: PushOptions): Promise<PushRequest> {
   return { headers, body: bytes, label: `${bytes.length} bytes` }
 }
 
-async function runPush(rest: string[]): Promise<void> {
+async function runPush(raw: RawPushArgs): Promise<void> {
   const [globalConfig, projectConfig] = await Promise.all([loadGlobalConfig(), loadProjectConfig()])
   let defaults = { extension: projectConfig.extension, apiKey: globalConfig.apiKey, apiUrl: projectConfig.apiUrl ?? globalConfig.apiUrl }
   if (process.stdin.isTTY) {
-    try {
-      defaults = { ...defaults, ...(await fillMissingPushDefaults(rest, process.env, defaults)) }
-    } catch (err) {
-      fail((err as Error).message)
-      return
-    }
+    defaults = { ...defaults, ...(await fillMissingPushDefaults(raw, process.env, defaults)) }
   }
 
-  let options: PushOptions
-  try {
-    options = parsePushArgs(rest, process.env, defaults)
-  } catch (err) {
-    fail(`${(err as Error).message}\n\n${USAGE}`)
-    return
-  }
-
-  let request: PushRequest
-  try {
-    request = await buildPushRequest(options)
-  } catch (err) {
-    fail((err as Error).message)
-    return
-  }
+  const options = resolvePushOptions(raw, process.env, defaults)
+  const request = await buildPushRequest(options)
 
   const target = `${options.extension}@${options.version}${options.store ? ` (${options.store})` : ''}`
   console.log(`pushing ${options.file ?? '(no file)'} → ${target}`)
@@ -139,8 +88,7 @@ async function runPush(rest: string[]): Promise<void> {
   try {
     json = (await res.json()) as typeof json
   } catch {
-    fail(`unexpected response (${res.status})`)
-    return
+    throw new Error(`unexpected response (${res.status})`)
   }
 
   if (res.status === 201) {
@@ -148,35 +96,22 @@ async function runPush(rest: string[]): Promise<void> {
   } else if (res.ok && json.deduplicated) {
     console.log(`already uploaded ${target} — identical content, nothing to do`)
   } else {
-    fail(`${json.error ?? `upload failed (${res.status})`}`)
+    throw new Error(json.error ?? `upload failed (${res.status})`)
   }
 }
 
-async function runSafariBuildCommand(rest: string[]): Promise<void> {
+async function runSafariBuildCommand(raw: RawSafariBuildArgs): Promise<void> {
   if (process.platform !== 'darwin') {
-    fail(`safari-build requires macOS (xcodebuild is not available on ${process.platform})`)
-    return
+    throw new Error(`safari-build requires macOS (xcodebuild is not available on ${process.platform})`)
   }
 
   const projectConfig = await loadProjectConfig()
   let defaults = { ...projectConfig.safari }
   if (process.stdin.isTTY) {
-    try {
-      defaults = { ...defaults, ...(await fillMissingSafariBuildDefaults(rest, process.env, defaults)) }
-    } catch (err) {
-      fail((err as Error).message)
-      return
-    }
+    defaults = { ...defaults, ...(await fillMissingSafariBuildDefaults(raw, process.env, defaults)) }
   }
 
-  let options
-  try {
-    options = parseSafariBuildArgs(rest, process.env, defaults)
-  } catch (err) {
-    fail(`${(err as Error).message}\n\n${SAFARI_BUILD_USAGE}`)
-    return
-  }
-
+  const options = resolveSafariBuildOptions(raw, process.env, defaults)
   const results = await runSafariBuild(options, exec)
 
   console.log('')
@@ -192,17 +127,10 @@ async function runSafariBuildCommand(rest: string[]): Promise<void> {
   if (anyFailed) process.exit(1)
 }
 
-async function runLogin(rest: string[]): Promise<void> {
-  const flags = parseSimpleFlags(rest)
-  const apiUrl = await resolveApiUrl(flags)
+async function runLogin(flagApiUrl?: string): Promise<void> {
+  const apiUrl = await resolveApiUrl(flagApiUrl)
   console.log(`Opening ${apiUrl} to authorize this machine…`)
-  let result
-  try {
-    result = await login(apiUrl)
-  } catch (err) {
-    fail((err as Error).message)
-    return
-  }
+  const result = await login(apiUrl)
   await saveGlobalConfig({ apiKey: result.apiKey, apiUrl })
   const me = await fetchMe(apiUrl, result.apiKey)
   console.log(me ? `Logged in as ${me.tenant.name} (${me.tenant.plan}).` : 'Logged in.')
@@ -214,27 +142,19 @@ async function runLogout(): Promise<void> {
   console.log('Note: the API key itself stays valid until revoked from Settings → API keys in the dashboard.')
 }
 
-async function runWhoami(rest: string[]): Promise<void> {
-  const flags = parseSimpleFlags(rest)
+async function runWhoami(flagApiUrl?: string, flagApiKey?: string): Promise<void> {
   const globalConfig = await loadGlobalConfig()
-  const apiKey = flags['api-key'] ?? process.env.EXTPORT_API_KEY ?? globalConfig.apiKey
-  if (!apiKey) {
-    fail("not logged in — run 'extport login'")
-    return
-  }
-  const apiUrl = await resolveApiUrl(flags)
+  const apiKey = flagApiKey ?? process.env.EXTPORT_API_KEY ?? globalConfig.apiKey
+  if (!apiKey) throw new Error("not logged in — run 'extport login'")
+  const apiUrl = await resolveApiUrl(flagApiUrl)
   const me = await fetchMe(apiUrl, apiKey)
-  if (!me) {
-    fail('could not verify credentials — the key may be invalid or revoked')
-    return
-  }
+  if (!me) throw new Error('could not verify credentials — the key may be invalid or revoked')
   console.log(`${me.tenant.name} (${me.tenant.plan}) — ${apiUrl}`)
 }
 
 async function runInit(): Promise<void> {
   if (!process.stdin.isTTY) {
-    fail('extport init is interactive and needs a terminal (no TTY detected)')
-    return
+    throw new Error('extport init is interactive and needs a terminal (no TTY detected)')
   }
   intro('extport init')
 
@@ -247,13 +167,7 @@ async function runInit(): Promise<void> {
       cancel('extport init needs you to be logged in first — run it again after `extport login`.')
       return
     }
-    let result
-    try {
-      result = await login(apiUrl)
-    } catch (err) {
-      cancel((err as Error).message)
-      return
-    }
+    const result = await login(apiUrl)
     globalConfig = { apiKey: result.apiKey, apiUrl }
     await saveGlobalConfig(globalConfig)
   }
@@ -302,32 +216,98 @@ async function runInit(): Promise<void> {
   outro('Wrote extport.config.json — commit it, it has no secrets.')
 }
 
-async function main(): Promise<void> {
-  const [command, ...rest] = process.argv.slice(2)
+const apiUrlArg = { type: 'string', description: 'Platform URL (or env EXTPORT_API_URL)' } as const
 
-  if (!command || command === 'help' || command === '--help' || command === '-h') {
-    console.log(TOP_USAGE)
-    return
-  }
-  if (command === 'login') return runLogin(rest)
-  if (command === 'logout') return runLogout()
-  if (command === 'whoami') return runWhoami(rest)
-  if (command === 'init') return runInit()
-  if (command === 'push') {
-    if (rest[0] === '--help' || rest[0] === '-h') {
-      console.log(USAGE)
-      return
+// citty's own error handling prints the raw Error object (full stack trace) —
+// this keeps the CLI's previous clean `error: <message>` + exit 1 UX.
+function withCleanErrors<A>(fn: (args: A) => Promise<void>): (ctx: { args: A }) => Promise<void> {
+  return async ({ args }) => {
+    try {
+      await fn(args)
+    } catch (err) {
+      console.error(`error: ${err instanceof Error ? err.message : String(err)}`)
+      process.exit(1)
     }
-    return runPush(rest)
   }
-  if (command === 'safari-build') {
-    if (rest[0] === '--help' || rest[0] === '-h') {
-      console.log(SAFARI_BUILD_USAGE)
-      return
-    }
-    return runSafariBuildCommand(rest)
-  }
-  fail(`unknown command "${command}"\n\n${TOP_USAGE}`)
 }
 
-main().catch((err) => fail(err instanceof Error ? err.message : String(err)))
+const main = defineCommand({
+  meta: { name: 'extport', description: 'Publish browser extension artifacts' },
+  subCommands: {
+    login: defineCommand({
+      meta: { name: 'login', description: 'Authorize this machine via your browser' },
+      args: { 'api-url': apiUrlArg },
+      run: withCleanErrors((args) => runLogin(args['api-url'] as string | undefined)),
+    }),
+    logout: defineCommand({
+      meta: { name: 'logout', description: 'Forget the locally-stored API key' },
+      run: withCleanErrors(() => runLogout()),
+    }),
+    whoami: defineCommand({
+      meta: { name: 'whoami', description: 'Show which tenant the current credentials belong to' },
+      args: {
+        'api-url': apiUrlArg,
+        'api-key': { type: 'string', description: 'API key sk_live_… (or env EXTPORT_API_KEY, or run "extport login")' },
+      },
+      run: withCleanErrors((args) => runWhoami(args['api-url'] as string | undefined, args['api-key'] as string | undefined)),
+    }),
+    init: defineCommand({
+      meta: { name: 'init', description: 'Interactive setup — writes extport.config.json' },
+      run: withCleanErrors(() => runInit()),
+    }),
+    push: defineCommand({
+      meta: { name: 'push', description: 'Upload an artifact to extport' },
+      args: {
+        file: { type: 'positional', description: "Path to the zip file (omit only for --store safari — its binary reaches App Store Connect via 'extport safari-build')", required: false },
+        extension: { type: 'string', description: 'Target extension, id or slug (required — or extport.config.json\'s "extension")' },
+        version: { type: 'string', description: 'Artifact version, 1-4 dot-separated integers (required)' },
+        store: { type: 'enum', options: ['chrome', 'firefox', 'edge', 'safari'], description: 'Omit for a universal zip pushed to every configured store' },
+        'source-zip': { type: 'string', description: 'Source code zip for AMO review (--store firefox only)' },
+        'api-url': apiUrlArg,
+        'api-key': { type: 'string', description: 'API key sk_live_… (or env EXTPORT_API_KEY, or run "extport login")' },
+      },
+      run: withCleanErrors((args) =>
+        runPush({
+          file: args.file as string | undefined,
+          extension: args.extension as string | undefined,
+          version: args.version as string | undefined,
+          store: args.store as string | undefined,
+          sourceZip: args['source-zip'] as string | undefined,
+          apiUrl: args['api-url'] as string | undefined,
+          apiKey: args['api-key'] as string | undefined,
+        }),
+      ),
+    }),
+    'safari-build': defineCommand({
+      meta: { name: 'safari-build', description: "Build, sign, and upload a Safari extension to App Store Connect — never submits for review, that's reconcile's job" },
+      args: {
+        'project-path': { type: 'string', description: 'Directory containing the .xcodeproj (required — or extport.config.json\'s "safari.projectPath")' },
+        'team-id': { type: 'string', description: 'Apple Developer Team ID (required, or config)' },
+        'issuer-id': { type: 'string', description: 'App Store Connect issuer id (or env ASC_ISSUER_ID, or config)' },
+        'key-id': { type: 'string', description: 'App Store Connect key id (or env ASC_KEY_ID, or config)' },
+        'key-path': {
+          type: 'string',
+          description: ".p8 key file (or env ASC_KEY_PATH; defaults to Apple's own tooling search order: ./private_keys, ~/private_keys, ~/.private_keys, ~/.appstoreconnect/private_keys)",
+        },
+        platform: { type: 'enum', options: ['macos', 'ios'], description: 'Build only one platform (default: every platform the Xcode project ships)' },
+        version: { type: 'string', description: "Fail loudly if the built app's version doesn't match (safety net — extport never stamps it)" },
+        'macos-deployment-target': { type: 'string', default: '12.0', description: 'Minimum macOS version to build for' },
+      },
+      run: withCleanErrors((args) =>
+        runSafariBuildCommand({
+          projectPath: args['project-path'] as string | undefined,
+          teamId: args['team-id'] as string | undefined,
+          issuerId: args['issuer-id'] as string | undefined,
+          keyId: args['key-id'] as string | undefined,
+          keyPath: args['key-path'] as string | undefined,
+          platform: args.platform as 'macos' | 'ios' | undefined,
+          version: args.version as string | undefined,
+          // citty's default: '12.0' guarantees this is always a real string at runtime.
+          macosDeploymentTarget: args['macos-deployment-target'] as unknown as string,
+        }),
+      ),
+    }),
+  },
+})
+
+void runMain(main)
