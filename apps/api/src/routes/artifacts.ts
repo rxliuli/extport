@@ -91,7 +91,11 @@ route.post('/', async (c) => {
     }
   }
 
-  const sha256 = bytes.length > 0 ? await sha256Hex(bytes) : null
+  // '' (not null) for a fileless push — r2_key/sha256 stay NOT NULL at the DB
+  // level (see migration 0007's comment: relaxing that would need a table
+  // recreation that hits a real FK constraint failure on D1's remote backend
+  // once deployment_versions has real rows referencing this table).
+  const sha256 = bytes.length > 0 ? await sha256Hex(bytes) : ''
 
   // Versions are immutable: same bytes → idempotent success, different bytes → conflict.
   const [existing] = await db
@@ -125,14 +129,14 @@ route.post('/', async (c) => {
     }
   }
 
-  let key: string | null = null
+  let key = ''
   let sourceKey: string | null = null
   if (bytes.length > 0) {
     key = r2Key(tenant.id, extension.id, version, store)
     await c.env.ARTIFACTS.put(key, bytes, {
       httpMetadata: { contentType: 'application/zip' },
-      customMetadata: { sha256: sha256!, tenantId: tenant.id, extensionId: extension.id, version },
-      sha256: sha256!,
+      customMetadata: { sha256, tenantId: tenant.id, extensionId: extension.id, version },
+      sha256,
     })
     if (sourceBytes) {
       sourceKey = r2Key(tenant.id, extension.id, version, store, '-source')

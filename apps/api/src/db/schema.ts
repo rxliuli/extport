@@ -153,11 +153,12 @@ export const artifacts = sqliteTable(
     // null = universal zip for all stores; set = store-specific build.
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }),
     source: text('source', { enum: ['github_release', 'cli_upload'] }).notNull(),
-    // Null for a store whose adapter declares requiresArtifact: false (Safari
-    // — its binary reaches the store directly; this row only pins the
-    // version). sha256 stays null right alongside it; size is 0.
-    r2Key: text('r2_key'),
-    sha256: text('sha256'),
+    // Empty string (never null — see migration 0007's comment for why) for a
+    // store whose adapter declares requiresArtifact: false (Safari — its
+    // binary reaches the store directly; this row only pins the version).
+    // sha256 stays '' right alongside it; size is 0.
+    r2Key: text('r2_key').notNull(),
+    sha256: text('sha256').notNull(),
     size: integer('size').notNull(),
     // Firefox only: AMO requires source for bundled/minified submissions —
     // a companion zip alongside the main one, both pinned to the same push.

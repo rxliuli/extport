@@ -1,0 +1,12 @@
+-- Companion source zip AMO requires for bundled/minified Firefox submissions.
+--
+-- r2_key/sha256 deliberately stay NOT NULL (unlike an earlier draft of this
+-- migration) — a store whose adapter declares requiresArtifact: false
+-- (Safari) now pins a version with '' rather than a real R2 key/hash. A
+-- table-recreation approach (drop + rename, needed to relax NOT NULL) hit a
+-- real "FOREIGN KEY constraint failed" on D1's remote backend, since
+-- deployment_versions.artifact_id already has real rows referencing this
+-- table by the time this migration runs; PRAGMA defer_foreign_keys=true
+-- does not reliably defer across the DROP TABLE statement there. A plain
+-- ADD COLUMN has no such risk.
+ALTER TABLE `artifacts` ADD `source_r2_key` text;

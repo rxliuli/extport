@@ -122,10 +122,12 @@ describe('artifact upload', () => {
       headers: { authorization: `Bearer ${key}` },
     })
     expect(res.status).toBe(201)
-    const { artifact } = (await res.json()) as { artifact: { r2Key: string | null; sha256: string | null; size: number; store: string } }
+    const { artifact } = (await res.json()) as { artifact: { r2Key: string; sha256: string; size: number; store: string } }
     expect(artifact.store).toBe('safari')
-    expect(artifact.r2Key).toBeNull()
-    expect(artifact.sha256).toBeNull()
+    // '' not null — r2_key/sha256 stay NOT NULL at the DB level (see migration
+    // 0007's comment: relaxing that hit a real FK constraint failure on D1).
+    expect(artifact.r2Key).toBe('')
+    expect(artifact.sha256).toBe('')
     expect(artifact.size).toBe(0)
   })
 

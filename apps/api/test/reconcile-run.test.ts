@@ -790,12 +790,13 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
     expect(sent[0]!.subject).toContain('v0.0.2')
   })
 
-  it('submits with no real artifact at all — safari pins a version with r2Key/sha256 null, and reconcile never touches R2 for it', async () => {
+  it('submits with no real artifact at all — safari pins a version with r2Key/sha256 empty, and reconcile never touches R2 for it', async () => {
     const { db, tenantId, extensionId } = await setupSafariScenario({
       versions: [{ version: '0.0.1', status: 'online', platform: 'macos' }],
     })
     // Mirrors what routes/artifacts.ts now creates for a fileless safari push
-    // (requiresArtifact: false) — no r2Key, no sha256, size 0.
+    // (requiresArtifact: false) — r2Key/sha256 stay NOT NULL at the DB level,
+    // so this is '' rather than null (see migration 0007's comment).
     const artifactId = newId('artifact')
     await db.insert(artifacts).values({
       id: artifactId,
@@ -804,8 +805,8 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
       version: '0.0.2',
       store: 'safari',
       source: 'cli_upload',
-      r2Key: null,
-      sha256: null,
+      r2Key: '',
+      sha256: '',
       size: 0,
     })
     await db.insert(deploymentVersions).values({

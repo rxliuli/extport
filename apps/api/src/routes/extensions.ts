@@ -160,10 +160,11 @@ route.delete('/:id', async (c) => {
 
   // No DB-level cascade (D1 doesn't enforce FKs) — clean up dependents ourselves,
   // R2 objects first since an orphaned artifact row can be re-derived from nothing.
-  // r2Key/sourceR2Key are null for a store that pins a version with no real
-  // file (Safari) or no companion source zip (everyone but Firefox).
+  // r2Key is '' for a store that pins a version with no real file (Safari);
+  // sourceR2Key is null when there's no companion source zip (everyone but
+  // Firefox) — filter both sentinels out before asking R2 to delete anything.
   const artifactRows = await db.select({ r2Key: artifacts.r2Key, sourceR2Key: artifacts.sourceR2Key }).from(artifacts).where(eq(artifacts.extensionId, extension.id))
-  const r2Keys = artifactRows.flatMap((a) => [a.r2Key, a.sourceR2Key]).filter((key): key is string => key !== null)
+  const r2Keys = artifactRows.flatMap((a) => [a.r2Key, a.sourceR2Key]).filter((key): key is string => Boolean(key))
   if (r2Keys.length > 0) {
     await c.env.ARTIFACTS.delete(r2Keys)
   }
