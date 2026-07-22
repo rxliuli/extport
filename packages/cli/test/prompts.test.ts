@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fillMissingPushDefaults, fillMissingSafariBuildDefaults, promptText, PromptCancelled } from '../src/prompts.js'
+import { fillMissingPushDefaults, fillMissingSafariBuildDefaults, promptText, PromptCancelled } from '../src/prompts'
 
 const CANCEL_SYMBOL = Symbol('clack-cancel')
 

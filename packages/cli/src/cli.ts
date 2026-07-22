@@ -2,13 +2,13 @@
 import { cancel, confirm, intro, isCancel, log as clackLog, outro, select } from '@clack/prompts'
 import { readFile } from 'node:fs/promises'
 import process from 'node:process'
-import { buildPushUrl, parsePushArgs, USAGE, type PushOptions } from './args.js'
-import { clearGlobalConfig, loadGlobalConfig, loadProjectConfig, saveGlobalConfig, saveProjectConfig, type ProjectConfig } from './config.js'
-import { exec } from './exec.js'
-import { login } from './login.js'
-import { fillMissingPushDefaults, fillMissingSafariBuildDefaults, promptText, requiredField } from './prompts.js'
-import { SAFARI_BUILD_USAGE, parseSafariBuildArgs } from './safari-build-args.js'
-import { runSafariBuild } from './safari-build.js'
+import { buildPushUrl, parsePushArgs, USAGE, type PushOptions } from './args'
+import { clearGlobalConfig, loadGlobalConfig, loadProjectConfig, saveGlobalConfig, saveProjectConfig, type ProjectConfig } from './config'
+import { exec } from './exec'
+import { login } from './login'
+import { fillMissingPushDefaults, fillMissingSafariBuildDefaults, promptText, requiredField } from './prompts'
+import { SAFARI_BUILD_USAGE, parseSafariBuildArgs } from './safari-build-args'
+import { runSafariBuild } from './safari-build'
 
 const TOP_USAGE = `extport — publish browser extension artifacts
 

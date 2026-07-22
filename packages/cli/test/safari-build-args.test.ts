@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseSafariBuildArgs } from '../src/safari-build-args.js'
+import { parseSafariBuildArgs } from '../src/safari-build-args'
 
 const env = { ASC_ISSUER_ID: 'iss-1', ASC_KEY_ID: 'KEY1' }
 

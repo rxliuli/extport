@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { login } from '../src/login.js'
+import { login } from '../src/login'
 
 function capturedOpen() {
   let capturedUrl: string | undefined

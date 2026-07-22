@@ -2,8 +2,8 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Exec } from './exec.js'
-import type { SafariBuildOptions, SafariPlatform } from './safari-build-args.js'
+import type { Exec } from './exec'
+import type { SafariBuildOptions, SafariPlatform } from './safari-build-args'
 
 const PLATFORMS = ['macos', 'ios'] as const satisfies readonly SafariPlatform[]
 

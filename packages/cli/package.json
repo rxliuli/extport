@@ -5,7 +5,7 @@
   "description": "CLI for the extport extension publishing platform",
   "type": "module",
   "bin": {
-    "extport": "./dist/cli.js"
+    "extport": "./dist/cli.mjs"
   },
   "files": [
     "dist"
@@ -14,16 +14,15 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "build": "tsdown",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@clack/prompts": "^1.7.0",
     "@types/node": "^26.1.1",
+    "tsdown": "^0.22.12",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
-  },
-  "dependencies": {
-    "@clack/prompts": "^1.7.0"
   }
 }

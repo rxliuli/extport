@@ -9,6 +9,51 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+// Self-contained on purpose — this is served by the CLI's own throwaway
+// loopback server, not the dashboard, so it can't reach any of the
+// dashboard's actual built assets. Colors are a hand-matched approximation
+// of the dashboard's shadcn/ui dark theme, not a shared source of truth.
+function callbackPage(opts: { ok: boolean; message: string }): string {
+  const icon = opts.ok
+    ? '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>'
+    : '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#f87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></svg>'
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>extport</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: #0a0a0a; color: #fafafa;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  .card {
+    width: 100%; max-width: 360px; margin: 1.5rem; padding: 2rem;
+    background: #111113; border: 1px solid #27272a; border-radius: 12px;
+    text-align: center;
+  }
+  .wordmark { font-weight: 700; font-size: 0.95rem; letter-spacing: -0.01em; color: #a1a1aa; margin-bottom: 1.25rem; }
+  .icon { margin-bottom: 1rem; }
+  h1 { font-size: 1.05rem; font-weight: 600; margin: 0 0 0.4rem; }
+  p { font-size: 0.875rem; color: #a1a1aa; margin: 0; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="wordmark">extport</div>
+    <div class="icon">${icon}</div>
+    <h1>${opts.ok ? 'You’re logged in' : 'Login failed'}</h1>
+    <p>${escapeHtml(opts.message)}</p>
+  </div>
+  <script>setTimeout(() => window.close(), 3000)</script>
+</body>
+</html>`
+}
+
 interface CallbackServer {
   port: number
   waitForCode: Promise<string>
@@ -60,8 +105,8 @@ function startCallbackServer(timeoutMs: number): Promise<CallbackServer> {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
       res.end(
         error
-          ? `<p>extport login failed: ${escapeHtml(error)}. You can close this tab.</p>`
-          : '<p>Logged in to extport — you can close this tab and return to the terminal.</p>',
+          ? callbackPage({ ok: false, message: `${error} — you can close this tab and try again from the terminal.` })
+          : callbackPage({ ok: true, message: 'You can close this tab and return to the terminal.' }),
       )
       server.close()
       if (error) settleReject(new Error(error))

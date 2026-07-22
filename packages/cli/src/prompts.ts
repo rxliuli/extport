@@ -1,6 +1,6 @@
 import { isCancel, password, text } from '@clack/prompts'
-import type { PushDefaults } from './args.js'
-import type { SafariBuildDefaults } from './safari-build-args.js'
+import type { PushDefaults } from './args'
+import type { SafariBuildDefaults } from './safari-build-args'
 
 export class PromptCancelled extends Error {
   constructor() {
