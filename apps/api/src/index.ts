@@ -1,4 +1,7 @@
+import { Scalar } from '@scalar/hono-api-reference'
 import { Hono } from 'hono'
+import { HTTPException } from 'hono/http-exception'
+import { openAPIRouteHandler } from 'hono-openapi'
 import { createDb } from './db'
 import { createEmailNotifier } from './lib/notify'
 import { checkCredentialExpiry } from './reconcile/expiry'
@@ -31,6 +34,23 @@ api.route('/v1/artifacts', artifactsRoutes)
 api.route('/v1/credentials', credentialsRoutes)
 api.route('/v1/tenant', tenantRoutes)
 
+// Public — this is the whole point of generating it (docs/spec a third-party
+// developer can hand to a client generator without needing to ask us for it).
+api.get(
+  '/openapi.json',
+  openAPIRouteHandler(api, {
+    documentation: {
+      info: { title: 'extport API', version: '1.0.0', description: 'Publish and manage browser extension releases across Chrome, Firefox, Edge, and Safari.' },
+      // openAPIRouteHandler was handed `api` (the /api-mounted sub-router), so
+      // every generated path is relative to it, e.g. "/v1/artifacts" — the
+      // server URL has to carry the /api prefix back for paths to resolve
+      // to the real, callable endpoint.
+      servers: [{ url: 'https://dash.extport.dev/api', description: 'Production' }],
+    },
+  }),
+)
+api.get('/docs', Scalar({ url: '/api/openapi.json', pageTitle: 'extport API' }))
+
 api.get('/v1/me', requireAuth, (c) => {
   const tenant = c.get('tenant')
   const user = c.get('user')
@@ -46,6 +66,11 @@ app.route('/api', api)
 app.notFound((c) => c.json({ error: 'not found' }, 404))
 
 app.onError((err, c) => {
+  // Hono's own middleware throws this for things like malformed JSON bodies
+  // (validator()) — it already carries the right status and a clean
+  // message; the fallback below would otherwise flatten it into an opaque
+  // 500, same as any other unrelated bug.
+  if (err instanceof HTTPException) return c.json({ error: err.message }, err.status)
   console.error(JSON.stringify({ level: 'error', message: err.message, stack: err.stack }))
   return c.json({ error: 'internal error' }, 500)
 })

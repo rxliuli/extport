@@ -13,6 +13,57 @@ describe('health', () => {
   })
 })
 
+describe('error handling', () => {
+  it('formats a schema-validator HTTPException (e.g. malformed JSON) as {error}, not a generic 500', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const res = await request('/api/v1/tenant/settings', {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      // No body at all — Hono's own validator() throws HTTPException(400,
+      // "Malformed JSON in request body") for this, distinct from any
+      // hand-written valibot check.
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Malformed JSON in request body' })
+  })
+})
+
+describe('openapi', () => {
+  it('serves a spec without auth', async () => {
+    const res = await request('/api/openapi.json')
+    expect(res.status).toBe(200)
+    const spec = (await res.json()) as { openapi: string; info: { title: string } }
+    expect(spec.openapi).toBe('3.1.0')
+    expect(spec.info.title).toBe('extport API')
+  })
+
+  it('serves the docs viewer without auth', async () => {
+    const res = await request('/api/docs')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('text/html')
+  })
+
+  it('describes a migrated route with a server URL that resolves to the real endpoint', async () => {
+    const res = await request('/api/openapi.json')
+    const spec = (await res.json()) as {
+      servers: { url: string }[]
+      paths: Record<string, { post?: { summary?: string; parameters?: { name: string; required?: boolean; schema?: { enum?: string[] } }[] } }>
+    }
+    // Generated relative to the /api-mounted router — the server URL must
+    // carry the /api prefix back, or a client following the spec literally
+    // would call a path that 404s.
+    expect(spec.servers[0]!.url).toBe('https://dash.extport.dev/api')
+
+    const push = spec.paths['/v1/artifacts']?.post
+    expect(push?.summary).toBe('Push an artifact')
+    const params = push?.parameters ?? []
+    expect(params.map((p) => p.name).sort()).toEqual(['extension', 'store', 'version'])
+    expect(params.find((p) => p.name === 'extension')?.required).toBe(true)
+    expect(params.find((p) => p.name === 'store')?.required).toBeFalsy()
+    expect(params.find((p) => p.name === 'store')?.schema?.enum).toEqual(['chrome', 'firefox', 'edge', 'safari'])
+  })
+})
+
 describe('auth', () => {
   it('rejects /v1/me without credentials', async () => {
     const res = await request('/api/v1/me')
