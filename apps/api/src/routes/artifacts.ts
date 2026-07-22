@@ -53,6 +53,21 @@ route.post('/', async (c) => {
   const extension = await resolveExtension(c, extensionRef)
   if (!extension) return c.json({ error: `extension "${extensionRef}" not found` }, 404)
 
+  // A store-specific push is accepted even with no publish_targets row yet —
+  // queueLatestArtifact backfills it the moment one's added (see "Add a
+  // store" in routes/extensions.ts) — but silently "succeeding" into a queue
+  // nothing will ever drain is exactly the kind of surprise this project
+  // otherwise refuses to let through quietly. A warning, not a rejection.
+  let warning: string | undefined
+  if (store) {
+    const [target] = await db
+      .select({ id: publishTargets.id })
+      .from(publishTargets)
+      .where(and(eq(publishTargets.extensionId, extension.id), eq(publishTargets.store, store)))
+      .limit(1)
+    if (!target) warning = `no publish target configured for store "${store}" yet — queued; it'll be picked up once one is added`
+  }
+
   const declaredLength = Number(c.req.header('content-length') ?? '0')
   if (declaredLength > MAX_ARTIFACT_BYTES * 2) return c.json({ error: 'artifact too large (max 64 MB)' }, 413)
 
@@ -109,7 +124,7 @@ route.post('/', async (c) => {
       ),
     )
   if (existing) {
-    if (existing.sha256 === sha256) return c.json({ artifact: existing, deduplicated: true })
+    if (existing.sha256 === sha256) return c.json({ artifact: existing, deduplicated: true, warning })
     return c.json(
       { error: `version ${version} already exists with different content — bump the version`, existingSha256: existing.sha256 },
       409,
@@ -169,7 +184,7 @@ route.post('/', async (c) => {
     c.executionCtx.waitUntil(runReconciliation(c.env, db, { tenantId: tenant.id, extensionId: extension.id }))
   }
 
-  return c.json({ artifact: created }, 201)
+  return c.json({ artifact: created, warning }, 201)
 })
 
 route.get('/', async (c) => {

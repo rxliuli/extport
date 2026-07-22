@@ -1,5 +1,7 @@
+import { newId } from '@extport/shared'
 import { env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
+import { publishTargets } from '../src/db'
 import { createApiKey, createExtension, fakeZip, request, seedTenantWithUser } from './helpers'
 
 function upload(
@@ -63,16 +65,41 @@ describe('artifact upload', () => {
 
     const res = await upload({ key }, `extension=${extension.slug}&version=1.2.3&store=chrome`, fakeZip())
     expect(res.status).toBe(201)
-    const { artifact } = (await res.json()) as {
+    const { artifact, warning } = (await res.json()) as {
       artifact: { r2Key: string; sha256: string; size: number; store: string; source: string }
+      warning?: string
     }
     expect(artifact.store).toBe('chrome')
     expect(artifact.size).toBe(64)
     expect(artifact.source).toBe('cli_upload')
+    // No publish target was ever configured for chrome on this extension —
+    // the push still succeeds (queueLatestArtifact backfills it once one is
+    // added), but it should say so rather than look identical to a real one.
+    expect(warning).toMatch(/no publish target configured for store "chrome"/)
 
     const object = await env.ARTIFACTS.get(artifact.r2Key)
     expect(object).not.toBeNull()
     expect(object!.customMetadata?.sha256).toBe(artifact.sha256)
+  })
+
+  it('does not warn when a publish target already exists for the store', async () => {
+    const { db, tenantId, sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const key = await createApiKey(sessionCookie)
+
+    await db.insert(publishTargets).values({
+      id: newId('publishTarget'),
+      tenantId,
+      extensionId: extension.id,
+      store: 'chrome',
+      storeItemId: 'item-1',
+      credentialId: newId('storeCredential'),
+    })
+
+    const res = await upload({ key }, `extension=${extension.slug}&version=1.2.3&store=chrome`, fakeZip())
+    expect(res.status).toBe(201)
+    const { warning } = (await res.json()) as { warning?: string }
+    expect(warning).toBeUndefined()
   })
 
   it('is idempotent for identical re-uploads and rejects content changes', async () => {

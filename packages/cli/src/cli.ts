@@ -84,7 +84,7 @@ async function runPush(raw: RawPushArgs): Promise<void> {
 
   const res = await fetch(buildPushUrl(options), { method: 'POST', headers: request.headers, body: request.body })
 
-  let json: { artifact?: { id: string; sha256: string | null }; deduplicated?: boolean; error?: string }
+  let json: { artifact?: { id: string; sha256: string | null }; deduplicated?: boolean; warning?: string; error?: string }
   try {
     json = (await res.json()) as typeof json
   } catch {
@@ -98,6 +98,7 @@ async function runPush(raw: RawPushArgs): Promise<void> {
   } else {
     throw new Error(json.error ?? `upload failed (${res.status})`)
   }
+  if (json.warning) console.log(`warning: ${json.warning}`)
 }
 
 async function runSafariBuildCommand(raw: RawSafariBuildArgs): Promise<void> {
