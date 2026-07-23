@@ -5,7 +5,7 @@ import { createDb, tenants, users } from '../src/db'
 import { provisionTenantDek } from '../src/lib/kms'
 import { SESSION_COOKIE, createSession } from '../src/lib/session'
 
-export async function seedTenantWithUser() {
+export async function seedTenantWithUser(opts: { status?: 'pending' | 'active' } = {}) {
   const db = createDb(env.DB)
   const tenantId = newId('tenant')
   const userId = newId('user')
@@ -14,6 +14,7 @@ export async function seedTenantWithUser() {
     id: tenantId,
     name: 'acme',
     email: 'dev@acme.test',
+    status: opts.status ?? 'active',
     dekEncrypted: dek.dekEncrypted,
     dekKeyVersion: dek.dekKeyVersion,
   })

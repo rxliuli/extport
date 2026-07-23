@@ -56,7 +56,7 @@ api.get('/v1/me', requireAuth, (c) => {
   const user = c.get('user')
   return c.json({
     authType: c.get('authType'),
-    tenant: { id: tenant.id, name: tenant.name, plan: tenant.plan },
+    tenant: { id: tenant.id, name: tenant.name, plan: tenant.plan, status: tenant.status },
     user: user ? { id: user.id, email: user.email, displayName: user.displayName } : null,
   })
 })

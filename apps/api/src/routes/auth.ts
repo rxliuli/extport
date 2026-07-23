@@ -5,11 +5,16 @@ import { Hono } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { storeCredentials, tenants, users } from '../db'
 import { provisionTenantDek, tenantDek } from '../lib/kms'
+import { createEmailNotifier } from '../lib/notify'
 import { SESSION_COOKIE, createSession, destroySession } from '../lib/session'
 import type { AppEnv } from '../middleware/auth'
 
 const STATE_COOKIE = 'extport_oauth_state'
 const RETURN_TO_COOKIE = 'extport_oauth_return_to'
+
+// Sent to every new signup while their tenant is 'pending' — the closed
+// beta's touchpoint until they're manually approved.
+const DISCORD_INVITE_URL = 'https://discord.gg/Va9kcSqu3f'
 
 // Same-origin only — never let this become an open redirect. Checked both
 // before setting the cookie and again before redirecting to it, since a
@@ -149,6 +154,12 @@ auth.get('/github/callback', async (c) => {
         authSubject,
       }),
     ])
+
+    await createEmailNotifier(c.env).send({
+      to: email,
+      subject: "You're on the extport beta list",
+      text: `Thanks for signing up for extport!\n\nWe're running a closed beta and reviewing new accounts by hand, so it may take a little while before yours is activated.\n\nIn the meantime, join our Discord — it's the fastest way to reach us, ask questions, and hear when you're approved:\n${DISCORD_INVITE_URL}\n\n— rxliuli`,
+    })
   }
 
   const session = await createSession(db, userId)
@@ -211,6 +222,7 @@ auth.get('/dev-login', async (c) => {
         id: tenantId,
         name: 'Local Dev',
         email: 'dev@localhost',
+        status: 'active',
         dekEncrypted: dek.dekEncrypted,
         dekKeyVersion: dek.dekKeyVersion,
       }),

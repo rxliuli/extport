@@ -13,12 +13,12 @@ import { publishTargets, storeCredentials } from '../db'
 import { statusFor } from '../lib/credential-status'
 import { tenantDek } from '../lib/kms'
 import { badRequest } from '../lib/validation'
-import { requireSession, type AppEnv } from '../middleware/auth'
+import { requireActiveTenant, requireSession, type AppEnv } from '../middleware/auth'
 
 const route = new Hono<AppEnv>()
 
 // Credentials are dashboard-managed only; an API key must never read or write them.
-route.use('*', requireSession)
+route.use('*', requireSession, requireActiveTenant)
 
 function publicView(row: typeof storeCredentials.$inferSelect) {
   return {

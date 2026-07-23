@@ -25,6 +25,11 @@ export const tenants = sqliteTable('tenants', {
   name: text('name').notNull(),
   email: text('email').notNull(),
   plan: text('plan', { enum: ['free', 'starter', 'pro'] }).notNull().$defaultFn(() => 'free'),
+  // Closed beta: new signups land 'pending' and are manually flipped to
+  // 'active' — see middleware/auth.ts's requireActiveTenant. Migration 0010
+  // backfilled every pre-existing tenant to 'active' so this only gates
+  // signups from that point forward.
+  status: text('status', { enum: ['pending', 'active'] }).notNull().$defaultFn(() => 'pending'),
   settingsJson: text('settings_json').notNull().$defaultFn(() => '{}'),
   // Envelope encryption: per-tenant DEK, wrapped by the versioned master KEK.
   dekEncrypted: text('dek_encrypted').notNull(),

@@ -5,13 +5,13 @@ import { describeRoute, resolver, validator } from 'hono-openapi'
 import * as v from 'valibot'
 import { apiKeys } from '../db'
 import { badRequest } from '../lib/validation'
-import { requireSession, type AppEnv } from '../middleware/auth'
+import { requireActiveTenant, requireSession, type AppEnv } from '../middleware/auth'
 
 const keys = new Hono<AppEnv>()
 
 // API keys are managed from the dashboard only — an API key must not be able
 // to mint or revoke other keys.
-keys.use('*', requireSession)
+keys.use('*', requireSession, requireActiveTenant)
 
 const keyRowSchema = v.object({
   id: v.string(),

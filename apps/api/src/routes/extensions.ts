@@ -7,7 +7,7 @@ import * as v from 'valibot'
 import { artifacts, deploymentVersions, extensions, products, publishEvents, publishTargets, storeCredentials, type Db } from '../db'
 import { tenantDek } from '../lib/kms'
 import { badRequest } from '../lib/validation'
-import { requireAuth, type AppEnv } from '../middleware/auth'
+import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
 import { queueLatestArtifact } from '../reconcile/queue'
 import { runReconciliation } from '../reconcile/run'
 import { deriveTargetLifecycles } from '../reconcile/status'
@@ -24,7 +24,7 @@ export function slugify(name: string): string {
 
 const route = new Hono<AppEnv>()
 
-route.use('*', requireAuth)
+route.use('*', requireAuth, requireActiveTenant)
 
 const STORE_MSG = `store must be one of: ${STORES.join(', ')}`
 

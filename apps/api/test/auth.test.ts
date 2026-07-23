@@ -1,5 +1,7 @@
 import { env } from 'cloudflare:test'
+import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
+import { createDb, tenants, users } from '../src/db'
 import { request } from './helpers'
 
 function getCookieValue(setCookieHeader: string | null, name: string): string | undefined {
@@ -71,6 +73,25 @@ describe('GET /auth/github/callback', () => {
       })
       expect(res.status).toBe(302)
       expect(res.headers.get('location')).toBe(new URL('/cli-auth?port=1234', env.DASHBOARD_URL).toString())
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  })
+
+  it('creates a new tenant as pending', async () => {
+    stubGithub()
+    try {
+      const { state } = await startLogin()
+      const res = await request(`/api/auth/github/callback?code=abc&state=${state}`, {
+        redirect: 'manual',
+        headers: { cookie: `extport_oauth_state=${state}` },
+      })
+      expect(res.status).toBe(302)
+
+      const db = createDb(env.DB)
+      const [user] = await db.select().from(users).where(eq(users.authSubject, '999'))
+      const [tenant] = await db.select().from(tenants).where(eq(tenants.id, user!.tenantId))
+      expect(tenant!.status).toBe('pending')
     } finally {
       globalThis.fetch = realFetch
     }

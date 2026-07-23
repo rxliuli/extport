@@ -1,6 +1,6 @@
 export interface Me {
   authType: 'session' | 'api_key'
-  tenant: { id: string; name: string; plan: string }
+  tenant: { id: string; name: string; plan: string; status: 'pending' | 'active' }
   user: { id: string; email: string; displayName: string | null } | null
 }
 

@@ -6,7 +6,7 @@ import { describeRoute, resolver, validator } from 'hono-openapi'
 import * as v from 'valibot'
 import { artifacts, extensions, publishTargets, type Extension } from '../db'
 import { badRequest } from '../lib/validation'
-import { requireAuth, type AppEnv } from '../middleware/auth'
+import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
 import { isVersionRegression, queueLatestArtifact } from '../reconcile/queue'
 import { runReconciliation } from '../reconcile/run'
 
@@ -14,7 +14,7 @@ const MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
 
 const route = new Hono<AppEnv>()
 
-route.use('*', requireAuth)
+route.use('*', requireAuth, requireActiveTenant)
 
 const EXTENSION_MSG = 'extension query param is required (id or slug)'
 const VERSION_MSG = 'version must be 1-4 dot-separated integers (e.g. 1.2.3)'

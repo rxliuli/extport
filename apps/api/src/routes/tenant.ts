@@ -6,13 +6,13 @@ import * as v from 'valibot'
 import { tenants } from '../db'
 import { parseTenantSettings } from '../lib/tenant-settings'
 import { badRequest } from '../lib/validation'
-import { requireSession, type AppEnv } from '../middleware/auth'
+import { requireActiveTenant, requireSession, type AppEnv } from '../middleware/auth'
 
 const route = new Hono<AppEnv>()
 
 // Tenant-wide settings (review-staleness thresholds) are dashboard-managed
 // only — never exposed to API-key callers.
-route.use('*', requireSession)
+route.use('*', requireSession, requireActiveTenant)
 
 const settingsResponseSchema = v.object({ staleReviewDays: v.record(v.picklist(STORES), v.number()) })
 

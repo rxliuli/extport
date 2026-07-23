@@ -71,6 +71,13 @@
       "when": 1784701440025,
       "tag": "0009_cli_auth_exchanges",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1784779230555,
+      "tag": "0010_tenant_status",
+      "breakpoints": true
     }
   ]
 }

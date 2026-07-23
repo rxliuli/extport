@@ -69,3 +69,17 @@ export const requireSession: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (await trySession(c)) return next()
   return c.json({ error: 'unauthorized' }, 401)
 }
+
+/**
+ * Closed-beta gate — blocks every business route for a tenant still awaiting
+ * manual approval. Deliberately layered on top of requireAuth/requireSession
+ * rather than folded into them: GET /v1/me must stay reachable while
+ * 'pending' so the dashboard can read the status and render its waiting
+ * screen instead of the app.
+ */
+export const requireActiveTenant: MiddlewareHandler<AppEnv> = async (c, next) => {
+  if (c.get('tenant').status === 'pending') {
+    return c.json({ error: 'tenant pending approval' }, 403)
+  }
+  return next()
+}

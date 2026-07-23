@@ -5,7 +5,7 @@ import { describeRoute, resolver, validator } from 'hono-openapi'
 import * as v from 'valibot'
 import { apiKeys, cliAuthExchanges } from '../db'
 import { badRequest } from '../lib/validation'
-import { requireSession, type AppEnv } from '../middleware/auth'
+import { requireActiveTenant, requireSession, type AppEnv } from '../middleware/auth'
 
 const route = new Hono<AppEnv>()
 
@@ -31,6 +31,7 @@ route.post(
     responses: { 200: { description: 'OK', content: { 'application/json': { schema: resolver(v.object({ code: v.string() })) } } } },
   }),
   requireSession,
+  requireActiveTenant,
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
