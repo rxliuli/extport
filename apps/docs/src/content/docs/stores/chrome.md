@@ -12,7 +12,7 @@ Under **Settings → Store credentials → Chrome**, extport asks for:
 
 | Field | Where it comes from |
 | --- | --- |
-| Publisher ID | Chrome Web Store Developer Dashboard → Account |
+| Publisher ID | Chrome Web Store Developer Dashboard → Settings → Profile |
 | Service Account Email | The `client_email` field in your service account's downloaded JSON key |
 | Service Account Private Key | The `private_key` field in the same JSON key |
 
@@ -20,17 +20,7 @@ To create the service account: in Google Cloud Console, enable the **Chrome Web 
 create a service account, generate a JSON key for it, then grant that service account access from the Chrome Web
 Store Developer Dashboard's account settings.
 
-:::note[Screenshot pending]
-Chromium hard-blocks browser-extension automation on `chrome.google.com/webstore/*` ("The extensions gallery
-cannot be scripted"), so this one has to be captured by hand:
-
-1. Open the [Developer Dashboard](https://chromewebstore.google.com/devconsole) → **Account**.
-2. Screenshot the panel showing the **Publisher ID**.
-3. Redact/crop out your account email and anything from other, unrelated extensions in the same account before
-   saving.
-4. Save as `apps/docs/src/assets/screenshots/chrome-publisher-id.png` and reference it here with
-   `![Publisher ID in the Chrome Web Store Developer Dashboard](../../../assets/screenshots/chrome-publisher-id.png)`.
-:::
+![The Settings → Profile page in the Chrome Web Store Developer Dashboard, showing the Publisher ID field](../../../assets/screenshots/chrome-publisher-id.png)
 
 ## Store item id
 
