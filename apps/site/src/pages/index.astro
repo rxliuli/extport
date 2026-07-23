@@ -1,0 +1,128 @@
+---
+import Layout from '../layouts/Layout.astro'
+
+const SIGN_IN_URL = 'https://dash.extport.dev'
+const DISCORD_URL = 'https://discord.gg/Va9kcSqu3f'
+
+const STORES = ['Chrome', 'Firefox', 'Edge', 'Safari']
+
+const FEATURES = [
+  {
+    title: 'One push, four stores',
+    body: 'Tag a release and extport submits it to the Chrome Web Store, Firefox Add-ons, Edge Add-ons, and the App Store — no store console required.',
+  },
+  {
+    title: 'One dashboard for review status',
+    body: 'See what’s live, in review, rejected, or stuck across every store, instead of checking four different consoles by hand.',
+  },
+  {
+    title: 'Credentials, encrypted',
+    body: 'Store API keys and signing keys once, encrypted at rest per tenant. Rotate them without touching your CI configuration.',
+  },
+  {
+    title: 'CLI or GitHub Actions',
+    body: 'Drop a couple of steps into your existing release workflow, or run the same commands by hand from your own machine.',
+  },
+]
+---
+
+<Layout
+  title="extport — publish a browser extension to every store, from one push"
+  description="Chrome, Firefox, Edge, and Safari, from one CLI push. One dashboard to see what's live, in review, or stuck."
+>
+  <div class="mx-auto flex min-h-svh max-w-5xl flex-col px-6">
+    <header class="flex items-center justify-between py-6">
+      <span class="text-lg font-bold tracking-tight">extport</span>
+      <a
+        href={SIGN_IN_URL}
+        class="rounded-md border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-card"
+      >
+        Sign in
+      </a>
+    </header>
+
+    <section class="flex flex-col gap-6 py-20 sm:py-28">
+      <h1 class="max-w-2xl text-4xl font-bold tracking-tight sm:text-5xl">
+        Ship your extension to every store. From one push.
+      </h1>
+      <p class="max-w-xl text-lg text-muted-foreground">
+        {STORES.join(', ')} — one CLI push or GitHub Action, and extport handles submission to all four. One
+        dashboard to see what's live, in review, rejected, or stuck.
+      </p>
+      <div class="flex flex-wrap items-center gap-3">
+        <a
+          href={SIGN_IN_URL}
+          class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          Sign in with GitHub
+        </a>
+        <a href={DISCORD_URL} class="text-sm font-medium text-muted-foreground underline underline-offset-4">
+          Join the Discord
+        </a>
+      </div>
+    </section>
+
+    <section class="border-t border-border py-16">
+      <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">The problem</h2>
+      <p class="mt-4 max-w-2xl text-base leading-relaxed">
+        Every browser extension store has its own console, its own API, its own credential type, and its own review
+        quirks. Safari alone needs an App Store Connect key and Xcode cloud signing just to ship a build. Keeping
+        four stores in sync by hand, re-checking four dashboards for review status, doesn't scale past one
+        extension.
+      </p>
+    </section>
+
+    <section class="border-t border-border py-16">
+      <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">How it works</h2>
+      <pre class="mt-4 overflow-x-auto rounded-lg border border-border bg-card p-4 text-sm leading-relaxed"><code>{`- uses: extport-dev/actions/push@v1
+  with:
+    api-key: \${{ secrets.EXTPORT_API_KEY }}
+    extension: my-extension
+    zip-path: dist/my-extension.zip`}</code></pre>
+      <p class="mt-4 max-w-2xl text-sm text-muted-foreground">
+        Runs from your existing release workflow, or from the <code>extport</code> CLI on your own machine. Push once,
+        and every configured store target picks it up.
+      </p>
+    </section>
+
+    <section class="grid gap-8 border-t border-border py-16 sm:grid-cols-2">
+      {
+        FEATURES.map((feature) => (
+          <div>
+            <h3 class="font-semibold">{feature.title}</h3>
+            <p class="mt-2 text-sm text-muted-foreground">{feature.body}</p>
+          </div>
+        ))
+      }
+    </section>
+
+    <section class="border-t border-border py-16">
+      <div class="rounded-lg border border-border bg-card p-6">
+        <h2 class="font-semibold">Currently in closed beta</h2>
+        <p class="mt-2 max-w-xl text-sm text-muted-foreground">
+          New accounts are reviewed by hand while extport is in beta. Sign in with GitHub to request access, and join
+          the Discord to reach us directly while you wait.
+        </p>
+        <div class="mt-4 flex flex-wrap gap-3">
+          <a
+            href={SIGN_IN_URL}
+            class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            Sign in with GitHub
+          </a>
+          <a
+            href={DISCORD_URL}
+            class="rounded-md border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-background"
+          >
+            Join the Discord
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <footer class="mt-auto flex items-center justify-between border-t border-border py-8 text-sm text-muted-foreground">
+      <span>extport</span>
+      <a href={DISCORD_URL} class="hover:text-foreground">Discord</a>
+    </footer>
+  </div>
+</Layout>

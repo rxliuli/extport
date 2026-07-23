@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "extport-site",
+  "compatibility_date": "2026-07-23",
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  // No `main` — this is a pure static-assets Worker, no server code at all.
+  "assets": {
+    "directory": "./dist"
+  },
+  // Apex on purpose — dash.extport.dev is the app (see apps/api/wrangler.jsonc).
+  // Requires the extport.dev zone to exist on this Cloudflare account already
+  // (it does — email sending is onboarded on it).
+  "routes": [{ "pattern": "extport.dev", "custom_domain": true }]
+}
