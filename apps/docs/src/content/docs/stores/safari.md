@@ -13,17 +13,20 @@ Under **Settings → Store credentials → Safari**, extport asks for:
 
 | Field | Where it comes from |
 | --- | --- |
-| Key ID | App Store Connect → Users and Access → Integrations → your API key |
-| Issuer ID | Same page, shown at the top as "Issuer ID" |
+| Key ID | App Store Connect → Users and Access → Integrations → App Store Connect API → your key's "KEY ID" column |
+| Issuer ID | Same page, shown above the key list as "Issuer ID" |
 | .p8 Private Key | Downloaded once when the key is created — App Store Connect never lets you re-download it |
+
+![The App Store Connect API page under Users and Access → Integrations, showing Issuer ID and the Active keys table with its Access column](../../../assets/screenshots/safari-asc-api-keys.png)
 
 ### The key's role must be Admin
 
 This is the part that isn't obvious from Apple's own docs: cloud code signing (`xcodebuild -allowProvisioningUpdates`,
-which is what `extport safari-build` uses) needs an API key with the **Admin** role specifically. Developer or App
-Manager roles can authenticate fine but fail partway through signing with a "Cloud signing permission error" —
-confirmed against Apple's real API, not just the docs. If you hit that error, generate a new key with the Admin role
-and rotate the credential in both extport's Settings and your CI secrets.
+which is what `extport safari-build` uses) needs an API key with the **Admin** role specifically — the "Access"
+column in the screenshot above. Developer or App Manager roles can authenticate fine but fail partway through
+signing with a "Cloud signing permission error" — confirmed against Apple's real API, not just the docs. If you hit
+that error, generate a new key with the Admin role and rotate the credential in both extport's Settings and your CI
+secrets.
 
 ## Store item id
 

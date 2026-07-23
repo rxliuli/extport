@@ -18,6 +18,8 @@ Under **Settings → Store credentials → Firefox**, extport asks for:
 If you don't already have API keys, generate a new key pair from the Developer Hub — regenerating invalidates the
 previous secret, so rotate the credential in extport's Settings right after.
 
+![The Manage API Keys page in the AMO Developer Hub, showing the JWT issuer and JWT secret fields](../../../assets/screenshots/firefox-api-keys.png)
+
 ## Store item id
 
 The **store item id** is your add-on's id or slug, found in its AMO listing URL

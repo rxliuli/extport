@@ -20,6 +20,18 @@ To create the service account: in Google Cloud Console, enable the **Chrome Web 
 create a service account, generate a JSON key for it, then grant that service account access from the Chrome Web
 Store Developer Dashboard's account settings.
 
+:::note[Screenshot pending]
+Chromium hard-blocks browser-extension automation on `chrome.google.com/webstore/*` ("The extensions gallery
+cannot be scripted"), so this one has to be captured by hand:
+
+1. Open the [Developer Dashboard](https://chromewebstore.google.com/devconsole) → **Account**.
+2. Screenshot the panel showing the **Publisher ID**.
+3. Redact/crop out your account email and anything from other, unrelated extensions in the same account before
+   saving.
+4. Save as `apps/docs/src/assets/screenshots/chrome-publisher-id.png` and reference it here with
+   `![Publisher ID in the Chrome Web Store Developer Dashboard](../../../assets/screenshots/chrome-publisher-id.png)`.
+:::
+
 ## Store item id
 
 When adding a Chrome target on an extension, the **store item id** is the id in your item's Developer Dashboard URL
