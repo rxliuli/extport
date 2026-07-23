@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CliAuthRouteImport } from './routes/cli-auth'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ExtensionsExtensionIdRouteImport } from './routes/extensions.$extensionId'
 
@@ -22,6 +23,11 @@ const IndexRoute = IndexRouteImport.update({
 const CliAuthRoute = CliAuthRouteImport.update({
   id: '/cli-auth',
   path: '/cli-auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -38,12 +44,14 @@ const ExtensionsExtensionIdRoute = ExtensionsExtensionIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/cli-auth': typeof CliAuthRoute
+  '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
   '/extensions/$extensionId': typeof ExtensionsExtensionIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/cli-auth': typeof CliAuthRoute
+  '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
   '/extensions/$extensionId': typeof ExtensionsExtensionIdRoute
 }
@@ -51,20 +59,29 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/cli-auth': typeof CliAuthRoute
+  '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
   '/extensions/$extensionId': typeof ExtensionsExtensionIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/cli-auth' | '/settings' | '/extensions/$extensionId'
+  fullPaths:
+    '/' | '/cli-auth' | '/login' | '/settings' | '/extensions/$extensionId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/cli-auth' | '/settings' | '/extensions/$extensionId'
-  id: '__root__' | '/' | '/cli-auth' | '/settings' | '/extensions/$extensionId'
+  to: '/' | '/cli-auth' | '/login' | '/settings' | '/extensions/$extensionId'
+  id:
+    | '__root__'
+    | '/'
+    | '/cli-auth'
+    | '/login'
+    | '/settings'
+    | '/extensions/$extensionId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CliAuthRoute: typeof CliAuthRoute
+  LoginRoute: typeof LoginRoute
   SettingsRoute: typeof SettingsRoute
   ExtensionsExtensionIdRoute: typeof ExtensionsExtensionIdRoute
 }
@@ -83,6 +100,13 @@ declare module '@tanstack/react-router' {
       path: '/cli-auth'
       fullPath: '/cli-auth'
       preLoaderRoute: typeof CliAuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -105,6 +129,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CliAuthRoute: CliAuthRoute,
+  LoginRoute: LoginRoute,
   SettingsRoute: SettingsRoute,
   ExtensionsExtensionIdRoute: ExtensionsExtensionIdRoute,
 }

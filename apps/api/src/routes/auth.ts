@@ -9,6 +9,15 @@ import { SESSION_COOKIE, createSession, destroySession } from '../lib/session'
 import type { AppEnv } from '../middleware/auth'
 
 const STATE_COOKIE = 'extport_oauth_state'
+const RETURN_TO_COOKIE = 'extport_oauth_return_to'
+
+// Same-origin only — never let this become an open redirect. Checked both
+// before setting the cookie and again before redirecting to it, since a
+// cookie's contents are one step further removed from "something we just
+// validated" than a value used immediately in the same request.
+function isSafeReturnTo(path: string): boolean {
+  return path.startsWith('/') && !path.startsWith('//') && !path.startsWith('/\\')
+}
 
 interface GithubUser {
   id: number
@@ -31,6 +40,22 @@ auth.get('/github', (c) => {
     path: '/',
     maxAge: 600,
   })
+
+  // Where the dashboard's own /login?returnTo=... wants to land back on
+  // after this — GitHub's callback always returns to a fixed URL, so this
+  // is what lets the tenant land back on (say) /cli-auth?port=... instead
+  // of just the dashboard root every time.
+  const returnTo = c.req.query('returnTo')
+  if (returnTo && isSafeReturnTo(returnTo)) {
+    setCookie(c, RETURN_TO_COOKIE, returnTo, {
+      httpOnly: true,
+      secure: new URL(c.req.url).protocol === 'https:',
+      sameSite: 'Lax',
+      path: '/',
+      maxAge: 600,
+    })
+  }
+
   const url = new URL('https://github.com/login/oauth/authorize')
   url.searchParams.set('client_id', c.env.GITHUB_CLIENT_ID)
   url.searchParams.set('redirect_uri', new URL('/api/auth/github/callback', c.req.url).toString())
@@ -43,6 +68,8 @@ auth.get('/github/callback', async (c) => {
   const { code, state } = c.req.query()
   const expectedState = getCookie(c, STATE_COOKIE)
   deleteCookie(c, STATE_COOKIE, { path: '/' })
+  const returnTo = getCookie(c, RETURN_TO_COOKIE)
+  deleteCookie(c, RETURN_TO_COOKIE, { path: '/' })
   if (!code || !state || !expectedState || state !== expectedState) {
     return c.json({ error: 'invalid oauth state' }, 400)
   }
@@ -132,7 +159,8 @@ auth.get('/github/callback', async (c) => {
     path: '/',
     expires: new Date(session.expiresAt),
   })
-  return c.redirect(c.env.DASHBOARD_URL)
+  const dest = returnTo && isSafeReturnTo(returnTo) ? new URL(returnTo, c.env.DASHBOARD_URL).toString() : c.env.DASHBOARD_URL
+  return c.redirect(dest)
 })
 
 auth.post('/logout', async (c) => {
