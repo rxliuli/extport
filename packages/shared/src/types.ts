@@ -34,14 +34,12 @@ export type Plan = 'free' | 'starter' | 'pro'
 export interface PlanLimits {
   /** null = unlimited */
   maxExtensions: number | null
-  /** null = all stores */
-  maxStoresPerExtension: number | null
 }
 
 export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
-  free: { maxExtensions: 1, maxStoresPerExtension: 2 },
-  starter: { maxExtensions: 5, maxStoresPerExtension: null },
-  pro: { maxExtensions: null, maxStoresPerExtension: null },
+  free: { maxExtensions: 3 },
+  starter: { maxExtensions: 5 },
+  pro: { maxExtensions: null },
 }
 
 /** Tenant-level settings stored in tenants.settings_json. */

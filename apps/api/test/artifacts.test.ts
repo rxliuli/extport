@@ -35,11 +35,14 @@ describe('extensions', () => {
 
   it('enforces the free-plan extension limit', async () => {
     const { sessionCookie } = await seedTenantWithUser()
+    // Free plan allows 3 extensions — a 4th should be rejected.
     await createExtension(sessionCookie, 'First')
+    await createExtension(sessionCookie, 'Second')
+    await createExtension(sessionCookie, 'Third')
     const res = await request('/api/v1/extensions', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'Second' }),
+      body: JSON.stringify({ name: 'Fourth' }),
     })
     expect(res.status).toBe(403)
   })
@@ -52,8 +55,7 @@ describe('extensions', () => {
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'same' }),
     })
-    // Free plan hits the count limit first; this asserts we never get a 500.
-    expect([403, 409]).toContain(res.status)
+    expect(res.status).toBe(409)
   })
 })
 

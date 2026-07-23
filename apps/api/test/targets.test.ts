@@ -52,37 +52,6 @@ function addTarget(extensionId: string, sessionCookie: string, body: unknown): P
 const EDGE_FIELDS = { clientId: 'cid', apiKey: 'edge-key-1234' }
 
 // Static test-only RSA key (openssl genpkey) — see credentials.test.ts for provenance.
-// Chrome's verifyCredentials signs a real JWT-bearer assertion before ever calling
-// fetch, so a garbage privateKey fails locally without reaching the (stubbed) network.
-const CHROME_TEST_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
-MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDaLD76B9jDuu8c
-F/MIKMGOIecN2+PJQ6EK+cHfkZFCxK7VxPQNq1JgTSaxoJGXI8g7tfWiFLpyspvV
-CLMAsNicqIXBwcThRrVzzPKGcpKmSnjiW1wSo7tAkIoNByssP4wpjU13vPtS3AO2
-PnzizPaMSyEDnrYfvp/nHNdGWmPjnCvjhv3TyP76ct4pFnLC3uZ3V5TFVOMHRpe+
-6tlXJSuQPu3hBGS2vXJNs6Oxs6dVzbQF1hQ9ss5aY1FD5ojGlUljPIZjom3ahK9+
-zy9qVfkEuXhV5AM3J3Hkrn4PgQHouBEdjl3f23WSijHKOyTQ9Ko3gspSGjOSZJOf
-PiLcCTFBAgMBAAECggEAEPVf1HiNVrLY841AWgcs+xAokRu2qjDPEPbWpTr/7bmI
-a4ZlKrYr74oKXW6WkocjVnzaLIXsSOPC7X1ryJHL10Au3B+PNFbriND1SGfEfWzh
-gPAgCTTf5nC1wmB8cHKPbGAW6vKYyIPgkqcVzF1T4Wt/k/P0wnqYnFLSFZ5guv2G
-bqLvQKmxHEGTLlZ8aseD0+KYUDK6d77cMlgCTSGeS6jUrRD74ARcVJkNGYeXegOI
-RH4wP6zudabhi3wu25es7KKZHVQOyIQlmsmppwR45u5DeqVfKSkSsq28qeCre+XD
-oa9FMgttCNiFnjWbnCDgzF+h2BAkqDBjZvVYBo/LRwKBgQDwzKcVWy4E0O9XT09p
-aFdrxSN9n5PUAyiTvG1VP6k9Q9Nu5FEO7rtw9R8LWnu/3VW9sY3Z85wszBDpj6xk
-tVSKdCMMbe5vENIcjA68U8rgQkop0CuhVv/PwElmikx32jyyzHy53JB2LSECR+Qe
-9fNL68IghyAXCA2xO30uhsgxgwKBgQDn8fHprkD8Bi9BNCIkTSPaxw3hHlkXq1yC
-RRl0MBQxxmu6/rpOeCbF/YKccvUEMY1QcOMSZz4/zNqMgTVTDrA1FvDq6IlQ5gK0
-o18HFYgxxh6/FiPEY0Ete435Arrw5ae5Xs0q+D9xl5HIrcGLW+O7Fbd9SrsGGivS
-IciYAVbq6wKBgQCwOXXF4VbKW4XtZbN+NshTrJCOrSxoqm8Vv35cNxzKI0snCpxv
-yzMONbWkf3G1Nmw7SSfA69HNzwJJi8XkZfga42eK/yDR04ORNMbL+J6uhJT2CM0F
-ZEAOcHDHREs2I1bsm05kTxDCC8DuhGJkbibB1yXY3EsVz+UFYb35QNZdtQKBgQDk
-cBPUFL0H+odb7p6Zpifj9xwiVaNlfm5UFv4kwp2BEG1V9D9FvWxin3Wd5FKQWMVX
-LndVzr0uVPICY9dDADpnbzrEAVYMiRytECItdfV3ICt0A7giWab9xqxjTV8UlvsD
-xOzIn0rM83yvawIt4Mh/n7nh+lIMhoYWJRPNMbSLFQKBgA+kHBN9iwCfnr96EKhw
-B2RZYS71oHgkzmqjOO30r5VfPmPTX0F8wjMI9ovfvVqj44Z6FulBAAJV2snfTZ0o
-eSqsTEaWvgR3z8BnCoVEs6iIp4HM+fCwJJzIs2lzgIHEn268WBuAmTc33pJbmp46
-eDua9gBpI8Th2Yzba8rvkv2e
------END PRIVATE KEY-----`
-
 describe('publish targets', () => {
   it('creates, lists, updates, and deletes a target scoped to the extension', async () => {
     const { sessionCookie } = await seedTenantWithUser()
@@ -133,25 +102,6 @@ describe('publish targets', () => {
 
     expect((await addTarget(extension.id, sessionCookie, body)).status).toBe(201)
     expect((await addTarget(extension.id, sessionCookie, body)).status).toBe(409)
-  })
-
-  it('enforces the free-plan store-per-extension limit', async () => {
-    const { sessionCookie } = await seedTenantWithUser()
-    const extension = await createExtension(sessionCookie)
-    const edge = await createCredential(sessionCookie, 'edge', EDGE_FIELDS, 'edge-cred')
-    const firefox = await createCredential(sessionCookie, 'firefox', { jwtIssuer: 'user:1:2', jwtSecret: 'sekrit' }, 'ff-cred')
-
-    await addTarget(extension.id, sessionCookie, { store: 'edge', storeItemId: 'x', credentialId: edge.id })
-    await addTarget(extension.id, sessionCookie, { store: 'firefox', storeItemId: 'y', credentialId: firefox.id })
-    // Free plan allows 2 stores per extension — a 3rd should be rejected.
-    const chrome = await createCredential(
-      sessionCookie,
-      'chrome',
-      { publisherId: 'p', clientEmail: 'sa@x.iam.gserviceaccount.com', privateKey: CHROME_TEST_PRIVATE_KEY },
-      'chrome-cred',
-    )
-    const res = await addTarget(extension.id, sessionCookie, { store: 'chrome', storeItemId: 'z', credentialId: chrome.id })
-    expect(res.status).toBe(403)
   })
 
   it('scopes credentials and targets to the owning tenant', async () => {

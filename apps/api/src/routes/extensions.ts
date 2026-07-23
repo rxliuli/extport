@@ -329,7 +329,7 @@ route.post(
   describeRoute({
     summary: 'Add a store target',
     description: "Verified against the live store API before saving — refuses a storeItemId the credential can't actually see.",
-    responses: { 201: { description: 'Created' }, 403: { description: 'Plan limit reached' }, 404: { description: 'Not found' }, 409: { description: 'Already configured' } },
+    responses: { 201: { description: 'Created' }, 404: { description: 'Not found' }, 409: { description: 'Already configured' } },
   }),
   validator('json', addTargetBodySchema, badRequest),
   async (c) => {
@@ -350,17 +350,6 @@ route.post(
     if (!credential) return c.json({ error: 'credential not found' }, 404)
     if (credential.store !== store) {
       return c.json({ error: `credential is for ${credential.store}, not ${store}` }, 400)
-    }
-
-    const limit = PLAN_LIMITS[tenant.plan].maxStoresPerExtension
-    if (limit !== null) {
-      const [row] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(publishTargets)
-        .where(eq(publishTargets.extensionId, extension.id))
-      if ((row?.count ?? 0) >= limit) {
-        return c.json({ error: `plan limit reached (${limit} store${limit === 1 ? '' : 's'} per extension on ${tenant.plan})` }, 403)
-      }
     }
 
     const existing = await db
