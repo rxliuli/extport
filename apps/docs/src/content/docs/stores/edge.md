@@ -35,4 +35,4 @@ when the Submission API itself can't report status.
 
 For example, [Redirector](https://store.rxliuli.com/extensions/redirector/)'s Edge listing has Product ID
 `fc0018c2-ecb8-4305-8ccf-b700cc62aba7` and CRX ID `jhdjcofnjfeljeekjklhgfmfocfgibmm` — the CRX ID is also the
-trailing segment of its public listing URL, `microsoftedge.microsoft.com/addons/detail/redirector/`**`jhdjcofnjfeljeekjklhgfmfocfgibmm`**.
+trailing segment of its public listing URL, `microsoftedge.microsoft.com/addons/detail/redirector/jhdjcofnjfeljeekjklhgfmfocfgibmm`.

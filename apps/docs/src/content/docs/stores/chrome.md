@@ -28,8 +28,8 @@ The **store item id** is the id in your item's [Developer Dashboard](https://chr
 URL or its public store listing URL — a 32-character lowercase string.
 
 For example, [Redirector](https://store.rxliuli.com/extensions/redirector/)'s Chrome listing is at
-`chromewebstore.google.com/detail/redirector/`**`lioaeidejmlpffbndjhaameocfldlhin`** — that trailing segment is
-the store item id.
+`chromewebstore.google.com/detail/redirector/lioaeidejmlpffbndjhaameocfldlhin` — the trailing
+`lioaeidejmlpffbndjhaameocfldlhin` segment is the store item id.
 
 ## Notes
 
