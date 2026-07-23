@@ -13,7 +13,7 @@ Under **Settings → Store credentials → Safari**, extport asks for:
 
 | Field | Where it comes from |
 | --- | --- |
-| Key ID | App Store Connect → Users and Access → Integrations → App Store Connect API → your key's "KEY ID" column |
+| Key ID | [App Store Connect → Users and Access → Integrations → App Store Connect API](https://appstoreconnect.apple.com/access/integrations/api) → your key's "KEY ID" column |
 | Issuer ID | Same page, shown above the key list as "Issuer ID" |
 | .p8 Private Key | Downloaded once when the key is created — App Store Connect never lets you re-download it |
 
@@ -31,6 +31,9 @@ secrets.
 ## Store item id
 
 The Safari **store item id** is your app's Apple ID (the numeric App Store Connect app id), not the bundle id.
+
+For example, [Redirector](https://store.rxliuli.com/extensions/redirector/)'s iOS app is at
+`apps.apple.com/app/url-redirector/id`**`6743197230`** — that trailing number is the store item id.
 
 ## Building and uploading
 
