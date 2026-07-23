@@ -1,9 +1,10 @@
-import { newId, randomBytes, toBase64 } from '@extport/shared'
+import { encryptJson, newId, randomBytes, STORES, toBase64, type Store } from '@extport/shared'
+import { credentialHint } from '@extport/store-adapters'
 import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
-import { tenants, users } from '../db'
-import { provisionTenantDek } from '../lib/kms'
+import { storeCredentials, tenants, users } from '../db'
+import { provisionTenantDek, tenantDek } from '../lib/kms'
 import { SESSION_COOKIE, createSession, destroySession } from '../lib/session'
 import type { AppEnv } from '../middleware/auth'
 
@@ -141,6 +142,87 @@ auth.post('/logout', async (c) => {
   }
   deleteCookie(c, SESSION_COOKIE, { path: '/' })
   return c.json({ ok: true })
+})
+
+// Well-formed enough for parseCredentials/credentialHint, never actually
+// checked against a real store — only used to seed local-only test rows,
+// never through the real POST /v1/credentials verify-before-save gate.
+const FAKE_CREDENTIALS: Record<Store, Record<string, string>> = {
+  chrome: { publisherId: 'dev-0000', clientEmail: 'dev@example.com', privateKey: 'fake' },
+  firefox: { jwtIssuer: 'dev-issuer', jwtSecret: 'dev-secret' },
+  edge: { clientId: 'dev-client', apiKey: 'dev-key-0000' },
+  safari: { keyId: 'DEV0', issuerId: 'dev-issuer', privateKeyP8: 'fake' },
+}
+
+/**
+ * Local dev only — mints a session directly, no GitHub OAuth round trip.
+ * Gated on DEV_LOGIN_ENABLED, which only ever lives in .dev.vars (gitignored,
+ * never part of what gets deployed) — absent in every real environment, so
+ * this 404s there with no other guard needed.
+ */
+auth.get('/dev-login', async (c) => {
+  if (!c.env.DEV_LOGIN_ENABLED) return c.notFound()
+
+  const db = c.get('db')
+  const authSubject = 'dev-local'
+  const existing = await db
+    .select()
+    .from(users)
+    .where(and(eq(users.authProvider, 'dev'), eq(users.authSubject, authSubject)))
+    .limit(1)
+
+  let userId: string
+  if (existing[0]) {
+    userId = existing[0].id
+  } else {
+    const tenantId = newId('tenant')
+    userId = newId('user')
+    const dek = await provisionTenantDek(c.env)
+    await db.batch([
+      db.insert(tenants).values({
+        id: tenantId,
+        name: 'Local Dev',
+        email: 'dev@localhost',
+        dekEncrypted: dek.dekEncrypted,
+        dekKeyVersion: dek.dekKeyVersion,
+      }),
+      db.insert(users).values({
+        id: userId,
+        tenantId,
+        email: 'dev@localhost',
+        displayName: 'Local Dev',
+        authProvider: 'dev',
+        authSubject,
+      }),
+    ])
+
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId))
+    const dekBytes = await tenantDek(c.env, tenant!)
+    for (const store of STORES) {
+      const credentials = FAKE_CREDENTIALS[store]
+      await db.insert(storeCredentials).values({
+        id: newId('storeCredential'),
+        tenantId,
+        store,
+        label: store,
+        hint: credentialHint(store, credentials as never),
+        encryptedPayload: await encryptJson(dekBytes, credentials),
+        keyVersion: tenant!.dekKeyVersion,
+        status: 'active',
+        lastVerifiedAt: new Date().toISOString(),
+      })
+    }
+  }
+
+  const session = await createSession(db, userId)
+  setCookie(c, SESSION_COOKIE, session.token, {
+    httpOnly: true,
+    secure: new URL(c.req.url).protocol === 'https:',
+    sameSite: 'Lax',
+    path: '/',
+    expires: new Date(session.expiresAt),
+  })
+  return c.redirect(c.env.DASHBOARD_URL)
 })
 
 export default auth
