@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "extport-docs",
+  "compatibility_date": "2026-07-23",
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  // No `main` — this is a pure static-assets Worker, no server code at all.
+  "assets": {
+    "directory": "./dist"
+  },
+  // Requires the extport.dev zone to exist on this Cloudflare account already
+  // (it does — see apps/site/wrangler.jsonc and apps/api/wrangler.jsonc).
+  "routes": [{ "pattern": "docs.extport.dev", "custom_domain": true }]
+}
