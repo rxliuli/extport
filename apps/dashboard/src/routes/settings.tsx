@@ -223,8 +223,16 @@ function CredentialsSection() {
   })
 
   const verify = useMutation({
-    mutationFn: (id: string) => api(`/api/v1/credentials/${id}/verify`, { method: 'POST' }).catch(() => {}),
-    onSuccess: () => void invalidate(),
+    mutationFn: (id: string) => api<{ credential: CredentialRow; reason?: string }>(`/api/v1/credentials/${id}/verify`, { method: 'POST' }),
+    onSuccess: ({ credential, reason }) => {
+      if (credential.status === 'active') {
+        toast.success(`${credential.store} credential verified — active`)
+      } else {
+        toast.error(`${credential.store} credential is ${credential.status}${reason ? `: ${reason}` : ''}`)
+      }
+      void invalidate()
+    },
+    onError: (err) => toast.error(errorMessage(err)),
   })
 
   const remove = useMutation({
@@ -269,7 +277,12 @@ function CredentialsSection() {
                     </TableCell>
                     <TableCell className={`font-semibold ${CREDENTIAL_STATUS_CLASS[row.status]}`}>{row.status}</TableCell>
                     <TableCell className="space-x-2 text-right">
-                      <Button variant="outline" size="sm" onClick={() => verify.mutate(row.id)} disabled={verify.isPending}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => verify.mutate(row.id)}
+                        disabled={verify.isPending && verify.variables === row.id}
+                      >
                         Verify
                       </Button>
                       <Button
@@ -282,7 +295,12 @@ function CredentialsSection() {
                       >
                         Rotate
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => remove.mutate(row.id)} disabled={remove.isPending}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => remove.mutate(row.id)}
+                        disabled={remove.isPending && remove.variables === row.id}
+                      >
                         Delete
                       </Button>
                     </TableCell>
