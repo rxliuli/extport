@@ -24,11 +24,26 @@ const FEATURES = [
     body: 'Drop a couple of steps into your existing release workflow, or run the same commands by hand from your own machine.',
   },
 ]
+
+const ROADMAP = [
+  {
+    title: 'Safari builds, without handing over your signing keys',
+    body: 'An official GitHub Action wraps the Xcode conversion, signing, and notarization Safari extensions need. It runs in your own CI with your own Apple credentials — extport never sees them.',
+  },
+  {
+    title: 'Licensing',
+    body: 'BYO-Stripe activation codes with offline verification, seat management, and a buyer page — so charging for your extension doesn’t mean building payment infra from scratch.',
+  },
+  {
+    title: 'A scaffold that starts you on every platform',
+    body: 'A template that bootstraps a new extension pre-wired to ship to Chrome, Firefox, Edge, and Safari on desktop, Safari on iOS, and Firefox on Android from day one.',
+  },
+]
 ---
 
 <Layout
-  title="extport — publish a browser extension to every store, from one push"
-  description="Chrome, Firefox, Edge, and Safari, from one CLI push. One dashboard to see what's live, in review, or stuck."
+  title="extport — write one extension, reach every platform's users"
+  description="Chrome, Firefox, Edge, and Safari from one push today. Safari build tooling and licensing are on the roadmap toward one extension reaching desktop, Android, and iOS."
 >
   <div class="mx-auto flex min-h-svh max-w-5xl flex-col px-6">
     <header class="flex items-center justify-between py-6">
@@ -43,11 +58,12 @@ const FEATURES = [
 
     <section class="flex flex-col gap-6 py-20 sm:py-28">
       <h1 class="max-w-2xl text-4xl font-bold tracking-tight sm:text-5xl">
-        Ship your extension to every store. From one push.
+        Write one extension. Reach every platform's users.
       </h1>
       <p class="max-w-xl text-lg text-muted-foreground">
-        {STORES.join(', ')} — one CLI push or GitHub Action, and extport handles submission to all four. One
-        dashboard to see what's live, in review, rejected, or stuck.
+        {STORES.join(', ')} today — one CLI push or GitHub Action, and extport handles submission to all four, with
+        one dashboard for what's live, in review, rejected, or stuck. Safari build tooling and licensing are next, on
+        the way to shipping one extension to desktop, Android, and iOS.
       </p>
       <div class="flex flex-wrap items-center gap-3">
         <a
@@ -65,10 +81,12 @@ const FEATURES = [
     <section class="border-t border-border py-16">
       <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">The problem</h2>
       <p class="mt-4 max-w-2xl text-base leading-relaxed">
-        Every browser extension store has its own console, its own API, its own credential type, and its own review
-        quirks. Safari alone needs an App Store Connect key and Xcode cloud signing just to ship a build. Keeping
-        four stores in sync by hand, re-checking four dashboards for review status, doesn't scale past one
-        extension.
+        A browser extension is one of the only app formats that reaches desktop and mobile users from a single
+        codebase — Chrome, Firefox, and Edge cover Windows, macOS, and Linux, Safari is the only real option on iOS,
+        and Firefox already puts you on Android too (Edge is close behind). But every store has its own console, its
+        own API, its own credential type, and its own review quirks. Safari alone needs an App Store Connect key and
+        Xcode signing just to ship a build. Keeping four stores in sync by hand, re-checking four dashboards for
+        review status, doesn't scale past one extension.
       </p>
     </section>
 
@@ -85,15 +103,36 @@ const FEATURES = [
       </p>
     </section>
 
-    <section class="grid gap-8 border-t border-border py-16 sm:grid-cols-2">
-      {
-        FEATURES.map((feature) => (
-          <div>
-            <h3 class="font-semibold">{feature.title}</h3>
-            <p class="mt-2 text-sm text-muted-foreground">{feature.body}</p>
-          </div>
-        ))
-      }
+    <section class="border-t border-border py-16">
+      <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">What works today</h2>
+      <div class="mt-8 grid gap-8 sm:grid-cols-2">
+        {
+          FEATURES.map((feature) => (
+            <div>
+              <h3 class="font-semibold">{feature.title}</h3>
+              <p class="mt-2 text-sm text-muted-foreground">{feature.body}</p>
+            </div>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="border-t border-border py-16">
+      <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">Where we're headed</h2>
+      <p class="mt-4 max-w-2xl text-sm text-muted-foreground">
+        Publishing is what extport does today. The direction is one extension reaching every platform's users, not
+        just every store. Nothing below is built yet — it's the roadmap, not a feature list.
+      </p>
+      <div class="mt-8 grid gap-8 sm:grid-cols-3">
+        {
+          ROADMAP.map((item) => (
+            <div>
+              <h3 class="font-semibold">{item.title}</h3>
+              <p class="mt-2 text-sm text-muted-foreground">{item.body}</p>
+            </div>
+          ))
+        }
+      </div>
     </section>
 
     <section class="border-t border-border py-16">
