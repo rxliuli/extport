@@ -293,6 +293,7 @@ const main = defineCommand({
         platform: { type: 'enum', options: ['macos', 'ios'], description: 'Build only one platform (default: every platform the Xcode project ships)' },
         version: { type: 'string', description: "Fail loudly if the built app's version doesn't match (safety net — extport never stamps it)" },
         'macos-deployment-target': { type: 'string', default: '12.0', description: 'Minimum macOS version to build for' },
+        debug: { type: 'boolean', description: "Stream xcodebuild's full raw output live instead of only on failure" },
       },
       run: withCleanErrors((args) =>
         runSafariBuildCommand({
@@ -305,6 +306,7 @@ const main = defineCommand({
           version: args.version as string | undefined,
           // citty's default: '12.0' guarantees this is always a real string at runtime.
           macosDeploymentTarget: args['macos-deployment-target'] as unknown as string,
+          debug: args.debug as boolean | undefined,
         }),
       ),
     }),

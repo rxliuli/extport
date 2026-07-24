@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Exec } from './exec'
+import type { Exec, ExecResult } from './exec'
 import type { SafariBuildOptions, SafariPlatform } from './safari-build-args'
 
 const PLATFORMS = ['macos', 'ios'] as const satisfies readonly SafariPlatform[]
@@ -130,6 +130,22 @@ export interface RunSafariBuildDeps {
 }
 
 /**
+ * xcodebuild's own output is famously verbose (every build phase, every
+ * absolute path, repeated in full) — quiet by default so it doesn't drown
+ * out the `log()` progress lines above/below each step. Always captured
+ * regardless, so a failure still has something to show: dumped in full
+ * only then, unless --debug already streamed it live.
+ */
+async function xcodebuild(exec: Exec, log: (msg: string) => void, debug: boolean, args: string[]): Promise<ExecResult> {
+  const res = await exec('xcodebuild', args, { stream: debug })
+  if (res.status !== 0 && !debug) {
+    if (res.stdout) log(res.stdout)
+    if (res.stderr) log(res.stderr)
+  }
+  return res
+}
+
+/**
  * Builds, signs, and uploads every platform the project ships (or just the
  * one requested) — never submits for review (docs/safari-pipeline.md: that
  * stays reconcile's job, under the same queue semantics every store
@@ -147,7 +163,8 @@ export async function runSafariBuild(options: SafariBuildOptions, exec: Exec, de
   const projectName = xcodeprojName.slice(0, -'.xcodeproj'.length)
   const xcodeprojPath = join(options.projectPath, xcodeprojName)
 
-  const listRes = await exec('xcodebuild', ['-project', xcodeprojPath, '-list', '-json'])
+  const debug = !!options.debug
+  const listRes = await exec('xcodebuild', ['-project', xcodeprojPath, '-list', '-json'], { stream: debug })
   if (listRes.status !== 0) throw new Error(`xcodebuild -list failed for ${xcodeprojPath}`)
   const listJson = JSON.parse(listRes.stdout) as { project: { schemes: string[] } }
   const schemes = detectPlatforms(listJson.project.schemes, projectName)
@@ -169,15 +186,17 @@ export async function runSafariBuild(options: SafariBuildOptions, exec: Exec, de
       try {
         log(`── ${platform}: archiving "${scheme}" ──`)
         const archivePath = join(workDir, `${platform}.xcarchive`)
-        const archiveRes = await exec(
-          'xcodebuild',
+        const archiveRes = await xcodebuild(
+          exec,
+          log,
+          debug,
           archiveArgs({ xcodeprojPath, scheme, archivePath, teamId: options.teamId, macosDeploymentTarget: options.macosDeploymentTarget }, platform, auth),
         )
         if (archiveRes.status !== 0) throw new Error('xcodebuild archive failed')
 
         if (options.version) {
           const plistPath = builtInfoPlistPath(archivePath, projectName, platform)
-          const versionRes = await exec('/usr/libexec/PlistBuddy', ['-c', 'Print CFBundleShortVersionString', plistPath])
+          const versionRes = await exec('/usr/libexec/PlistBuddy', ['-c', 'Print CFBundleShortVersionString', plistPath], { stream: debug })
           const builtVersion = versionRes.stdout.trim()
           if (versionRes.status !== 0 || builtVersion !== options.version) {
             throw new Error(`built version "${builtVersion || '?'}" does not match --version ${options.version} — check the Xcode project's marketing version`)
@@ -187,7 +206,7 @@ export async function runSafariBuild(options: SafariBuildOptions, exec: Exec, de
         const exportOptionsPath = join(workDir, `${platform}-ExportOptions.plist`)
         await writeFile(exportOptionsPath, exportOptionsPlist(options.teamId))
         log(`── ${platform}: exporting and uploading to App Store Connect ──`)
-        const exportRes = await exec('xcodebuild', exportArgs({ archivePath, exportOptionsPath, exportPath: join(workDir, `${platform}-export`) }, auth))
+        const exportRes = await xcodebuild(exec, log, debug, exportArgs({ archivePath, exportOptionsPath, exportPath: join(workDir, `${platform}-export`) }, auth))
         if (exportRes.status !== 0) throw new Error('xcodebuild export/upload failed')
 
         log(`── ${platform}: uploaded ──`)

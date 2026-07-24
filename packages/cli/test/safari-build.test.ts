@@ -180,7 +180,7 @@ describe('runSafariBuild', () => {
     const exec = async (cmd: string, args: string[]) => {
       calls.push({ cmd, args })
       for (const [key, res] of Object.entries(responses)) {
-        if (args.includes(key) || cmd === key) return { stdout: res.stdout ?? '', status: res.status }
+        if (args.includes(key) || cmd === key) return { stdout: res.stdout ?? '', stderr: '', status: res.status }
       }
       throw new Error(`no fake response for ${cmd} ${args.join(' ')}`)
     }
@@ -238,15 +238,15 @@ describe('runSafariBuild', () => {
     const dir = await makeProject('Scrub.xcodeproj')
     let macosCalls = 0
     const exec = async (cmd: string, args: string[]) => {
-      if (args.includes('-list')) return { stdout: JSON.stringify({ project: { schemes: ['Scrub (macOS)', 'Scrub (iOS)'] } }), status: 0 }
+      if (args.includes('-list')) return { stdout: JSON.stringify({ project: { schemes: ['Scrub (macOS)', 'Scrub (iOS)'] } }), stderr: '', status: 0 }
       if (args.includes('archive')) {
         if (args.includes('Scrub (macOS)')) {
           macosCalls++
-          return { stdout: '', status: 1 } // macOS archive fails
+          return { stdout: '', stderr: '', status: 1 } // macOS archive fails
         }
-        return { stdout: '', status: 0 } // iOS archive succeeds
+        return { stdout: '', stderr: '', status: 0 } // iOS archive succeeds
       }
-      if (args.includes('-exportArchive')) return { stdout: '', status: 0 }
+      if (args.includes('-exportArchive')) return { stdout: '', stderr: '', status: 0 }
       throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`)
     }
 
@@ -263,12 +263,12 @@ describe('runSafariBuild', () => {
     const dir = await makeProject('Scrub.xcodeproj')
     let exportCalled = false
     const exec = async (cmd: string, args: string[]) => {
-      if (args.includes('-list')) return { stdout: JSON.stringify({ project: { schemes: ['Scrub (macOS)'] } }), status: 0 }
-      if (args.includes('archive')) return { stdout: '', status: 0 }
-      if (cmd === '/usr/libexec/PlistBuddy') return { stdout: '0.0.6\n', status: 0 }
+      if (args.includes('-list')) return { stdout: JSON.stringify({ project: { schemes: ['Scrub (macOS)'] } }), stderr: '', status: 0 }
+      if (args.includes('archive')) return { stdout: '', stderr: '', status: 0 }
+      if (cmd === '/usr/libexec/PlistBuddy') return { stdout: '0.0.6\n', stderr: '', status: 0 }
       if (args.includes('-exportArchive')) {
         exportCalled = true
-        return { stdout: '', status: 0 }
+        return { stdout: '', stderr: '', status: 0 }
       }
       throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`)
     }
@@ -291,5 +291,46 @@ describe('runSafariBuild', () => {
     const dir = await makeProject('Scrub.xcodeproj')
     const { exec } = fakeExec({ '-list': { status: 1 } })
     await expect(runSafariBuild({ projectPath: dir, ...baseOptions }, exec, { homedir: '/h', exists: () => true, log: () => {} })).rejects.toThrow(/xcodebuild -list failed/)
+  })
+
+  it('dumps the captured xcodebuild output through log() only when a step fails, quietly otherwise', async () => {
+    const dir = await makeProject('Scrub.xcodeproj')
+    const seenStreamFlags: (boolean | undefined)[] = []
+    const exec = async (cmd: string, args: string[], options?: { stream?: boolean }) => {
+      if (args.includes('-list')) return { stdout: JSON.stringify({ project: { schemes: ['Scrub (macOS)'] } }), stderr: '', status: 0 }
+      if (args.includes('archive')) {
+        seenStreamFlags.push(options?.stream)
+        return { stdout: 'lots of xcodebuild noise', stderr: 'a warning', status: 1 }
+      }
+      throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`)
+    }
+    const logged: string[] = []
+
+    const results = await runSafariBuild({ projectPath: dir, ...baseOptions }, exec, { log: (m) => logged.push(m), homedir: '/h', exists: () => true })
+
+    expect(results).toEqual([{ platform: 'macos', ok: false, error: 'xcodebuild archive failed' }])
+    // Quiet by default — xcodebuild is never told to stream.
+    expect(seenStreamFlags).toEqual([false])
+    // But the failure's full output still surfaces, just after the fact.
+    expect(logged).toContain('lots of xcodebuild noise')
+    expect(logged).toContain('a warning')
+  })
+
+  it('streams xcodebuild live instead of dumping after the fact when debug is set', async () => {
+    const dir = await makeProject('Scrub.xcodeproj')
+    const seenStreamFlags: (boolean | undefined)[] = []
+    const exec = async (cmd: string, args: string[], options?: { stream?: boolean }) => {
+      seenStreamFlags.push(options?.stream)
+      if (args.includes('-list')) return { stdout: JSON.stringify({ project: { schemes: ['Scrub (macOS)'] } }), stderr: '', status: 0 }
+      if (args.includes('archive')) return { stdout: 'lots of xcodebuild noise', stderr: '', status: 1 }
+      throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`)
+    }
+    const logged: string[] = []
+
+    await runSafariBuild({ projectPath: dir, ...baseOptions, debug: true }, exec, { log: (m) => logged.push(m), homedir: '/h', exists: () => true })
+
+    expect(seenStreamFlags).toEqual([true, true])
+    // Already streamed live — no second dump through log().
+    expect(logged).not.toContain('lots of xcodebuild noise')
   })
 })

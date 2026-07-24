@@ -9,6 +9,7 @@ export interface SafariBuildOptions {
   version?: string
   platform?: SafariPlatform
   macosDeploymentTarget: string
+  debug?: boolean
 }
 
 /** citty's parsed shape for the `safari-build` command. */
@@ -21,6 +22,7 @@ export interface RawSafariBuildArgs {
   version?: string
   platform?: SafariPlatform
   macosDeploymentTarget: string
+  debug?: boolean
 }
 
 /** Falls back to extport.config.json's `safari` block. */
@@ -58,5 +60,15 @@ export function resolveSafariBuildOptions(
     throw new Error('--version must be 1-4 dot-separated integers')
   }
 
-  return { projectPath, teamId, issuerId, keyId, keyPath, version: raw.version, platform: raw.platform, macosDeploymentTarget: raw.macosDeploymentTarget }
+  return {
+    projectPath,
+    teamId,
+    issuerId,
+    keyId,
+    keyPath,
+    version: raw.version,
+    platform: raw.platform,
+    macosDeploymentTarget: raw.macosDeploymentTarget,
+    debug: raw.debug,
+  }
 }
