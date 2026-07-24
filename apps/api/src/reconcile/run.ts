@@ -18,6 +18,7 @@ import {
 import type { Db } from '../db'
 import { tenantDek } from '../lib/kms'
 import { createEmailNotifier, type Notifier } from '../lib/notify'
+import { storeConsoleUrl } from '../lib/store-links'
 import { parseTenantSettings } from '../lib/tenant-settings'
 import { decide } from './decide'
 
@@ -90,34 +91,35 @@ type NotifyKind = 'submitted' | 'approved' | 'rejected' | 'error'
  * as the deployment_versions row's status — the row itself is the record,
  * this is purely the side-effect of telling the tenant about it.
  */
-function buildMessage(row: JoinedRow, kind: NotifyKind, payload: Record<string, unknown>): { subject: string; text: string } | null {
+function buildMessage(row: JoinedRow, kind: NotifyKind, payload: Record<string, unknown>, platform?: string): { subject: string; text: string } | null {
   const ext = row.extension.name
   const store = STORE_LABELS[row.target.store]
+  const link = storeConsoleUrl(row.target.store, row.target.storeItemId, { crxId: row.target.crxId ?? undefined, platform })
   switch (kind) {
     case 'rejected': {
       const reason =
         typeof payload.reason === 'string' && payload.reason
           ? payload.reason
           : 'No reason was provided by the store — check its developer dashboard.'
-      return { subject: `❌ ${ext} rejected on ${store}`, text: `${ext} v${payload.version} was rejected on ${store}.\n\n${reason}` }
+      return { subject: `❌ ${ext} rejected on ${store}`, text: `${ext} v${payload.version} was rejected on ${store}.\n\n${reason}\n\nStore page: ${link}` }
     }
     case 'error':
       return {
         subject: `⚠️ ${ext} publishing error on ${store}`,
-        text: `${ext} hit an error while reconciling ${store}:\n\n${payload.message ?? 'unknown error'}`,
+        text: `${ext} hit an error while reconciling ${store}:\n\n${payload.message ?? 'unknown error'}\n\nStore page: ${link}`,
       }
     case 'approved':
-      return { subject: `✅ ${ext} v${payload.version} is live on ${store}`, text: `${ext} v${payload.version} is now live on ${store}.` }
+      return { subject: `✅ ${ext} v${payload.version} is live on ${store}`, text: `${ext} v${payload.version} is now live on ${store}.\n\nStore page: ${link}` }
     case 'submitted':
       return {
         subject: `${ext} v${payload.version} submitted to ${store}`,
-        text: `${ext} v${payload.version} was submitted for review on ${store}.${payload.detail ? `\n\n${payload.detail}` : ''}`,
+        text: `${ext} v${payload.version} was submitted for review on ${store}.${payload.detail ? `\n\n${payload.detail}` : ''}\n\nStore page: ${link}`,
       }
   }
 }
 
-async function notify(notifier: Notifier, row: JoinedRow, kind: NotifyKind, payload: Record<string, unknown>): Promise<void> {
-  const message = buildMessage(row, kind, payload)
+async function notify(notifier: Notifier, row: JoinedRow, kind: NotifyKind, payload: Record<string, unknown>, platform?: string): Promise<void> {
+  const message = buildMessage(row, kind, payload, platform)
   if (message) await notifier.send({ to: row.tenant.email, ...message })
 }
 
@@ -184,10 +186,11 @@ async function maybeEmitStaleReview(db: Db, notifier: Notifier, row: JoinedRow, 
     type: 'stale_review',
     payloadJson: JSON.stringify({ version: inReview.version, ageDays }),
   })
+  const link = storeConsoleUrl(row.target.store, row.target.storeItemId, { crxId: row.target.crxId ?? undefined, platform: inReview.platform ?? undefined })
   await notifier.send({
     to: row.tenant.email,
     subject: `⏳ ${row.extension.name} still in review on ${STORE_LABELS[row.target.store]} (${ageDays}+ days)`,
-    text: `${row.extension.name} v${inReview.version} has been in review on ${STORE_LABELS[row.target.store]} for ${ageDays}+ days — this may need manual attention. Check the store's developer dashboard.`,
+    text: `${row.extension.name} v${inReview.version} has been in review on ${STORE_LABELS[row.target.store]} for ${ageDays}+ days — this may need manual attention.\n\nStore page: ${link}`,
   })
 }
 
@@ -225,7 +228,7 @@ async function reconcileLifecycle(
     if (!alreadyRecordedOnline) {
       if (inReview && inReview.version === liveVersion) {
         await db.update(deploymentVersions).set({ status: 'online', statusDetail: null }).where(eq(deploymentVersions.id, inReview.id))
-        await notify(notifier, row, 'approved', { version: inReview.version })
+        await notify(notifier, row, 'approved', { version: inReview.version }, platform)
         inReview = null
       } else {
         // First-ever baseline (target just added, nothing pushed through extport
@@ -246,7 +249,7 @@ async function reconcileLifecycle(
   }
   if (inReview && actual.reviewStatus === 'rejected') {
     await db.update(deploymentVersions).set({ status: 'rejected', statusDetail: actual.rejectionReason ?? null }).where(eq(deploymentVersions.id, inReview.id))
-    await notify(notifier, row, 'rejected', { version: inReview.version, reason: actual.rejectionReason })
+    await notify(notifier, row, 'rejected', { version: inReview.version, reason: actual.rejectionReason }, platform)
     inReview = null
   }
   // A submission we don't have an active row for — the first-ever tick for a
@@ -320,7 +323,7 @@ async function reconcileLifecycle(
     .update(deploymentVersions)
     .set({ status: 'in_review', statusDetail: result.detail ?? null, submittedAt: new Date().toISOString() })
     .where(eq(deploymentVersions.id, queued!.id))
-  await notify(notifier, row, 'submitted', { version: queued!.version, detail: result.detail })
+  await notify(notifier, row, 'submitted', { version: queued!.version, detail: result.detail }, platform)
   return 'submitted'
 }
 
