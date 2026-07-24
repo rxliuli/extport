@@ -1,15 +1,19 @@
 # extport
 
-Browser extension publishing & licensing platform. Multi-tenant SaaS on Cloudflare
-Workers + D1 + R2; the author is "tenant zero" and uses the exact same code paths
-as external tenants.
+Write one browser extension, reach every platform's users. Multi-tenant SaaS on
+Cloudflare Workers + D1 + R2; the author is "tenant zero" and uses the exact same
+code paths as external tenants.
 
-Two independent per-extension modules:
+Two independent per-extension modules, plus build tooling that feeds into the first:
 
 - **Publishing** (Phase 1, in progress) — reconciliation-loop based store publishing
   (Chrome / Firefox / Edge / Safari), latest-wins versioning, status matrix, notifications.
 - **Licensing** (Phase 2, schema pre-defined) — BYO-Stripe activation codes with
   offline verification (Ed25519), seat decay, buyer magic-link pages.
+- **Cross-platform build** (planned) — official GitHub Action wrapping Safari's Xcode
+  conversion, signing, and notarization, run in your own CI with your own Apple
+  credentials (extport never sees them); eventually a scaffold pre-wired to ship to
+  Chrome / Firefox / Edge / Safari desktop, Safari on iOS, and Firefox on Android.
 
 ## Layout
 
