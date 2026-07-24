@@ -47,8 +47,8 @@ function daysFromNow(days: number): string {
 }
 
 describe('checkCredentialExpiry', () => {
-  it('flips active -> expiring and notifies once, inside the 30-day window', async () => {
-    const { db, credentialId } = await seedCredential({ expiresAt: daysFromNow(10), status: 'active' })
+  it('flips active -> expiring and notifies once, inside the 7-day window', async () => {
+    const { db, credentialId } = await seedCredential({ expiresAt: daysFromNow(5), status: 'active' })
     const { notifier, sent } = recordingNotifier()
 
     await checkCredentialExpiry(db, notifier)

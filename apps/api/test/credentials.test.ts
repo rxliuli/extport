@@ -137,7 +137,7 @@ describe('credentials', () => {
     // Edge probe: 404 for the dummy product id means the key itself is valid.
     stubStoreApi(404, 'not found')
     const { sessionCookie } = await seedTenantWithUser()
-    const soon = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString()
+    const soon = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString()
     const res = await post(
       sessionCookie,
       JSON.stringify({
@@ -150,6 +150,27 @@ describe('credentials', () => {
     const { credential } = (await res.json()) as { credential: { status: string; hint: string } }
     expect(credential.status).toBe('expiring')
     expect(credential.hint).toBe('1234')
+  })
+
+  it('rotating with a fresh expiresAt flips an expiring Edge credential back to active', async () => {
+    stubStoreApi(404, 'not found')
+    const { sessionCookie } = await seedTenantWithUser()
+    const soon = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString()
+    const created = (await (
+      await post(sessionCookie, JSON.stringify({ store: 'edge', expiresAt: soon, credentials: { clientId: 'c', apiKey: 'edge-key-1234' } }))
+    ).json()) as { credential: { id: string; status: string } }
+    expect(created.credential.status).toBe('expiring')
+
+    const farOut = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString()
+    const res = await request(`/api/v1/credentials/${created.credential.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ expiresAt: farOut, credentials: { clientId: 'c', apiKey: 'edge-key-5678' } }),
+    })
+    expect(res.status).toBe(200)
+    const { credential } = (await res.json()) as { credential: { status: string; hint: string } }
+    expect(credential.status).toBe('active')
+    expect(credential.hint).toBe('5678')
   })
 
   it('re-verifies and flips status on /verify', async () => {

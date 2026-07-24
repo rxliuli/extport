@@ -199,6 +199,7 @@ function CredentialsSection() {
   const [fields, setFields] = useState<Record<string, string>>({})
   const [rotatingId, setRotatingId] = useState<string | null>(null)
   const [rotateFields, setRotateFields] = useState<Record<string, string>>({})
+  const [rotateExpiresAt, setRotateExpiresAt] = useState<Date | undefined>(undefined)
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: credentialsQuery.queryKey })
 
@@ -244,11 +245,15 @@ function CredentialsSection() {
   // Same id, fresh secret — any publish target pointing at it keeps working
   // with nothing to re-link, which is the whole point over delete-and-recreate.
   const rotate = useMutation({
-    mutationFn: ({ id, credentials }: { id: string; credentials: Record<string, string> }) =>
-      api(`/api/v1/credentials/${id}`, { method: 'PATCH', body: JSON.stringify({ credentials }) }),
+    mutationFn: ({ id, credentials, expiresAt }: { id: string; credentials: Record<string, string>; expiresAt?: Date }) =>
+      api(`/api/v1/credentials/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ credentials, expiresAt: expiresAt ? expiresAt.toISOString() : undefined }),
+      }),
     onSuccess: () => {
       setRotatingId(null)
       setRotateFields({})
+      setRotateExpiresAt(undefined)
       void invalidate()
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -290,6 +295,7 @@ function CredentialsSection() {
                         size="sm"
                         onClick={() => {
                           setRotateFields({})
+                          setRotateExpiresAt(undefined)
                           setRotatingId(rotatingId === row.id ? null : row.id)
                         }}
                       >
@@ -312,7 +318,7 @@ function CredentialsSection() {
                           className="grid max-w-md gap-3 py-2"
                           onSubmit={(e) => {
                             e.preventDefault()
-                            rotate.mutate({ id: row.id, credentials: rotateFields })
+                            rotate.mutate({ id: row.id, credentials: rotateFields, expiresAt: rotateExpiresAt })
                           }}
                         >
                           <p className="text-xs text-muted-foreground">
@@ -320,6 +326,14 @@ function CredentialsSection() {
                             the same id so nothing referencing it needs to change.
                           </p>
                           <CredentialFieldInputs store={row.store} fields={rotateFields} onChange={setRotateFields} />
+                          {row.store === 'edge' && (
+                            <div className="grid gap-1.5">
+                              <Label htmlFor={`rotate-expiry-${row.id}`} className="text-xs text-muted-foreground">
+                                New API key expiry (rotates every ~72 days)
+                              </Label>
+                              <DatePicker id={`rotate-expiry-${row.id}`} value={rotateExpiresAt} onChange={setRotateExpiresAt} />
+                            </div>
+                          )}
                           <div className="flex gap-2">
                             <Button type="submit" size="sm" disabled={rotate.isPending}>
                               {rotate.isPending && <Loader2 className="animate-spin" />}
