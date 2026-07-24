@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveSafariBuildOptions } from '../src/safari-build-args'
+import { resolveSafariBuildOptions, safariDefaultsChanged } from '../src/safari-build-args'
 
 const env = { ASC_ISSUER_ID: 'iss-1', ASC_KEY_ID: 'KEY1' }
 const base = { macosDeploymentTarget: '12.0' }
@@ -64,5 +64,20 @@ describe('resolveSafariBuildOptions', () => {
     )
     expect(options.projectPath).toBe('./flag-path')
     expect(options.teamId).toBe('FLAG-TEAM')
+  })
+})
+
+describe('safariDefaultsChanged', () => {
+  it('is false when nothing changed', () => {
+    const defaults = { projectPath: './ios', teamId: 'T', issuerId: 'i', keyId: 'k' }
+    expect(safariDefaultsChanged(defaults, { ...defaults })).toBe(false)
+  })
+
+  it('is true when a field was newly filled in', () => {
+    expect(safariDefaultsChanged({}, { projectPath: './ios' })).toBe(true)
+  })
+
+  it('is true when an existing field changed', () => {
+    expect(safariDefaultsChanged({ teamId: 'OLD' }, { teamId: 'NEW' })).toBe(true)
   })
 })

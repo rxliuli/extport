@@ -8,7 +8,7 @@ import { clearGlobalConfig, loadGlobalConfig, loadProjectConfig, saveGlobalConfi
 import { exec } from './exec'
 import { login } from './login'
 import { fillMissingPushDefaults, fillMissingSafariBuildDefaults, promptText, requiredField } from './prompts'
-import { resolveSafariBuildOptions, type RawSafariBuildArgs } from './safari-build-args'
+import { resolveSafariBuildOptions, safariDefaultsChanged, type RawSafariBuildArgs } from './safari-build-args'
 import { runSafariBuild } from './safari-build'
 
 async function resolveApiUrl(flagApiUrl?: string): Promise<string> {
@@ -107,9 +107,17 @@ async function runSafariBuildCommand(raw: RawSafariBuildArgs): Promise<void> {
   }
 
   const projectConfig = await loadProjectConfig()
-  let defaults = { ...projectConfig.safari }
+  const existingSafariDefaults = projectConfig.safari ?? {}
+  let defaults = { ...existingSafariDefaults }
   if (process.stdin.isTTY) {
     defaults = { ...defaults, ...(await fillMissingSafariBuildDefaults(raw, process.env, defaults)) }
+    // None of these four are secrets (the .p8 key itself stays external,
+    // resolved separately) — save them so the same questions aren't asked
+    // again next time, exactly like `extport init` already does.
+    if (safariDefaultsChanged(existingSafariDefaults, defaults)) {
+      await saveProjectConfig({ ...projectConfig, safari: defaults })
+      console.log('Saved to extport.config.json for next time.')
+    }
   }
 
   const options = resolveSafariBuildOptions(raw, process.env, defaults)

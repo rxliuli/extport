@@ -34,6 +34,20 @@ export interface SafariBuildDefaults {
 }
 
 /**
+ * True when interactive prompts filled in something extport.config.json
+ * didn't already have — the cue to write it back, so the same four
+ * questions aren't asked again next time.
+ */
+export function safariDefaultsChanged(before: SafariBuildDefaults, after: SafariBuildDefaults): boolean {
+  return (
+    before.projectPath !== after.projectPath ||
+    before.teamId !== after.teamId ||
+    before.issuerId !== after.issuerId ||
+    before.keyId !== after.keyId
+  )
+}
+
+/**
  * citty's declarative `args` handles shape, --platform's enum, --help, and
  * --macos-deployment-target's default; what's left is the flag > env >
  * defaults precedence chain for the four fields that can come from
