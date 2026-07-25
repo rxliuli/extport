@@ -3,13 +3,15 @@ import { cancel, confirm, intro, isCancel, log as clackLog, outro, select } from
 import { defineCommand, runMain } from 'citty'
 import { readFile } from 'node:fs/promises'
 import process from 'node:process'
-import { buildPushUrl, resolvePushOptions, type PushOptions, type RawPushArgs } from './args'
+import { buildPushUrl, resolvePushContext, resolvePushOptions, type PushDefaults, type PushOptions, type RawPushArgs } from './args'
 import { clearGlobalConfig, loadGlobalConfig, loadProjectConfig, saveGlobalConfig, saveProjectConfig, type ProjectConfig } from './config'
 import { exec } from './exec'
+import { fetchEnabledTargets } from './extensions-api'
 import { login } from './login'
 import { fillMissingPushDefaults, fillMissingSafariBuildDefaults, promptText, requiredField } from './prompts'
 import { resolveSafariBuildOptions, safariDefaultsChanged, type RawSafariBuildArgs } from './safari-build-args'
 import { runSafariBuild } from './safari-build'
+import { inferPushDefaults } from './wxt-project'
 
 async function resolveApiUrl(flagApiUrl?: string): Promise<string> {
   const [globalConfig, projectConfig] = await Promise.all([loadGlobalConfig(), loadProjectConfig()])
@@ -69,14 +71,7 @@ async function buildPushRequest(options: PushOptions): Promise<PushRequest> {
   return { headers, body: bytes, label: `${bytes.length} bytes` }
 }
 
-async function runPush(raw: RawPushArgs): Promise<void> {
-  const [globalConfig, projectConfig] = await Promise.all([loadGlobalConfig(), loadProjectConfig()])
-  let defaults = { extension: projectConfig.extension, apiKey: globalConfig.apiKey, apiUrl: projectConfig.apiUrl ?? globalConfig.apiUrl }
-  if (process.stdin.isTTY) {
-    defaults = { ...defaults, ...(await fillMissingPushDefaults(raw, process.env, defaults)) }
-  }
-
-  const options = resolvePushOptions(raw, process.env, defaults)
+async function pushOnce(options: PushOptions): Promise<void> {
   const request = await buildPushRequest(options)
 
   const target = `${options.extension}@${options.version}${options.store ? ` (${options.store})` : ''}`
@@ -99,6 +94,52 @@ async function runPush(raw: RawPushArgs): Promise<void> {
     throw new Error(json.error ?? `upload failed (${res.status})`)
   }
   if (json.warning) console.log(`warning: ${json.warning}`)
+}
+
+/**
+ * Neither --file nor --store given: look up every enabled target configured
+ * for this extension and push each one, inferring its zip/version from the
+ * WXT project (docs/... push's "just run it" mode). A single --file with no
+ * --store still means the existing universal push below, untouched — this
+ * only kicks in when nothing at all was specified.
+ */
+async function runPushAll(raw: RawPushArgs, defaults: PushDefaults): Promise<void> {
+  const { extension, apiUrl, apiKey } = resolvePushContext(raw, process.env, defaults)
+  const targets = await fetchEnabledTargets(apiUrl, apiKey, extension)
+  if (targets.length === 0) {
+    throw new Error(`no enabled store targets configured for "${extension}" — pass --store/--file explicitly, or add a target in the dashboard`)
+  }
+
+  console.log(`no --store given — pushing to every configured target: ${targets.map((t) => t.store).join(', ')}`)
+  let anyFailed = false
+  for (const target of targets) {
+    try {
+      const inferred = await inferPushDefaults(raw, target.store, process.cwd())
+      const options = resolvePushOptions({ ...raw, store: target.store }, process.env, { ...defaults, ...inferred })
+      await pushOnce(options)
+    } catch (err) {
+      anyFailed = true
+      console.log(`❌ ${target.store}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+  if (anyFailed) process.exit(1)
+}
+
+async function runPush(raw: RawPushArgs): Promise<void> {
+  const [globalConfig, projectConfig] = await Promise.all([loadGlobalConfig(), loadProjectConfig()])
+  let defaults: PushDefaults = { extension: projectConfig.extension, apiKey: globalConfig.apiKey, apiUrl: projectConfig.apiUrl ?? globalConfig.apiUrl }
+  if (process.stdin.isTTY) {
+    defaults = { ...defaults, ...(await fillMissingPushDefaults(raw, process.env, defaults)) }
+  }
+
+  if (!raw.file && !raw.store) {
+    await runPushAll(raw, defaults)
+    return
+  }
+
+  const inferred = await inferPushDefaults(raw, raw.store, process.cwd())
+  const options = resolvePushOptions(raw, process.env, { ...defaults, ...inferred })
+  await pushOnce(options)
 }
 
 async function runSafariBuildCommand(raw: RawSafariBuildArgs): Promise<void> {
@@ -265,12 +306,24 @@ const main = defineCommand({
       run: withCleanErrors(() => runInit()),
     }),
     push: defineCommand({
-      meta: { name: 'push', description: 'Upload an artifact to extport' },
+      meta: {
+        name: 'push',
+        description:
+          'Upload an artifact to extport — omit --file and --store together in a WXT project to push every configured store at once, each inferred from .output/',
+      },
       args: {
-        file: { type: 'positional', description: "Path to the zip file (omit only for --store safari — its binary reaches App Store Connect via 'extport safari-build')", required: false },
+        file: {
+          type: 'positional',
+          description: "Path to the zip file — omit in a WXT project to use .output/{name}-{version}-{browser}.zip (or always, for --store safari)",
+          required: false,
+        },
         extension: { type: 'string', description: 'Target extension, id or slug (required — or extport.config.json\'s "extension")' },
-        version: { type: 'string', description: 'Artifact version, 1-4 dot-separated integers (required)' },
-        store: { type: 'enum', options: ['chrome', 'firefox', 'edge', 'safari'], description: 'Omit for a universal zip pushed to every configured store' },
+        version: { type: 'string', description: "Artifact version, 1-4 dot-separated integers (or inferred from the zip's manifest.json / package.json)" },
+        store: {
+          type: 'enum',
+          options: ['chrome', 'firefox', 'edge', 'safari'],
+          description: 'With --file, omit for one universal zip pushed to every configured store. With neither --file nor --store, pushes every configured store individually',
+        },
         'source-zip': { type: 'string', description: 'Source code zip for AMO review (--store firefox only)' },
         'api-url': apiUrlArg,
         'api-key': { type: 'string', description: 'API key sk_live_… (or env EXTPORT_API_KEY, or run "extport login")' },

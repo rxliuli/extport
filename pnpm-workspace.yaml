@@ -5,6 +5,7 @@ packages:
 allowBuilds:
   esbuild: true
   sharp: true
+  spawn-sync: false
   workerd: true
 
 minimumReleaseAgeExclude:

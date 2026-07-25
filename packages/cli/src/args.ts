@@ -21,11 +21,37 @@ export interface RawPushArgs {
   apiKey?: string
 }
 
-/** Falls back to `extport login`'s saved key and extport.config.json's extension/apiUrl. */
+/**
+ * Falls back to `extport login`'s saved key, extport.config.json's
+ * extension/apiUrl, and — for a WXT project — the zip's conventional
+ * .output/ path and the version read out of it (see wxt-project.ts).
+ */
 export interface PushDefaults {
   extension?: string
   apiKey?: string
   apiUrl?: string
+  file?: string
+  version?: string
+}
+
+export interface PushContext {
+  extension: string
+  apiUrl: string
+  apiKey: string
+}
+
+/**
+ * Just the fields needed before a file/version are even known — used by the
+ * "no --file and no --store" auto mode to authenticate and look up the
+ * extension's configured targets before resolving each one individually.
+ */
+export function resolvePushContext(raw: Pick<RawPushArgs, 'extension' | 'apiUrl' | 'apiKey'>, env: Record<string, string | undefined>, defaults: PushDefaults = {}): PushContext {
+  const extension = raw.extension ?? defaults.extension
+  if (!extension) throw new Error('--extension is required')
+  const apiKey = raw.apiKey ?? env.EXTPORT_API_KEY ?? defaults.apiKey
+  if (!apiKey) throw new Error('missing API key: run `extport login`, or set EXTPORT_API_KEY / pass --api-key')
+  const apiUrl = (raw.apiUrl ?? env.EXTPORT_API_URL ?? defaults.apiUrl ?? 'https://dash.extport.dev').replace(/\/+$/, '')
+  return { extension, apiUrl, apiKey }
 }
 
 /**
@@ -35,13 +61,12 @@ export interface PushDefaults {
  * flag > env > defaults precedence chain, and the version format check.
  */
 export function resolvePushOptions(raw: RawPushArgs, env: Record<string, string | undefined>, defaults: PushDefaults = {}): PushOptions {
-  if (!raw.file && raw.store !== 'safari') {
+  const file = raw.file ?? defaults.file
+  if (!file && raw.store !== 'safari') {
     throw new Error('missing zip file argument (only --store safari can be pushed without one)')
   }
 
-  const extension = raw.extension ?? defaults.extension
-  if (!extension) throw new Error('--extension is required')
-  const version = raw.version
+  const version = raw.version ?? defaults.version
   if (!version || !/^\d+(\.\d+){0,3}$/.test(version)) {
     throw new Error('--version is required and must be 1-4 dot-separated integers')
   }
@@ -50,11 +75,8 @@ export function resolvePushOptions(raw: RawPushArgs, env: Record<string, string 
     throw new Error('--source-zip is only valid with --store firefox')
   }
 
-  const apiKey = raw.apiKey ?? env.EXTPORT_API_KEY ?? defaults.apiKey
-  if (!apiKey) throw new Error('missing API key: run `extport login`, or set EXTPORT_API_KEY / pass --api-key')
-  const apiUrl = (raw.apiUrl ?? env.EXTPORT_API_URL ?? defaults.apiUrl ?? 'https://dash.extport.dev').replace(/\/+$/, '')
-
-  return { file: raw.file, extension, version, store: raw.store, sourceZip: raw.sourceZip, apiUrl, apiKey }
+  const { extension, apiUrl, apiKey } = resolvePushContext(raw, env, defaults)
+  return { file, extension, version, store: raw.store, sourceZip: raw.sourceZip, apiUrl, apiKey }
 }
 
 export function buildPushUrl(options: PushOptions): string {

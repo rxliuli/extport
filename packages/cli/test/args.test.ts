@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildPushUrl, resolvePushOptions } from '../src/args'
+import { buildPushUrl, resolvePushContext, resolvePushOptions } from '../src/args'
 
 const env = { EXTPORT_API_KEY: 'sk_live_' + 'a'.repeat(40) }
 
@@ -58,6 +58,31 @@ describe('resolvePushOptions', () => {
     )
     expect(options.extension).toBe('flag-ext')
     expect(options.apiKey).toBe('sk_live_env')
+  })
+
+  it('takes file and version from defaults (WXT inference) when raw flags omit them', () => {
+    const options = resolvePushOptions({ extension: 'e', store: 'chrome' }, env, { file: '.output/e-1.0.0-chrome.zip', version: '1.0.0' })
+    expect(options).toMatchObject({ file: '.output/e-1.0.0-chrome.zip', version: '1.0.0' })
+  })
+
+  it('prefers a raw flag over an inferred default for file and version', () => {
+    const options = resolvePushOptions({ file: 'explicit.zip', version: '2.0.0', extension: 'e', store: 'chrome' }, env, {
+      file: '.output/e-1.0.0-chrome.zip',
+      version: '1.0.0',
+    })
+    expect(options).toMatchObject({ file: 'explicit.zip', version: '2.0.0' })
+  })
+})
+
+describe('resolvePushContext', () => {
+  it('resolves extension, apiUrl, and apiKey without needing a file or version', () => {
+    const ctx = resolvePushContext({ extension: 'e' }, env)
+    expect(ctx).toEqual({ extension: 'e', apiUrl: 'https://dash.extport.dev', apiKey: env.EXTPORT_API_KEY })
+  })
+
+  it('requires an extension and an api key', () => {
+    expect(() => resolvePushContext({}, env)).toThrow(/--extension/)
+    expect(() => resolvePushContext({ extension: 'e' }, {})).toThrow(/API key/)
   })
 })
 
