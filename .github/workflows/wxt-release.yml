@@ -1,14 +1,14 @@
-name: CLI Release
+name: WXT Release
 
-# Publishes @extport/cli to npm whenever its version changes, via npm's OIDC
+# Publishes @extport/wxt to npm whenever its version changes, via npm's OIDC
 # Trusted Publishing — no NPM_TOKEN secret to store or rotate. Requires a
-# Trusted Publisher configured on npmjs.com for @extport/cli, pointing at
+# Trusted Publisher configured on npmjs.com for @extport/wxt, pointing at
 # this repo, this workflow file, and (if used) the npm-publish environment.
 on:
   push:
     branches: [main]
     paths:
-      - 'packages/cli/package.json'
+      - 'packages/wxt/package.json'
   workflow_dispatch: {}
 
 permissions:
@@ -29,7 +29,7 @@ jobs:
         id: version
         uses: rxliuli/version-check@v1
         with:
-          file: packages/cli/package.json
+          file: packages/wxt/package.json
 
   publish:
     needs: version
@@ -45,9 +45,9 @@ jobs:
           registry-url: https://registry.npmjs.org/
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @extport/cli test
-      - run: pnpm --filter @extport/cli build
+      - run: pnpm --filter @extport/wxt test
+      - run: pnpm --filter @extport/wxt build
       - name: Publish to npm
         # Detached-HEAD checkout fails pnpm's default git checks (branch,
         # clean tree) even though the CI checkout already guarantees both.
-        run: pnpm --filter @extport/cli publish --access public --no-git-checks
+        run: pnpm --filter @extport/wxt publish --access public --no-git-checks
