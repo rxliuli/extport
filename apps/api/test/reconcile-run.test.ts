@@ -211,7 +211,7 @@ describe('runReconciliation — fresh publish', () => {
     const { notifier, sent } = recordingNotifier()
 
     const summary = await runReconciliation(env, db, { tenantId }, notifier)
-    expect(summary).toEqual({ processed: 1, submitted: 1, blocked: 0, errors: 0 })
+    expect(summary).toEqual({ processed: 1, submitted: 1, blocked: 0, errors: 0, skipped: 0 })
 
     const rows = await versionsFor(db, extensionId)
     expect(rows).toMatchObject([{ version: '1.0.0', status: 'in_review' }])
@@ -237,7 +237,7 @@ describe('runReconciliation — already synced', () => {
     const { notifier, sent } = recordingNotifier()
 
     const summary = await runReconciliation(env, db, { tenantId }, notifier)
-    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 0 })
+    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 0, skipped: 0 })
     expect(await versionsFor(db, extensionId)).toMatchObject([{ version: '1.0.0', status: 'online' }])
     expect(calls.some((c) => c.url.endsWith(':upload') || c.url.endsWith(':publish'))).toBe(false)
     expect(await eventsFor(db, extensionId)).toHaveLength(0)
@@ -254,7 +254,7 @@ describe('runReconciliation — baseline discovery', () => {
     const { notifier, sent } = recordingNotifier()
 
     const summary = await runReconciliation(env, db, { tenantId }, notifier)
-    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 0 })
+    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 0, skipped: 0 })
     const rows = await versionsFor(db, extensionId)
     expect(rows).toMatchObject([{ version: '1.0.0', status: 'in_review' }])
     // Unknown when it was actually submitted — left null rather than guessed at "now".
@@ -293,7 +293,7 @@ describe('runReconciliation — waiting on the exact version already in review',
     const { notifier, sent } = recordingNotifier()
 
     const summary = await runReconciliation(env, db, { tenantId }, notifier)
-    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 0 })
+    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 0, skipped: 0 })
     expect(await versionsFor(db, extensionId)).toMatchObject([{ version: '1.1.0', status: 'in_review' }])
     expect(sent).toHaveLength(0)
   })
@@ -366,7 +366,7 @@ describe('runReconciliation — blocked (no auto-withdraw)', () => {
     const { notifier, sent } = recordingNotifier()
 
     const summary = await runReconciliation(env, db, { tenantId }, notifier)
-    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 1, errors: 0 })
+    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 1, errors: 0, skipped: 0 })
     expect(await versionsFor(db, extensionId)).toMatchObject([
       { version: '1.0.0', status: 'in_review' },
       { version: '1.1.0', status: 'queued' },
@@ -488,7 +488,7 @@ describe('runReconciliation — failure isolation', () => {
     globalThis.fetch = routedFetch(chromeRoutes()).fetch
 
     const summary = await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
-    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 1 })
+    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 1, skipped: 0 })
     const target = await targetFor(db, extensionId)
     expect(target.lastErrorDetail).toMatch(/missing from R2/)
   })
@@ -529,7 +529,7 @@ describe('runReconciliation — failure isolation', () => {
     // with it. packages/store-adapters/test/firefox.test.ts covers the
     // adapter side that actually uses it.
     const summary = await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
-    expect(summary).toEqual({ processed: 1, submitted: 1, blocked: 0, errors: 0 })
+    expect(summary).toEqual({ processed: 1, submitted: 1, blocked: 0, errors: 0, skipped: 0 })
   })
 
   it('reports a missing companion source object as an error without crashing the whole tick', async () => {
@@ -561,7 +561,7 @@ describe('runReconciliation — failure isolation', () => {
     globalThis.fetch = routedFetch(chromeRoutes()).fetch
 
     const summary = await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
-    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 1 })
+    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 1, skipped: 0 })
     const target = await targetFor(db, extensionId)
     expect(target.lastErrorDetail).toMatch(/source artifact object missing from R2/)
   })
@@ -858,7 +858,7 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
     // Nothing was ever written to R2 for this artifact — if reconcile tried
     // to fetch it anyway (ignoring the null r2Key), the object would come
     // back missing and this would surface as an error instead.
-    expect(summary).toEqual({ processed: 1, submitted: 1, blocked: 0, errors: 0 })
+    expect(summary).toEqual({ processed: 1, submitted: 1, blocked: 0, errors: 0, skipped: 0 })
   })
 
   it('one platform failing does not stop its sibling from submitting', async () => {
@@ -962,6 +962,81 @@ describe('queueLatestArtifact — platform-aware', () => {
     expect(await isVersionRegression(db, extensionId, 'safari', '0.0.2')).toBe(false) // newer for macos
     expect(await isVersionRegression(db, extensionId, 'safari', '0.0.1')).toBe(true) // newer for nothing
     expect(await isVersionRegression(db, extensionId, 'safari', '0.0.4')).toBe(false) // newer everywhere
+  })
+})
+
+describe('runReconciliation — concurrent-invocation locking', () => {
+  it('skips a target another invocation claimed moments ago, making zero store API calls', async () => {
+    const { db, tenantId, extensionId, targetId } = await setupChromeScenario({
+      artifacts: [{ version: '1.0.0' }],
+      versions: [{ version: '1.0.0', status: 'queued' }],
+    })
+    await db.update(publishTargets).set({ reconcilingSince: new Date().toISOString() }).where(eq(publishTargets.id, targetId))
+    const { fetch, calls } = routedFetch(chromeRoutes())
+    globalThis.fetch = fetch
+    const { notifier, sent } = recordingNotifier()
+
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
+    expect(summary).toEqual({ processed: 0, submitted: 0, blocked: 0, errors: 0, skipped: 1 })
+    expect(calls).toHaveLength(0)
+    expect(sent).toHaveLength(0)
+    // The row queued for submission is untouched — a later tick still has it to process.
+    const versions = await versionsFor(db, extensionId)
+    expect(versions[0]!.status).toBe('queued')
+  })
+
+  it('reclaims a stale lock (older than the staleness window) and processes normally', async () => {
+    const { db, tenantId, targetId } = await setupChromeScenario({
+      artifacts: [{ version: '1.0.0' }],
+      versions: [{ version: '1.0.0', status: 'queued' }],
+    })
+    const staleSince = new Date(Date.now() - 3 * 60 * 1000).toISOString() // older than RECONCILE_LOCK_STALE_MS (2 min)
+    await db.update(publishTargets).set({ reconcilingSince: staleSince }).where(eq(publishTargets.id, targetId))
+    globalThis.fetch = routedFetch(chromeRoutes()).fetch
+    const { notifier } = recordingNotifier()
+
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
+    expect(summary).toEqual({ processed: 1, submitted: 1, blocked: 0, errors: 0, skipped: 0 })
+  })
+
+  it('releases the lock after a successful tick, leaving the target claimable again', async () => {
+    const { db, tenantId, targetId } = await setupChromeScenario({
+      artifacts: [{ version: '1.0.0' }],
+      versions: [{ version: '1.0.0', status: 'queued' }],
+    })
+    globalThis.fetch = routedFetch(chromeRoutes()).fetch
+    const { notifier } = recordingNotifier()
+
+    await runReconciliation(env, db, { tenantId }, notifier)
+    const [row] = await db.select().from(publishTargets).where(eq(publishTargets.id, targetId))
+    expect(row!.reconcilingSince).toBeNull()
+  })
+
+  it('releases the lock even when the tick errors out', async () => {
+    const { db, tenantId, targetId } = await setupChromeScenario({
+      versions: [{ version: '1.0.0', status: 'queued' }], // queued with no matching artifact row — reconcileOne throws
+    })
+    globalThis.fetch = routedFetch(chromeRoutes()).fetch
+    const { notifier } = recordingNotifier()
+
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
+    expect(summary.errors).toBe(1)
+    const [row] = await db.select().from(publishTargets).where(eq(publishTargets.id, targetId))
+    expect(row!.reconcilingSince).toBeNull()
+  })
+
+  it('lets exactly one of two truly-concurrent invocations submit; the other skips', async () => {
+    const { db, tenantId } = await setupChromeScenario({
+      artifacts: [{ version: '1.0.0' }],
+      versions: [{ version: '1.0.0', status: 'queued' }],
+    })
+    globalThis.fetch = routedFetch(chromeRoutes()).fetch
+    const { notifier } = recordingNotifier()
+
+    const [a, b] = await Promise.all([runReconciliation(env, db, { tenantId }, notifier), runReconciliation(env, db, { tenantId }, notifier)])
+    expect(a.submitted + b.submitted).toBe(1)
+    expect(a.skipped + b.skipped).toBe(1)
+    expect(a.processed + b.processed).toBe(1)
   })
 })
 

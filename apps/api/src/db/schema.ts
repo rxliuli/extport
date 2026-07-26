@@ -166,6 +166,14 @@ export const publishTargets = sqliteTable(
     lastReconciledAt: text('last_reconciled_at'),
     lastErrorDetail: text('last_error_detail'),
     lastErrorAt: text('last_error_at'),
+    // Claimed by whichever reconcile invocation (cron, post-push, "reconcile
+    // now", post-add-target — see runReconciliation's doc comment) gets to
+    // this target first, so a second concurrent invocation doesn't also
+    // submit to the real store or double-send the error email. Cleared when
+    // that invocation finishes; treated as stale and reclaimable after
+    // RECONCILE_LOCK_STALE_MS if a Worker died mid-reconcile without
+    // clearing it.
+    reconcilingSince: text('reconciling_since'),
     ...timestamps,
   },
   (t) => [

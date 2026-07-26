@@ -1,6 +1,6 @@
 import { DEFAULT_STALE_REVIEW_DAYS, decryptJson, newId, type Store } from '@extport/shared'
 import { getAdapter } from '@extport/store-adapters'
-import { and, desc, eq, gt, inArray } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNull, lt, or } from 'drizzle-orm'
 import {
   artifacts,
   deploymentVersions,
@@ -31,6 +31,12 @@ const GROUP_CONCURRENCY = 5
 // Slightly under 24h so a little cron-tick drift can't create a skipped day.
 const STALE_REVIEW_DEDUPE_MS = 20 * 60 * 60 * 1000
 
+// A single target's reconcile should never take anywhere near this long —
+// generous enough to never pre-empt a real in-flight reconcile, short enough
+// that a lock left behind by a Worker that died mid-reconcile (timeout,
+// eviction) doesn't strand the target forever.
+const RECONCILE_LOCK_STALE_MS = 2 * 60 * 1000
+
 interface JoinedRow {
   target: PublishTarget
   extension: Extension
@@ -48,6 +54,9 @@ export interface ReconcileSummary {
   submitted: number
   blocked: number
   errors: number
+  // Another concurrent invocation already held this target's lock — not a
+  // failure, just evidence the four entry points overlapped this tick.
+  skipped: number
 }
 
 function truncate(text: string, max = 500): string {
@@ -380,10 +389,44 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
 }
 
 /**
+ * Claims exclusive access to one target for this tick. The four entry points
+ * below don't coordinate with each other at all, so without this, two
+ * concurrent invocations racing the same target both read a 'queued' row
+ * before either writes back and both submit to the real store, and both read
+ * lastErrorDetail: null before either writes back and both send an 'error'
+ * email. Whoever's UPDATE actually matches a row (still unclaimed, or
+ * claimed long enough ago to be stale) wins; the loser skips this target and
+ * leaves it for a later tick.
+ */
+async function claimTarget(db: Db, targetId: string): Promise<boolean> {
+  const now = new Date()
+  const staleBefore = new Date(now.getTime() - RECONCILE_LOCK_STALE_MS).toISOString()
+  const result = await db
+    .update(publishTargets)
+    .set({ reconcilingSince: now.toISOString() })
+    .where(and(eq(publishTargets.id, targetId), or(isNull(publishTargets.reconcilingSince), lt(publishTargets.reconcilingSince, staleBefore))))
+  return result.meta.changes > 0
+}
+
+async function releaseTarget(db: Db, targetId: string): Promise<void> {
+  await db.update(publishTargets).set({ reconcilingSince: null }).where(eq(publishTargets.id, targetId))
+}
+
+async function withTargetLock<T>(db: Db, targetId: string, fn: () => Promise<T>): Promise<T | 'skipped'> {
+  if (!(await claimTarget(db, targetId))) return 'skipped'
+  try {
+    return await fn()
+  } finally {
+    await releaseTarget(db, targetId)
+  }
+}
+
+/**
  * The reconciliation loop. Runs from a Cron Trigger every 30 minutes with no
  * filter, scoped to one extension right after a push or a store target being
  * added, or scoped to one tenant/extension from the dashboard's manual
- * "reconcile now" button.
+ * "reconcile now" button — see claimTarget for why those four don't step on
+ * each other.
  */
 export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilter = {}, notifier: Notifier = createEmailNotifier(env)): Promise<ReconcileSummary> {
   const conditions = [eq(publishTargets.enabled, true)]
@@ -398,7 +441,7 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
     .innerJoin(tenants, eq(extensions.tenantId, tenants.id))
     .where(and(...conditions))
 
-  const summary: ReconcileSummary = { processed: 0, submitted: 0, blocked: 0, errors: 0 }
+  const summary: ReconcileSummary = { processed: 0, submitted: 0, blocked: 0, errors: 0, skipped: 0 }
   if (rows.length === 0) return summary
 
   const extensionIds = [...new Set(rows.map((r) => r.extension.id))]
@@ -418,7 +461,13 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
 
     if (credential.status === 'invalid') {
       for (const row of group) {
-        await persistError(db, notifier, row, `store credential "${credential.label}" failed verification — reverify it in Settings`)
+        const outcome = await withTargetLock(db, row.target.id, () =>
+          persistError(db, notifier, row, `store credential "${credential.label}" failed verification — reverify it in Settings`),
+        )
+        if (outcome === 'skipped') {
+          summary.skipped++
+          continue
+        }
         summary.errors++
         summary.processed++
       }
@@ -431,7 +480,11 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
       credentials = await decryptJson(dek, credential.encryptedPayload)
     } catch (err) {
       for (const row of group) {
-        await persistError(db, notifier, row, `credential decryption failed: ${(err as Error).message}`)
+        const outcome = await withTargetLock(db, row.target.id, () => persistError(db, notifier, row, `credential decryption failed: ${(err as Error).message}`))
+        if (outcome === 'skipped') {
+          summary.skipped++
+          continue
+        }
         summary.errors++
         summary.processed++
       }
@@ -439,16 +492,23 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
     }
 
     for (const row of group) {
-      summary.processed++
-      try {
+      const outcome = await withTargetLock(db, row.target.id, async () => {
         const key = `${row.target.extensionId}:${row.target.store}`
-        const outcome = await reconcileOne(env, db, notifier, row, credentials, versionsByExtStore.get(key) ?? [])
-        if (outcome === 'submitted') summary.submitted++
-        if (outcome === 'blocked') summary.blocked++
-      } catch (err) {
-        await persistError(db, notifier, row, (err as Error).message)
-        summary.errors++
+        try {
+          return await reconcileOne(env, db, notifier, row, credentials, versionsByExtStore.get(key) ?? [])
+        } catch (err) {
+          await persistError(db, notifier, row, (err as Error).message)
+          return 'error' as const
+        }
+      })
+      if (outcome === 'skipped') {
+        summary.skipped++
+        continue
       }
+      summary.processed++
+      if (outcome === 'submitted') summary.submitted++
+      else if (outcome === 'blocked') summary.blocked++
+      else if (outcome === 'error') summary.errors++
     }
   })
 
