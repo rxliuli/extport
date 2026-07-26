@@ -300,7 +300,7 @@ describe('runReconciliation — waiting on the exact version already in review',
 })
 
 describe('runReconciliation — approval', () => {
-  it('flips the in-review row to online and notifies', async () => {
+  it('flips the in-review row to online without notifying — the store already emails the tenant', async () => {
     const { db, tenantId, extensionId } = await setupChromeScenario({
       versions: [{ version: '1.1.0', status: 'in_review', submittedAt: new Date().toISOString() }],
     })
@@ -312,10 +312,7 @@ describe('runReconciliation — approval', () => {
     await runReconciliation(env, db, { tenantId }, notifier)
     expect(await versionsFor(db, extensionId)).toMatchObject([{ version: '1.1.0', status: 'online' }])
     expect(await eventsFor(db, extensionId)).toHaveLength(0)
-
-    expect(sent).toHaveLength(1)
-    expect(sent[0]!.subject).toContain('v1.1.0 is live')
-    expect(sent[0]!.text).toContain('https://chromewebstore.google.com/detail/item-1')
+    expect(sent).toHaveLength(0)
   })
 })
 

@@ -92,13 +92,17 @@ const STORE_LABELS: Record<Store, string> = {
   safari: 'App Store',
 }
 
-type NotifyKind = 'submitted' | 'approved' | 'rejected' | 'error'
+type NotifyKind = 'submitted' | 'rejected' | 'error'
 
 /**
  * Maps a notification-worthy moment into an email. `error` and `stale_review`
- * are also persisted as publish_events; submitted/approved/rejected live only
- * as the deployment_versions row's status — the row itself is the record,
- * this is purely the side-effect of telling the tenant about it.
+ * are also persisted as publish_events; submitted/rejected live only as the
+ * deployment_versions row's status — the row itself is the record, this is
+ * purely the side-effect of telling the tenant about it.
+ *
+ * Going live has no case here on purpose: it's not actionable, and every
+ * store already emails the tenant directly when a review is approved —
+ * this would just be a second copy of news they already have.
  */
 function buildMessage(row: JoinedRow, kind: NotifyKind, payload: Record<string, unknown>, platform?: string): { subject: string; text: string } | null {
   const ext = row.extension.name
@@ -117,8 +121,6 @@ function buildMessage(row: JoinedRow, kind: NotifyKind, payload: Record<string, 
         subject: `⚠️ ${ext} publishing error on ${store}`,
         text: `${ext} hit an error while reconciling ${store}:\n\n${payload.message ?? 'unknown error'}\n\nStore page: ${link}`,
       }
-    case 'approved':
-      return { subject: `✅ ${ext} v${payload.version} is live on ${store}`, text: `${ext} v${payload.version} is now live on ${store}.\n\nStore page: ${link}` }
     case 'submitted':
       return {
         subject: `${ext} v${payload.version} submitted to ${store}`,
@@ -237,7 +239,6 @@ async function reconcileLifecycle(
     if (!alreadyRecordedOnline) {
       if (inReview && inReview.version === liveVersion) {
         await db.update(deploymentVersions).set({ status: 'online', statusDetail: null }).where(eq(deploymentVersions.id, inReview.id))
-        await notify(notifier, row, 'approved', { version: inReview.version }, platform)
         inReview = null
       } else {
         // First-ever baseline (target just added, nothing pushed through extport
