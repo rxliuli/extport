@@ -92,6 +92,13 @@
       "when": 1785125584376,
       "tag": "0012_target_platforms",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1785144000000,
+      "tag": "0013_rename_json_columns",
+      "breakpoints": true
     }
   ]
 }

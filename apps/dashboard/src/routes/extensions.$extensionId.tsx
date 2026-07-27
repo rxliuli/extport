@@ -301,7 +301,7 @@ const OPS_EVENT: Record<PublishEvent['type'], { className: string; label: string
 }
 
 function opsEventDetail(event: PublishEvent): string | null {
-  const payload = JSON.parse(event.payloadJson) as Record<string, unknown>
+  const { payload } = event
   if (event.type === 'error') return typeof payload.message === 'string' ? payload.message : null
   if (event.type === 'stale_review') return `in review for ${payload.ageDays}+ days`
   return null

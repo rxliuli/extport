@@ -4,7 +4,6 @@ import { Hono } from 'hono'
 import { describeRoute, resolver, validator } from 'hono-openapi'
 import * as v from 'valibot'
 import { tenants } from '../db'
-import { parseTenantSettings } from '../lib/tenant-settings'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireSession, type AppEnv } from '../middleware/auth'
 
@@ -23,7 +22,7 @@ route.get(
     responses: { 200: { description: 'OK', content: { 'application/json': { schema: resolver(settingsResponseSchema) } } } },
   }),
   (c) => {
-    const settings = parseTenantSettings(c.get('tenant').settingsJson)
+    const settings = c.get('tenant').settings
     return c.json({
       staleReviewDays: { ...DEFAULT_STALE_REVIEW_DAYS, ...settings.staleReviewDays },
     })
@@ -56,13 +55,13 @@ route.patch(
     const tenant = c.get('tenant')
     const body = c.req.valid('json')
 
-    const current = parseTenantSettings(tenant.settingsJson)
+    const current = tenant.settings
     const next: TenantSettings = { ...current }
     if (body.staleReviewDays !== undefined) {
       next.staleReviewDays = { ...current.staleReviewDays, ...body.staleReviewDays }
     }
 
-    await db.update(tenants).set({ settingsJson: JSON.stringify(next) }).where(eq(tenants.id, tenant.id))
+    await db.update(tenants).set({ settings: next }).where(eq(tenants.id, tenant.id))
     return c.json({
       staleReviewDays: { ...DEFAULT_STALE_REVIEW_DAYS, ...next.staleReviewDays },
     })

@@ -338,7 +338,7 @@ describe('GET /v1/extensions/:id/timeline', () => {
       { id: newId('deploymentVersion'), tenantId, extensionId: extension.id, store: 'chrome', version: '1.1.0', status: 'in_review' },
     ])
     await db.insert(publishEvents).values([
-      { id: newId('publishEvent'), tenantId, extensionId: extension.id, store: 'chrome', type: 'stale_review', payloadJson: '{}' },
+      { id: newId('publishEvent'), tenantId, extensionId: extension.id, store: 'chrome', type: 'stale_review', payload: {} },
     ])
 
     const res = await request(`/api/v1/extensions/${extension.id}/timeline`, { headers: { cookie: sessionCookie } })

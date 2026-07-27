@@ -42,7 +42,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
   pro: { maxExtensions: null },
 }
 
-/** Tenant-level settings stored in tenants.settings_json. */
+/** Tenant-level settings stored in tenants.settings. */
 export interface TenantSettings {
   staleReviewDays?: Partial<Record<Store, number>>
 }

@@ -19,7 +19,6 @@ import type { Db } from '../db'
 import { tenantDek } from '../lib/kms'
 import { createEmailNotifier, type Notifier } from '../lib/notify'
 import { storeConsoleUrl } from '../lib/store-links'
-import { parseTenantSettings } from '../lib/tenant-settings'
 import { decide } from './decide'
 
 // One reconcile tick processes at most this many (tenant, store) credential
@@ -158,14 +157,13 @@ async function persistError(db: Db, notifier: Notifier, row: JoinedRow, message:
     extensionId: row.extension.id,
     store: row.target.store,
     type: 'error',
-    payloadJson: JSON.stringify({ message: detail }),
+    payload: { message: detail },
   })
   await notify(notifier, row, 'error', { message: detail })
 }
 
 function staleReviewThresholdDays(tenant: Tenant, store: Store): number {
-  const settings = parseTenantSettings(tenant.settingsJson)
-  return settings.staleReviewDays?.[store] ?? DEFAULT_STALE_REVIEW_DAYS[store]
+  return tenant.settings.staleReviewDays?.[store] ?? DEFAULT_STALE_REVIEW_DAYS[store]
 }
 
 async function maybeEmitStaleReview(db: Db, notifier: Notifier, row: JoinedRow, inReview: DeploymentVersion | null): Promise<void> {
@@ -195,7 +193,7 @@ async function maybeEmitStaleReview(db: Db, notifier: Notifier, row: JoinedRow, 
     extensionId: row.extension.id,
     store: row.target.store,
     type: 'stale_review',
-    payloadJson: JSON.stringify({ version: inReview.version, ageDays }),
+    payload: { version: inReview.version, ageDays },
   })
   const link = storeConsoleUrl(row.target.store, row.target.storeItemId, { crxId: row.target.crxId ?? undefined, platform: inReview.platform ?? undefined })
   await notifier.send({
@@ -390,7 +388,7 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
       extensionId: row.extension.id,
       store: target.store,
       type: 'recovered',
-      payloadJson: '{}',
+      payload: {},
     })
     target.lastErrorDetail = null
   }

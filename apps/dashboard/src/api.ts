@@ -89,7 +89,7 @@ export interface PublishEvent {
   id: string
   store: Store
   type: 'error' | 'recovered' | 'stale_review'
-  payloadJson: string
+  payload: Record<string, unknown>
   /** ISO date string (Date -> JSON) */
   createdAt: string
 }

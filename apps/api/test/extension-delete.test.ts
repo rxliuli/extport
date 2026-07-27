@@ -45,7 +45,7 @@ describe('DELETE /v1/extensions/:id', () => {
       extensionId: extension.id,
       store: 'chrome',
       type: 'error',
-      payloadJson: '{}',
+      payload: {},
     })
     const credentialId = newId('storeCredential')
     await db.insert(storeCredentials).values({

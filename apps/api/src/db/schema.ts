@@ -1,3 +1,4 @@
+import type { TenantSettings } from '@extport/shared'
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 // No SQL-level FOREIGN KEY constraints anywhere in this schema — every
@@ -30,7 +31,7 @@ export const tenants = sqliteTable('tenants', {
   // backfilled every pre-existing tenant to 'active' so this only gates
   // signups from that point forward.
   status: text('status', { enum: ['pending', 'active'] }).notNull().$defaultFn(() => 'pending'),
-  settingsJson: text('settings_json').notNull().$defaultFn(() => '{}'),
+  settings: text('settings', { mode: 'json' }).$type<TenantSettings>().notNull().$defaultFn(() => ({})),
   // Envelope encryption: per-tenant DEK, wrapped by the versioned master KEK.
   dekEncrypted: text('dek_encrypted').notNull(),
   dekKeyVersion: integer('dek_key_version').notNull().$defaultFn(() => 1),
@@ -279,7 +280,7 @@ export const publishEvents = sqliteTable(
     extensionId: text('extension_id').notNull(),
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
     type: text('type', { enum: ['error', 'recovered', 'stale_review'] }).notNull(),
-    payloadJson: text('payload_json').notNull().$defaultFn(() => '{}'),
+    payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>().notNull().$defaultFn(() => ({})),
     createdAt: text('created_at').notNull().$defaultFn(now),
   },
   (t) => [
@@ -360,7 +361,7 @@ export const licenseEvents = sqliteTable(
     type: text('type', {
       enum: ['issued', 'activated', 'reset', 'locked', 'heartbeat_expired'],
     }).notNull(),
-    payloadJson: text('payload_json').notNull().$defaultFn(() => '{}'),
+    payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>().notNull().$defaultFn(() => ({})),
     createdAt: text('created_at').notNull().$defaultFn(now),
   },
   (t) => [index('license_events_license_idx').on(t.licenseId, t.createdAt)],

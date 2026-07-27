@@ -1,4 +1,4 @@
-import { encryptJson, newId, type Store } from '@extport/shared'
+import { encryptJson, newId, type Store, type TenantSettings } from '@extport/shared'
 import { env } from 'cloudflare:test'
 import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -50,7 +50,7 @@ eDua9gBpI8Th2Yzba8rvkv2e
 -----END PRIVATE KEY-----`
 
 interface ScenarioOptions {
-  settingsJson?: string
+  settings?: TenantSettings
   credentialStatus?: 'active' | 'invalid'
   artifacts?: { version: string; store?: Store | null }[]
   versions?: { version: string; status: DeploymentVersion['status']; submittedAt?: string }[]
@@ -66,7 +66,7 @@ async function setupChromeScenario(opts: ScenarioOptions = {}) {
     email: 't@test.com',
     dekEncrypted: dekInfo.dekEncrypted,
     dekKeyVersion: dekInfo.dekKeyVersion,
-    settingsJson: opts.settingsJson ?? '{}',
+    settings: opts.settings ?? {},
   })
 
   const extensionId = newId('extension')
