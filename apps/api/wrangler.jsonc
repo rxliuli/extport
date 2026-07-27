@@ -21,7 +21,14 @@
   // dash.* on purpose — the apex stays reserved for a future marketing site.
   // Requires the extport.dev zone to exist on this Cloudflare account before
   // the first deploy.
-  "routes": [{ "pattern": "dash.extport.dev", "custom_domain": true }],
+  // api.* is the public licensing surface (@extport/sdk's default apiBase).
+  // Same Worker — a separate hostname only because that default gets baked
+  // into installed extension binaries, and a UI hostname must never be the
+  // least-changeable contract in the system. See docs/licensing.md.
+  "routes": [
+    { "pattern": "dash.extport.dev", "custom_domain": true },
+    { "pattern": "api.extport.dev", "custom_domain": true }
+  ],
   "d1_databases": [
     {
       "binding": "DB",

@@ -18,7 +18,6 @@ export const ID_PREFIXES = {
   license: 'lic',
   activation: 'act',
   licenseEvent: 'lev',
-  signingKey: 'sig',
 } as const
 
 export type IdKind = keyof typeof ID_PREFIXES

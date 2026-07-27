@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { describeRoute, resolver, validator } from 'hono-openapi'
 import * as v from 'valibot'
-import { artifacts, deploymentVersions, extensions, products, publishEvents, publishTargets, storeCredentials, type Db } from '../db'
+import { artifacts, deploymentVersions, extensions, licenses, products, publishEvents, publishTargets, storeCredentials, type Db } from '../db'
 import { tenantDek } from '../lib/kms'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
@@ -199,12 +199,23 @@ route.patch(
 
 route.delete(
   '/:id',
-  describeRoute({ summary: 'Delete an extension', description: 'Also deletes its artifacts, targets, versions, and events.', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } } }),
+  describeRoute({ summary: 'Delete an extension', description: 'Also deletes its artifacts, targets, versions, and events. Blocked while issued licenses exist.', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' }, 409: { description: 'Issued licenses exist' } } }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
     const extension = await ownedExtension(db, tenant.id, c.req.param('id'))
     if (!extension) return c.json({ error: 'not found' }, 404)
+
+    // Issued licenses are buyers' property — deleting the extension out from
+    // under them would silently kill every activated device. Hard-block.
+    const [licenseRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(licenses)
+      .innerJoin(products, eq(licenses.productId, products.id))
+      .where(eq(products.extensionId, extension.id))
+    if ((licenseRow?.count ?? 0) > 0) {
+      return c.json({ error: 'licenses have been issued for this extension; it cannot be deleted' }, 409)
+    }
 
     // No DB-level cascade (D1 doesn't enforce FKs) — clean up dependents ourselves,
     // R2 objects first since an orphaned artifact row can be re-derived from nothing.
@@ -221,7 +232,7 @@ route.delete(
     await db.delete(deploymentVersions).where(eq(deploymentVersions.extensionId, extension.id))
     await db.delete(artifacts).where(eq(artifacts.extensionId, extension.id))
     await db.delete(publishTargets).where(eq(publishTargets.extensionId, extension.id))
-    await db.delete(products).where(eq(products.extensionId, extension.id)) // Phase 2, always empty today
+    await db.delete(products).where(eq(products.extensionId, extension.id)) // license-less by the guard above
     await db.delete(extensions).where(eq(extensions.id, extension.id))
 
     return c.json({ ok: true })

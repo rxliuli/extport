@@ -297,15 +297,21 @@ export const products = sqliteTable(
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull(),
     extensionId: text('extension_id').notNull(),
+    // App-level name shared across tiers of the same extension — this is what
+    // the SDK sends as `productName` (a cross-check, not a lookup key).
     name: text('name').notNull(),
+    // 'basic' / 'pro' / ... — 'free' is reserved for the SDK's unpaid tier.
+    tier: text('tier').notNull(),
     entitlementType: text('entitlement_type', {
       enum: ['perpetual', 'balance', 'recurring'],
     }).notNull().$defaultFn(() => 'perpetual'),
     maxActivations: integer('max_activations').notNull().$defaultFn(() => 3),
-    stripeMetadataKey: text('stripe_metadata_key'),
     ...timestamps,
   },
-  (t) => [index('products_tenant_idx').on(t.tenantId)],
+  (t) => [
+    index('products_tenant_idx').on(t.tenantId),
+    uniqueIndex('products_ext_tier_idx').on(t.extensionId, t.tier),
+  ],
 )
 
 export const licenses = sqliteTable(
@@ -319,7 +325,9 @@ export const licenses = sqliteTable(
     entitlementType: text('entitlement_type', {
       enum: ['perpetual', 'balance', 'recurring'],
     }).notNull().$defaultFn(() => 'perpetual'),
-    balance: integer('balance'),
+    // Snapshot at issuance — later product edits must not retroactively
+    // change already-sold licenses.
+    maxActivations: integer('max_activations').notNull(),
     status: text('status', { enum: ['active', 'locked', 'refunded'] }).notNull().$defaultFn(() => 'active'),
     source: text('source', { enum: ['stripe_webhook', 'manual', 'imported'] }).notNull(),
     sourceRef: text('source_ref'),
@@ -329,6 +337,9 @@ export const licenses = sqliteTable(
     uniqueIndex('licenses_key_idx').on(t.key),
     index('licenses_tenant_idx').on(t.tenantId),
     index('licenses_buyer_idx').on(t.tenantId, t.buyerEmail),
+    // Webhook idempotency + refund lookup. SQLite unique indexes admit any
+    // number of NULLs, so manual licenses (no sourceRef) are unaffected.
+    uniqueIndex('licenses_source_ref_idx').on(t.sourceRef),
   ],
 )
 
@@ -341,13 +352,16 @@ export const activations = sqliteTable(
     deviceFingerprint: text('device_fingerprint').notNull(),
     lastHeartbeatAt: text('last_heartbeat_at'),
     activatedAt: text('activated_at').notNull().$defaultFn(now),
+    // A seat is an activation with releasedAt IS NULL. Re-activation of a
+    // known fingerprint reuses the row (clearing releasedAt) rather than
+    // inserting a duplicate.
     releasedAt: text('released_at'),
     ipHint: text('ip_hint'),
     uaHint: text('ua_hint'),
     ...timestamps,
   },
   (t) => [
-    index('activations_license_idx').on(t.licenseId),
+    uniqueIndex('activations_license_device_idx').on(t.licenseId, t.deviceFingerprint),
     index('activations_tenant_idx').on(t.tenantId),
   ],
 )
@@ -358,27 +372,14 @@ export const licenseEvents = sqliteTable(
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull(),
     licenseId: text('license_id').notNull(),
+    // Heartbeats are deliberately not events.
     type: text('type', {
-      enum: ['issued', 'activated', 'reset', 'locked', 'heartbeat_expired'],
+      enum: ['issued', 'activated', 'seat_released', 'revoked', 'reset'],
     }).notNull(),
     payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>().notNull().$defaultFn(() => ({})),
     createdAt: text('created_at').notNull().$defaultFn(now),
   },
   (t) => [index('license_events_license_idx').on(t.licenseId, t.createdAt)],
-)
-
-export const tenantSigningKeys = sqliteTable(
-  'tenant_signing_keys',
-  {
-    id: text('id').primaryKey(),
-    tenantId: text('tenant_id').notNull(),
-    privateKeyEncrypted: text('private_key_encrypted').notNull(),
-    publicKey: text('public_key').notNull(),
-    keyVersion: integer('key_version').notNull().$defaultFn(() => 1),
-    status: text('status', { enum: ['active', 'retired'] }).notNull().$defaultFn(() => 'active'),
-    ...timestamps,
-  },
-  (t) => [index('tenant_signing_keys_tenant_idx').on(t.tenantId)],
 )
 
 export type Tenant = typeof tenants.$inferSelect
@@ -391,3 +392,7 @@ export type PublishTarget = typeof publishTargets.$inferSelect
 export type Artifact = typeof artifacts.$inferSelect
 export type DeploymentVersion = typeof deploymentVersions.$inferSelect
 export type PublishEvent = typeof publishEvents.$inferSelect
+export type Product = typeof products.$inferSelect
+export type License = typeof licenses.$inferSelect
+export type Activation = typeof activations.$inferSelect
+export type LicenseEvent = typeof licenseEvents.$inferSelect
