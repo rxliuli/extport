@@ -138,7 +138,7 @@ describe('archiveArgs / exportArgs / authArgs / exportOptionsPlist', () => {
 
   it('the export options plist requests automatic signing and an upload destination', () => {
     const plist = exportOptionsPlist('TEAM1')
-    expect(plist).toContain('<string>app-store</string>')
+    expect(plist).toContain('<string>app-store-connect</string>')
     expect(plist).toContain('<string>TEAM1</string>')
     expect(plist).toContain('<string>automatic</string>')
     expect(plist).toContain('<string>upload</string>')

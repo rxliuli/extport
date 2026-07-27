@@ -99,7 +99,7 @@ export function exportOptionsPlist(teamId: string): string {
 <plist version="1.0">
 <dict>
 	<key>method</key>
-	<string>app-store</string>
+	<string>app-store-connect</string>
 	<key>teamID</key>
 	<string>${teamId}</string>
 	<key>signingStyle</key>
