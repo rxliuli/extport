@@ -51,6 +51,16 @@ function addTarget(extensionId: string, sessionCookie: string, body: unknown): P
 
 const EDGE_FIELDS = { clientId: 'cid', apiKey: 'edge-key-1234' }
 
+// ES256 test key for the safari adapter's real JWT signing (verifyCredentials
+// signs a JWT before it ever reaches the stubbed fetch).
+async function makeP8(): Promise<string> {
+  const pair = (await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign'])) as CryptoKeyPair
+  const pkcs8 = new Uint8Array((await crypto.subtle.exportKey('pkcs8', pair.privateKey)) as ArrayBuffer)
+  let binary = ''
+  for (const b of pkcs8) binary += String.fromCharCode(b)
+  return `-----BEGIN PRIVATE KEY-----\n${btoa(binary)}\n-----END PRIVATE KEY-----`
+}
+
 // Static test-only RSA key (openssl genpkey) — see credentials.test.ts for provenance.
 describe('publish targets', () => {
   it('creates, lists, updates, and deletes a target scoped to the extension', async () => {
@@ -201,6 +211,90 @@ describe('publish targets', () => {
       .from(deploymentVersions)
       .where(and(eq(deploymentVersions.extensionId, extension.id), eq(deploymentVersions.store, 'firefox')))
     expect(rows).toMatchObject([{ version: '3.0.0', status: 'online' }])
+  })
+})
+
+describe('publish target platforms (Safari macOS/iOS narrowing)', () => {
+  it('accepts a narrower platforms list and exposes it on list', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const credential = await createCredential(sessionCookie, 'safari', { keyId: 'K1', issuerId: 'iss-1', privateKeyP8: await makeP8() })
+
+    const createRes = await addTarget(extension.id, sessionCookie, {
+      store: 'safari',
+      storeItemId: 'app-1',
+      platforms: ['macos'],
+      credentialId: credential.id,
+    })
+    expect(createRes.status).toBe(201)
+
+    const listRes = await request(`/api/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
+    const list = (await listRes.json()) as { targets: Array<{ platforms: string[] | null }> }
+    expect(list.targets[0]!.platforms).toEqual(['macos'])
+  })
+
+  it('defaults to null (every adapter platform) when omitted', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const credential = await createCredential(sessionCookie, 'safari', { keyId: 'K1', issuerId: 'iss-1', privateKeyP8: await makeP8() })
+
+    await addTarget(extension.id, sessionCookie, { store: 'safari', storeItemId: 'app-1', credentialId: credential.id })
+
+    const listRes = await request(`/api/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
+    const list = (await listRes.json()) as { targets: Array<{ platforms: string[] | null }> }
+    expect(list.targets[0]!.platforms).toBeNull()
+  })
+
+  it('rejects a platform the adapter does not declare', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const credential = await createCredential(sessionCookie, 'safari', { keyId: 'K1', issuerId: 'iss-1', privateKeyP8: await makeP8() })
+
+    const res = await addTarget(extension.id, sessionCookie, {
+      store: 'safari',
+      storeItemId: 'app-1',
+      platforms: ['android'],
+      credentialId: credential.id,
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects platforms for a store that does not support per-platform configuration', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const credential = await createCredential(sessionCookie, 'edge', EDGE_FIELDS)
+
+    const res = await addTarget(extension.id, sessionCookie, {
+      store: 'edge',
+      storeItemId: 'x',
+      platforms: ['macos'],
+      credentialId: credential.id,
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('updates platforms via PATCH, and clears it back to the default with null', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const credential = await createCredential(sessionCookie, 'safari', { keyId: 'K1', issuerId: 'iss-1', privateKeyP8: await makeP8() })
+    const createRes = await addTarget(extension.id, sessionCookie, { store: 'safari', storeItemId: 'app-1', credentialId: credential.id })
+    const { target } = (await createRes.json()) as { target: { id: string } }
+
+    const patchRes = await request(`/api/v1/extensions/${extension.id}/targets/${target.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ platforms: ['macos'] }),
+    })
+    expect(patchRes.status).toBe(200)
+    expect(((await patchRes.json()) as { target: { platforms: string[] | null } }).target.platforms).toEqual(['macos'])
+
+    const clearRes = await request(`/api/v1/extensions/${extension.id}/targets/${target.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ platforms: null }),
+    })
+    expect(clearRes.status).toBe(200)
+    expect(((await clearRes.json()) as { target: { platforms: string[] | null } }).target.platforms).toBeNull()
   })
 })
 

@@ -580,7 +580,7 @@ interface SafariVersionSeed {
   submittedAt?: string
 }
 
-async function setupSafariScenario(opts: { artifacts?: { version: string }[]; versions?: SafariVersionSeed[] } = {}) {
+async function setupSafariScenario(opts: { artifacts?: { version: string }[]; versions?: SafariVersionSeed[]; platforms?: string[] } = {}) {
   const db = createDb(env.DB)
   const tenantId = newId('tenant')
   const dekInfo = await provisionTenantDek(env)
@@ -616,6 +616,7 @@ async function setupSafariScenario(opts: { artifacts?: { version: string }[]; ve
     extensionId,
     store: 'safari',
     storeItemId: 'app-1',
+    platforms: opts.platforms ?? null,
     credentialId,
   })
   const artifactIdByVersion = new Map<string, string>()
@@ -789,6 +790,26 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
     expect(rows.filter((v) => v.platform === 'ios')).toHaveLength(0)
     expect(sent).toHaveLength(1)
     expect(sent[0]!.subject).toContain('v0.0.2')
+  })
+
+  it('never polls a platform the target declared it does not have', async () => {
+    // A target with platforms: ['macos'] (e.g. a macOS-only Safari app) must
+    // not poll appStoreVersions for iOS at all — providing no IOS route means
+    // routedFetch throws "no stub route" if reconcile tries anyway.
+    const { db, tenantId, extensionId } = await setupSafariScenario({
+      platforms: ['macos'],
+      versions: [{ version: '0.0.1', status: 'online', platform: 'macos' }],
+    })
+    globalThis.fetch = routedFetch([
+      {
+        test: (u) => u.includes('appVersionState') && u.includes('=MAC_OS'),
+        respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
+      },
+    ]).fetch
+
+    const summary = await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
+    expect(summary).toMatchObject({ submitted: 0, errors: 0 })
+    expect((await versionsFor(db, extensionId)).filter((v) => v.platform === 'ios')).toHaveLength(0)
   })
 
   it('submits with no real artifact at all — safari pins a version with r2Key/sha256 empty, and reconcile never touches R2 for it', async () => {

@@ -1,5 +1,5 @@
 import { DEFAULT_STALE_REVIEW_DAYS, decryptJson, newId, type Store } from '@extport/shared'
-import { getAdapter } from '@extport/store-adapters'
+import { getAdapter, type StoreAdapter } from '@extport/store-adapters'
 import { and, desc, eq, gt, inArray, isNull, lt, or } from 'drizzle-orm'
 import {
   artifacts,
@@ -338,6 +338,17 @@ async function reconcileLifecycle(
 }
 
 /**
+ * Which platforms to run a lifecycle for — the target's own narrower list
+ * (e.g. a macOS-only Safari app) if it declared one, else every platform the
+ * adapter supports. Single derivation point so reconcile and the targets
+ * list endpoint can't disagree about what a target actually covers.
+ */
+export function resolveTargetPlatforms(target: Pick<PublishTarget, 'platforms'>, adapter: Pick<StoreAdapter, 'platforms'>): (string | undefined)[] {
+  if (target.platforms) return target.platforms
+  return adapter.platforms ? [...adapter.platforms] : [undefined]
+}
+
+/**
  * One (extension, store) target through a full reconcile tick — one
  * lifecycle per adapter-declared platform (or a single unnamed one), each
  * isolated so one platform's failure can't stall its siblings. Rethrows the
@@ -347,7 +358,7 @@ async function reconcileLifecycle(
 async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow, credentials: unknown, versionRows: DeploymentVersion[]): Promise<'noop' | 'submitted' | 'blocked'> {
   const { target } = row
   const adapter = getAdapter(target.store)
-  const platforms: (string | undefined)[] = adapter.platforms ? [...adapter.platforms] : [undefined]
+  const platforms = resolveTargetPlatforms(target, adapter)
 
   let submitted = false
   let blocked = false

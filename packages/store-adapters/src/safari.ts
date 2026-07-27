@@ -1,6 +1,6 @@
 import type { SafariCredentials, CredentialCheck, StoreAdapter, StoreState, StoreTarget, SubmissionResult } from './types'
 import { signJwtES256 } from './jwt'
-import { truncate, type FetchLike } from './util'
+import { DEFAULT_RETRY, fetchWithRetry, truncate, type FetchLike, type RetryOptions } from './util'
 
 const API_BASE = 'https://api.appstoreconnect.apple.com'
 
@@ -289,7 +289,13 @@ async function withdraw(credentials: SafariCredentials, appId: string, platform:
  * (find build → version → attach → submit), waiting until the build shows
  * up. See docs/safari-pipeline.md (spec §8).
  */
-export function createSafariAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o)): StoreAdapter<SafariCredentials> {
+export function createSafariAdapter(rawFetchImpl: FetchLike = (i, o) => fetch(i, o), retry: RetryOptions = DEFAULT_RETRY): StoreAdapter<SafariCredentials> {
+  // One reconcile tick fires this adapter's getState sequentially for every
+  // Safari target sharing a credential, times every platform each declares —
+  // a burst against the same ASC endpoint with the same JWT. Retry transient
+  // 5xx here so that burst doesn't turn one Apple-side blip into an error
+  // email per target.
+  const fetchImpl = fetchWithRetry(rawFetchImpl, retry)
   return {
     store: 'safari',
     platforms: SAFARI_PLATFORMS,

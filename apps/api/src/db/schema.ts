@@ -159,6 +159,13 @@ export const publishTargets = sqliteTable(
     // is keyed by the store-facing crx id instead — two different Microsoft
     // ID namespaces for the same listing. Unused by every other store.
     crxId: text('crx_id'),
+    // Safari only: the platforms this target's App Store Connect app
+    // actually has (e.g. ['macos'] for a macOS-only app). Null = every
+    // platform the adapter declares (StoreAdapter.platforms) — the
+    // historical default, still correct for every universal Safari app.
+    // Set explicitly so reconcile stops polling appStoreVersions for a
+    // platform that will never have one; see docs/safari-pipeline.md.
+    platforms: text('platforms', { mode: 'json' }).$type<string[]>(),
     credentialId: text('credential_id').notNull(),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().$defaultFn(() => true),
     // Operational health, not business state — never touches a specific

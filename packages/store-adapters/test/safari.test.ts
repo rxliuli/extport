@@ -3,6 +3,7 @@ import { createSafariAdapter } from '../src/safari'
 import { queueFetch, unreachableFetch } from './fetch-stub'
 
 const APP_ID = 'app-123'
+const FAST_RETRY = { attempts: 3, baseDelayMs: 1 }
 
 async function makeP8(): Promise<string> {
   const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign'])
@@ -57,9 +58,26 @@ describe('safari adapter — getState', () => {
     expect(state).toEqual({ live: { known: true }, inReview: { known: true }, reviewStatus: undefined, rejectionReason: undefined })
   })
 
-  it('throws on a lookup failure', async () => {
-    const { fetch } = queueFetch([{ status: 500, body: 'oops' }])
-    await expect(createSafariAdapter(fetch).getState(await creds(), { storeItemId: APP_ID })).rejects.toThrow(/versions lookup failed/)
+  it('throws on a lookup failure that outlasts the retry budget', async () => {
+    const { fetch, calls } = queueFetch([{ status: 500, body: 'oops' }])
+    await expect(createSafariAdapter(fetch, FAST_RETRY).getState(await creds(), { storeItemId: APP_ID })).rejects.toThrow(/versions lookup failed/)
+    expect(calls).toHaveLength(FAST_RETRY.attempts)
+  })
+
+  it('retries a transient 5xx and succeeds once the store recovers', async () => {
+    const { fetch, calls } = queueFetch([
+      { status: 500, body: 'oops' },
+      { status: 200, body: { data: [version('1.0.0', 'READY_FOR_DISTRIBUTION')] } },
+    ])
+    const state = await createSafariAdapter(fetch, FAST_RETRY).getState(await creds(), { storeItemId: APP_ID })
+    expect(state.live).toEqual({ known: true, version: '1.0.0' })
+    expect(calls).toHaveLength(2)
+  })
+
+  it('never retries a 4xx', async () => {
+    const { fetch, calls } = queueFetch([{ status: 404, body: 'not found' }])
+    await expect(createSafariAdapter(fetch, FAST_RETRY).getState(await creds(), { storeItemId: APP_ID })).rejects.toThrow(/versions lookup failed/)
+    expect(calls).toHaveLength(1)
   })
 
   it('does not report a PREPARE_FOR_SUBMISSION draft as in review — it is an editable draft, not a genuine Apple review', async () => {

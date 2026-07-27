@@ -9,7 +9,7 @@ import { tenantDek } from '../lib/kms'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
 import { queueLatestArtifact } from '../reconcile/queue'
-import { runReconciliation } from '../reconcile/run'
+import { resolveTargetPlatforms, runReconciliation } from '../reconcile/run'
 import { deriveTargetLifecycles } from '../reconcile/status'
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/
@@ -306,6 +306,7 @@ route.get(
         store: r.target.store,
         storeItemId: r.target.storeItemId,
         crxId: r.target.crxId,
+        platforms: r.target.platforms,
         enabled: r.target.enabled,
         credentialId: r.credential.id,
         credentialLabel: r.credential.label,
@@ -321,6 +322,10 @@ const addTargetBodySchema = v.object({
   storeItemId: v.pipe(v.string('storeItemId is required'), v.trim(), v.minLength(1, 'storeItemId is required')),
   // Edge only — see StoreTarget in @extport/store-adapters for why.
   crxId: v.optional(v.pipe(v.string(), v.trim())),
+  // Safari only — narrows which of the adapter's platforms this target
+  // actually has (e.g. ['macos'] for a macOS-only app). Omitted = every
+  // platform the adapter declares; see publish_targets.platforms.
+  platforms: v.optional(v.array(v.pipe(v.string(), v.trim(), v.minLength(1)))),
   credentialId: v.pipe(v.string('credentialId is required'), v.minLength(1, 'credentialId is required')),
 })
 
@@ -358,6 +363,15 @@ route.post(
       .where(and(eq(publishTargets.extensionId, extension.id), eq(publishTargets.store, store)))
     if (existing.length > 0) return c.json({ error: `${store} is already configured for this extension` }, 409)
 
+    const adapter = getAdapter(store)
+    const platformsInput = body.platforms
+    if (platformsInput) {
+      if (!adapter.platforms) return c.json({ error: `${store} does not support per-platform configuration` }, 400)
+      if (platformsInput.length === 0) return c.json({ error: 'platforms cannot be empty' }, 400)
+      const invalid = platformsInput.filter((p) => !adapter.platforms!.includes(p))
+      if (invalid.length > 0) return c.json({ error: `invalid platform(s) for ${store}: ${invalid.join(', ')}` }, 400)
+    }
+
     // Verify storeItemId is real (and this credential can actually see it)
     // before creating anything — the same "check against the live store before
     // persisting" contract POST /v1/credentials already applies to the
@@ -366,8 +380,7 @@ route.post(
     // Multi-platform stores (Safari) are queried once per platform — this is
     // also how platforms become "known" lifecycles: only platforms the store
     // actually reports something for get rows.
-    const adapter = getAdapter(store)
-    const platforms: (string | undefined)[] = adapter.platforms ? [...adapter.platforms] : [undefined]
+    const platforms = resolveTargetPlatforms({ platforms: platformsInput ?? null }, adapter)
     const observed: { platform: string | undefined; live?: string; inReview?: string }[] = []
     try {
       const dek = await tenantDek(c.env, tenant)
@@ -393,6 +406,7 @@ route.post(
       store,
       storeItemId,
       crxId,
+      platforms: platformsInput ?? null,
       credentialId: credential.id,
       lastReconciledAt: new Date().toISOString(),
     })
@@ -451,6 +465,9 @@ const patchTargetBodySchema = v.object({
   crxId: v.optional(v.string()),
   credentialId: v.optional(v.string()),
   enabled: v.optional(v.boolean()),
+  // Safari only — see addTargetBodySchema. null clears it back to every
+  // platform the adapter declares.
+  platforms: v.optional(v.nullable(v.array(v.pipe(v.string(), v.trim(), v.minLength(1))))),
 })
 
 route.patch(
@@ -481,6 +498,16 @@ route.patch(
     // targets' behavior), rather than being unable to unset it once set.
     if (body.crxId !== undefined) patch.crxId = body.crxId.trim() || null
     if (typeof body.enabled === 'boolean') patch.enabled = body.enabled
+    if (body.platforms !== undefined) {
+      if (body.platforms) {
+        const adapter = getAdapter(target.store)
+        if (!adapter.platforms) return c.json({ error: `${target.store} does not support per-platform configuration` }, 400)
+        if (body.platforms.length === 0) return c.json({ error: 'platforms cannot be empty' }, 400)
+        const invalid = body.platforms.filter((p) => !adapter.platforms!.includes(p))
+        if (invalid.length > 0) return c.json({ error: `invalid platform(s) for ${target.store}: ${invalid.join(', ')}` }, 400)
+      }
+      patch.platforms = body.platforms
+    }
     if (body.credentialId !== undefined) {
       const [credential] = await db
         .select({ id: storeCredentials.id, store: storeCredentials.store })
