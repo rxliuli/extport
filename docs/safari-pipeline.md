@@ -28,7 +28,7 @@ runner and a **submit mode** that runs on a *Linux* runner (i.e. pure REST).
 |---|---|---|---|
 | `extport` CLI (new macOS-only command) | tenant's Mac or macOS CI | `xcodebuild archive` → sign → package → upload binary to ASC. **Stops at upload — never submits for review.** | None handled by the CLI: signing resolves from the ambient keychain / Xcode automatic signing, upload auth from conventional locations (`~/private_keys`, env vars in CI). On CI, importing certs into the temp keychain stays the workflow's own setup step. |
 | extport server (reconcile) | Workers | Observes ASC builds via API; when a `queued` safari version's build is processed, attaches it, sets metadata, submits for review — under the same queue semantics as every other store (blocked behind in-review, skip superseded, latest wins). | The ASC API key the tenant already stored in extport. |
-| GitHub Action | macOS runner | Thin glue: import certs, invoke the CLI. The wrangler-action-wraps-wrangler model. | Repo secrets, as today. |
+| GitHub Action | macOS runner | Thin glue: import a certificate, invoke the CLI. The wrangler-action-wraps-wrangler model. | Repo secrets, as today. |
 
 ## Flow
 
@@ -98,3 +98,21 @@ columns. Until this lands, `getState()` deliberately tracks macOS only
   deleted outright (reconcile replaces it, and adds queue/blocked/skip,
   stale-review notifications, and the Timeline — which the action never
   had); build mode shrinks to setup + CLI invocation (`extport safari-build`).
+- **"No certificate files to supply" has a real cost on CI that surfaced in
+  production**, not just theoretically: a GitHub-hosted macOS runner starts
+  with an empty keychain every run, so `-allowProvisioningUpdates` finds no
+  local signing identity and asks Apple to mint a brand new one each time.
+  That certificate's private key dies with the runner at the end of the
+  job — permanently unusable from that point on — so every run without a
+  reused certificate silently burns one for good, until the account hits
+  Apple's cap on how many of that type it allows. Confirmed against
+  `rxliuli/twitter-exporter`'s real CI, which had been doing exactly this
+  for days before failing outright with "Your account has reached the
+  maximum number of certificates." Fixed at the GitHub Action layer, not the
+  CLI's — matching the division of labor above, `extport-dev/actions`'
+  `safari-build` action now has optional `certificate-base64`/
+  `certificate-password` inputs that import one certificate (generated once,
+  reused every run — it's tied to the Apple Developer account, not to any
+  one app) into a temporary keychain before invoking the CLI. The CLI itself
+  didn't change: automatic signing already reuses whatever identity it finds
+  in the local keychain, so importing one ahead of time was the entire fix.

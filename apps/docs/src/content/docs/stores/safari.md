@@ -53,9 +53,24 @@ Or from CI:
     issuer-id: ${{ secrets.APPLE_API_ISSUER }}
     key-id: ${{ secrets.APPLE_API_KEY_ID }}
     key-base64: ${{ secrets.APPLE_API_KEY }}
+    certificate-base64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+    certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
     project-path: ./ios
     team-id: ABCDE12345
 ```
 
 This builds and uploads every platform your Xcode project ships (macOS and/or iOS) — Safari's macOS and iOS
 listings run fully independent review timelines under the same App Store Connect app.
+
+### Always pass a signing certificate on CI
+
+`certificate-base64`/`certificate-password` are technically optional, but skipping them on CI will eventually break
+your builds. A GitHub-hosted runner's keychain starts empty every run, so without a certificate already sitting in
+it, cloud signing asks Apple to mint a brand new one each time — and since that certificate's private key is
+destroyed with the runner at the end of the job, it's unusable ever again. Every run silently burns one certificate
+for good until your Apple Developer account hits its cap on how many it'll allow, at which point every build starts
+failing with "Your account has reached the maximum number of certificates." Generate one certificate yourself,
+export it as a `.p12`, base64-encode it, and store it (and its export password) as repo secrets — the same
+certificate works across every extension you build, since it's tied to your Apple Developer account rather than any
+one app. See [`extport-dev/actions`](https://github.com/extport-dev/actions#signing-certificate) for the exact
+steps.
