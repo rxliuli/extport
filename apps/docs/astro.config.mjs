@@ -22,6 +22,10 @@ export default defineConfig({
           items: [{ label: 'Getting started', slug: 'getting-started' }],
         },
         {
+          label: 'Licensing',
+          items: [{ label: 'Sell activation codes', slug: 'licensing' }],
+        },
+        {
           label: 'Stores',
           items: [
             { label: 'Chrome', slug: 'stores/chrome' },

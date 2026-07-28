@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { credentialsQuery, keysQuery, paymentCredentialsQuery } from '@/queries'
+import { credentialsQuery, keysQuery, meQuery, paymentCredentialsQuery } from '@/queries'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { KeyRound, Loader2, Plus } from 'lucide-react'
@@ -477,8 +477,36 @@ function PaymentCredentialsSection() {
           Found on your Stripe webhook endpoint's page (Developers → Webhooks → your endpoint → Signing secret). Test
           and live mode have separate secrets — store whichever mode your sales currently run in.
         </p>
+        <WebhookUrlRow />
       </CardContent>
     </Card>
+  )
+}
+
+// The webhook URL embeds the tenant id, which has no other UI surface —
+// this row is what the docs point at when Stripe asks for an endpoint.
+function WebhookUrlRow() {
+  const { data: me } = useQuery(meQuery)
+  if (!me) return null
+  const url = `https://api.extport.dev/api/v1/licensing/webhooks/stripe/${me.tenant.id}`
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">Webhook endpoint URL (paste into Stripe)</Label>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 truncate rounded-md border bg-muted px-3 py-2 text-xs">{url}</code>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            void navigator.clipboard.writeText(url)
+            toast.success('Copied')
+          }}
+        >
+          Copy
+        </Button>
+      </div>
+    </div>
   )
 }
 
