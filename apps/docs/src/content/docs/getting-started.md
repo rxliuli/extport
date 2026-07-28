@@ -67,13 +67,21 @@ Or from CI, using the published GitHub Actions:
 - uses: extport-dev/actions/push@v1
   with:
     api-key: ${{ secrets.EXTPORT_API_KEY }}
-    extension: my-extension
-    zip-path: dist/my-extension.zip
+    extension: ext_yourExtensionId
+    file: dist/my-extension.zip
 ```
+
+Both `extension` and `file` can be omitted: the extension id comes from `extport.config.json`, and in a WXT
+project the zip and version are inferred from `.output/` and its `manifest.json`.
 
 Omit `--store`/`store:` to push a universal zip to every store target you've configured for that extension, or
 target one store specifically (e.g. for Firefox's separate source-zip requirement). Safari has no zip upload at
 all — it's built and signed locally via `extport safari-build`, see the [Safari](/stores/safari/) page.
+
+Every push is checked against its target stores before it's accepted: a zip without a `manifest.json`, a manifest
+version that doesn't match the pushed version, a Chrome-only build (no `gecko.id`, service-worker-only background)
+headed for Firefox, or Manifest V2 headed for Chrome all fail immediately with the reason — not days later in
+store review.
 
 ## Shell completion
 
