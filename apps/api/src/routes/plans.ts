@@ -84,4 +84,35 @@ route.post(
   },
 )
 
+const patchPlanBodySchema = v.object({
+  maxActivations: v.pipe(v.number('maxActivations must be a number'), v.integer('maxActivations must be an integer'), v.minValue(1, 'maxActivations must be at least 1'), v.maxValue(100, 'maxActivations must be at most 100')),
+})
+
+// Deliberately only maxActivations (snapshot semantics — affects future
+// issuance only). `name` and `tier` are burned into installed extension
+// binaries as the productName cross-check and the SDK's tier table;
+// editing either would fail every existing device's check and clear
+// their cached entitlement. Sell a different tier? Create a new plan.
+route.patch(
+  '/:id',
+  describeRoute({
+    summary: "Update a plan's device limit",
+    description: 'Only maxActivations is editable — name and tier are wire contracts baked into shipped extensions.',
+    responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } },
+  }),
+  validator('json', patchPlanBodySchema, badRequest),
+  async (c) => {
+    const db = c.get('db')
+    const tenant = c.get('tenant')
+    const body = c.req.valid('json')
+    const result = await db
+      .update(plans)
+      .set({ maxActivations: body.maxActivations })
+      .where(and(eq(plans.tenantId, tenant.id), eq(plans.id, c.req.param('id'))))
+    if (result.meta.changes === 0) return c.json({ error: 'not found' }, 404)
+    const [updated] = await db.select().from(plans).where(eq(plans.id, c.req.param('id')))
+    return c.json({ plan: updated })
+  },
+)
+
 export default route

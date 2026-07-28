@@ -16,6 +16,9 @@ import { Route as PortalRouteImport } from './routes/portal'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ExtensionsExtensionIdRouteImport } from './routes/extensions.$extensionId'
 import { Route as PurchaseSuccessRouteImport } from './routes/purchase.success'
+import { Route as ExtensionsExtensionIdIndexRouteImport } from './routes/extensions.$extensionId.index'
+import { Route as ExtensionsExtensionIdLicensingRouteImport } from './routes/extensions.$extensionId.licensing'
+import { Route as ExtensionsExtensionIdPublishingRouteImport } from './routes/extensions.$extensionId.publishing'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -52,6 +55,24 @@ const PurchaseSuccessRoute = PurchaseSuccessRouteImport.update({
   path: '/purchase/success',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ExtensionsExtensionIdIndexRoute =
+  ExtensionsExtensionIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => ExtensionsExtensionIdRoute,
+  } as any)
+const ExtensionsExtensionIdLicensingRoute =
+  ExtensionsExtensionIdLicensingRouteImport.update({
+    id: '/licensing',
+    path: '/licensing',
+    getParentRoute: () => ExtensionsExtensionIdRoute,
+  } as any)
+const ExtensionsExtensionIdPublishingRoute =
+  ExtensionsExtensionIdPublishingRouteImport.update({
+    id: '/publishing',
+    path: '/publishing',
+    getParentRoute: () => ExtensionsExtensionIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -59,8 +80,11 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/portal': typeof PortalRoute
   '/settings': typeof SettingsRoute
-  '/extensions/$extensionId': typeof ExtensionsExtensionIdRoute
+  '/extensions/$extensionId': typeof ExtensionsExtensionIdRouteWithChildren
   '/purchase/success': typeof PurchaseSuccessRoute
+  '/extensions/$extensionId/licensing': typeof ExtensionsExtensionIdLicensingRoute
+  '/extensions/$extensionId/publishing': typeof ExtensionsExtensionIdPublishingRoute
+  '/extensions/$extensionId/': typeof ExtensionsExtensionIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -68,8 +92,10 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/portal': typeof PortalRoute
   '/settings': typeof SettingsRoute
-  '/extensions/$extensionId': typeof ExtensionsExtensionIdRoute
   '/purchase/success': typeof PurchaseSuccessRoute
+  '/extensions/$extensionId/licensing': typeof ExtensionsExtensionIdLicensingRoute
+  '/extensions/$extensionId/publishing': typeof ExtensionsExtensionIdPublishingRoute
+  '/extensions/$extensionId': typeof ExtensionsExtensionIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -78,8 +104,11 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/portal': typeof PortalRoute
   '/settings': typeof SettingsRoute
-  '/extensions/$extensionId': typeof ExtensionsExtensionIdRoute
+  '/extensions/$extensionId': typeof ExtensionsExtensionIdRouteWithChildren
   '/purchase/success': typeof PurchaseSuccessRoute
+  '/extensions/$extensionId/licensing': typeof ExtensionsExtensionIdLicensingRoute
+  '/extensions/$extensionId/publishing': typeof ExtensionsExtensionIdPublishingRoute
+  '/extensions/$extensionId/': typeof ExtensionsExtensionIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -91,6 +120,9 @@ export interface FileRouteTypes {
     | '/settings'
     | '/extensions/$extensionId'
     | '/purchase/success'
+    | '/extensions/$extensionId/licensing'
+    | '/extensions/$extensionId/publishing'
+    | '/extensions/$extensionId/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -98,8 +130,10 @@ export interface FileRouteTypes {
     | '/login'
     | '/portal'
     | '/settings'
-    | '/extensions/$extensionId'
     | '/purchase/success'
+    | '/extensions/$extensionId/licensing'
+    | '/extensions/$extensionId/publishing'
+    | '/extensions/$extensionId'
   id:
     | '__root__'
     | '/'
@@ -109,6 +143,9 @@ export interface FileRouteTypes {
     | '/settings'
     | '/extensions/$extensionId'
     | '/purchase/success'
+    | '/extensions/$extensionId/licensing'
+    | '/extensions/$extensionId/publishing'
+    | '/extensions/$extensionId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -117,7 +154,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   PortalRoute: typeof PortalRoute
   SettingsRoute: typeof SettingsRoute
-  ExtensionsExtensionIdRoute: typeof ExtensionsExtensionIdRoute
+  ExtensionsExtensionIdRoute: typeof ExtensionsExtensionIdRouteWithChildren
   PurchaseSuccessRoute: typeof PurchaseSuccessRoute
 }
 
@@ -172,8 +209,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PurchaseSuccessRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/extensions/$extensionId/': {
+      id: '/extensions/$extensionId/'
+      path: '/'
+      fullPath: '/extensions/$extensionId/'
+      preLoaderRoute: typeof ExtensionsExtensionIdIndexRouteImport
+      parentRoute: typeof ExtensionsExtensionIdRoute
+    }
+    '/extensions/$extensionId/licensing': {
+      id: '/extensions/$extensionId/licensing'
+      path: '/licensing'
+      fullPath: '/extensions/$extensionId/licensing'
+      preLoaderRoute: typeof ExtensionsExtensionIdLicensingRouteImport
+      parentRoute: typeof ExtensionsExtensionIdRoute
+    }
+    '/extensions/$extensionId/publishing': {
+      id: '/extensions/$extensionId/publishing'
+      path: '/publishing'
+      fullPath: '/extensions/$extensionId/publishing'
+      preLoaderRoute: typeof ExtensionsExtensionIdPublishingRouteImport
+      parentRoute: typeof ExtensionsExtensionIdRoute
+    }
   }
 }
+
+interface ExtensionsExtensionIdRouteChildren {
+  ExtensionsExtensionIdLicensingRoute: typeof ExtensionsExtensionIdLicensingRoute
+  ExtensionsExtensionIdPublishingRoute: typeof ExtensionsExtensionIdPublishingRoute
+  ExtensionsExtensionIdIndexRoute: typeof ExtensionsExtensionIdIndexRoute
+}
+
+const ExtensionsExtensionIdRouteChildren: ExtensionsExtensionIdRouteChildren = {
+  ExtensionsExtensionIdLicensingRoute: ExtensionsExtensionIdLicensingRoute,
+  ExtensionsExtensionIdPublishingRoute: ExtensionsExtensionIdPublishingRoute,
+  ExtensionsExtensionIdIndexRoute: ExtensionsExtensionIdIndexRoute,
+}
+
+const ExtensionsExtensionIdRouteWithChildren =
+  ExtensionsExtensionIdRoute._addFileChildren(
+    ExtensionsExtensionIdRouteChildren,
+  )
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -181,7 +256,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   PortalRoute: PortalRoute,
   SettingsRoute: SettingsRoute,
-  ExtensionsExtensionIdRoute: ExtensionsExtensionIdRoute,
+  ExtensionsExtensionIdRoute: ExtensionsExtensionIdRouteWithChildren,
   PurchaseSuccessRoute: PurchaseSuccessRoute,
 }
 export const routeTree = rootRouteImport

@@ -2,6 +2,7 @@ import { ApiError, api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { PortalShell } from '@/PortalShell'
 import { useQuery } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { Check, Copy } from 'lucide-react'
@@ -56,8 +57,9 @@ function PurchaseSuccessPage() {
   const timedOut = lookup.data?.state === 'pending' && Date.now() - startedAt > GIVE_UP_MS
 
   return (
-    <main className="flex min-h-svh items-center justify-center p-6">
-      <Card className="w-full max-w-md">
+    <PortalShell>
+      <main className="flex flex-1 items-center justify-center p-6">
+        <Card className="w-full max-w-md">
         {!sessionId ? (
           <CardHeader>
             <CardTitle className="text-2xl tracking-tight">Missing purchase reference</CardTitle>
@@ -95,8 +97,9 @@ function PurchaseSuccessPage() {
             </div>
           </CardHeader>
         )}
-      </Card>
-    </main>
+        </Card>
+      </main>
+    </PortalShell>
   )
 }
 

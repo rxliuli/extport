@@ -3,9 +3,13 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { PortalShell } from '@/PortalShell'
+import { formatDate } from '@/status'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { Check, Copy, Loader2, MailCheck } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -80,39 +84,47 @@ function PortalPage() {
     await queryClient.invalidateQueries({ queryKey: ['portal-licenses'] })
   }
 
+  const busy = Boolean(code) || verify.isPending || licenses.isLoading
+
+  if (busy) {
+    return (
+      <PortalShell>
+        <main className="flex flex-1 items-center justify-center p-6">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            {code || verify.isPending ? 'Signing you in…' : 'Loading…'}
+          </div>
+        </main>
+      </PortalShell>
+    )
+  }
+
+  if (!licenses.data) {
+    return (
+      <PortalShell>
+        <main className="flex flex-1 items-center justify-center p-6">
+          <SignInCard />
+        </main>
+      </PortalShell>
+    )
+  }
+
   return (
-    <main className="mx-auto max-w-2xl space-y-6 px-6 py-10">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Your purchases</h1>
-          {licenses.data && (
-            <p className="text-sm text-muted-foreground">{licenses.data.email}</p>
-          )}
-        </div>
-        {licenses.data && (
+    <PortalShell
+      actions={
+        <>
+          <span className="text-sm text-muted-foreground">{licenses.data.email}</span>
           <Button variant="outline" size="sm" onClick={() => void signOut()}>
             Sign out
           </Button>
-        )}
-      </header>
-
-      {code || verify.isPending ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Signing you in…</CardTitle>
-          </CardHeader>
-        </Card>
-      ) : licenses.isLoading ? (
-        <div className="space-y-3">
-          <Skeleton className="h-28 w-full" />
-          <Skeleton className="h-28 w-full" />
-        </div>
-      ) : licenses.data ? (
+        </>
+      }
+    >
+      <main className="mx-auto w-full max-w-3xl flex-1 space-y-4 px-6 py-8">
+        <h1 className="text-2xl font-bold tracking-tight">Your purchases</h1>
         <LicenseList licenses={licenses.data.licenses} />
-      ) : (
-        <SignInCard />
-      )}
-    </main>
+      </main>
+    </PortalShell>
   )
 }
 
@@ -127,41 +139,54 @@ function SignInCard() {
 
   if (sent) {
     return (
-      <Card>
+      <Card className="w-full max-w-sm text-center">
         <CardHeader>
-          <CardTitle>Check your email</CardTitle>
+          <MailCheck className="mx-auto size-10 text-muted-foreground" />
+          <CardTitle className="text-xl">Check your email</CardTitle>
           <CardDescription>
-            If there are purchases under {email}, a sign-in link is on its way. It's valid for 15 minutes.
+            If there are purchases under <span className="font-medium text-foreground">{email}</span>, a sign-in link
+            is on its way. It's valid for 15 minutes.
           </CardDescription>
         </CardHeader>
+        <CardContent>
+          <Button variant="ghost" size="sm" className="w-full" onClick={() => setSent(false)}>
+            Use a different email
+          </Button>
+        </CardContent>
       </Card>
     )
   }
   return (
-    <Card>
+    <Card className="w-full max-w-sm">
       <CardHeader>
-        <CardTitle>Sign in</CardTitle>
+        <CardTitle className="text-2xl tracking-tight">Your purchases</CardTitle>
         <CardDescription>
           Enter the email you used at checkout and we'll send you a sign-in link — no password needed.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form
-          className="flex gap-2"
+          className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault()
             if (email.trim()) request.mutate(email.trim())
           }}
         >
-          <Input
-            type="email"
-            required
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <Button type="submit" disabled={request.isPending}>
-            Send link
+          <div className="space-y-2">
+            <Label htmlFor="portal-email">Email</Label>
+            <Input
+              id="portal-email"
+              type="email"
+              required
+              autoFocus
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <Button type="submit" className="w-full" disabled={request.isPending}>
+            {request.isPending && <Loader2 className="animate-spin" />}
+            Email me a sign-in link
           </Button>
         </form>
       </CardContent>
@@ -185,41 +210,63 @@ function LicenseList({ licenses }: { licenses: PortalLicense[] }) {
       {licenses.map((license) => (
         <Card key={license.key}>
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <CardTitle className="text-lg">
                 {license.productName} <Badge variant="secondary">{license.tier}</Badge>
               </CardTitle>
               {license.status !== 'active' && <Badge variant="destructive">{license.status}</Badge>}
             </div>
             <CardDescription>
-              Purchased {new Date(license.createdAt).toLocaleDateString()} · up to {license.maxActivations} devices
+              Purchased {formatDate(license.createdAt)} · {activeCount(license)} of{' '}
+              {license.maxActivations} devices in use
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <code className="block rounded-md border bg-muted px-4 py-2 font-mono tracking-wider">{license.key}</code>
+            <KeyRow value={license.key} />
             <Devices devices={license.devices} />
-            <p className="text-xs text-muted-foreground">
-              Idle devices free their seat automatically after 30 days. Need a seat released sooner? Contact the
-              developer of the extension.
-            </p>
           </CardContent>
         </Card>
       ))}
+      <p className="text-xs text-muted-foreground">
+        Idle devices free their seat automatically after 30 days. Need a seat released sooner? Contact the developer
+        of the extension.
+      </p>
+    </div>
+  )
+}
+
+function activeCount(license: PortalLicense): number {
+  return license.devices.filter((d) => !d.releasedAt).length
+}
+
+function KeyRow({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    await navigator.clipboard.writeText(value)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <code className="flex-1 rounded-md border bg-muted px-3 py-2 font-mono tracking-wider">{value}</code>
+      <Button variant="outline" size="icon" onClick={() => void copy()} aria-label="Copy activation code">
+        {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+      </Button>
     </div>
   )
 }
 
 function Devices({ devices }: { devices: PortalDevice[] }) {
   const active = devices.filter((d) => !d.releasedAt)
-  if (active.length === 0) return <p className="text-sm text-muted-foreground">No active devices.</p>
+  if (active.length === 0) return null
   return (
-    <ul className="space-y-1 text-sm">
+    <ul className="divide-y rounded-md border text-sm">
       {active.map((device) => (
-        <li key={device.fingerprint} className="flex items-center justify-between text-muted-foreground">
-          <span className="font-mono">{device.fingerprint.slice(0, 8)}…</span>
-          <span>
-            active since {new Date(device.activatedAt).toLocaleDateString()}
-            {device.lastHeartbeatAt ? ` · last seen ${new Date(device.lastHeartbeatAt).toLocaleDateString()}` : ''}
+        <li key={device.fingerprint} className="flex items-center justify-between px-3 py-2 text-muted-foreground">
+          <span className="font-mono text-xs">{device.fingerprint.slice(0, 8)}…</span>
+          <span className="text-xs">
+            active since {formatDate(device.activatedAt)}
+            {device.lastHeartbeatAt ? ` · last seen ${formatDate(device.lastHeartbeatAt)}` : ''}
           </span>
         </li>
       ))}

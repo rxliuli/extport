@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { licensesQuery, plansQuery } from '@/queries'
+import { formatDate } from '@/status'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
@@ -158,6 +159,7 @@ function PlansCard({ extension }: { extension: Extension }) {
                 <TableHead>Tier</TableHead>
                 <TableHead>Max devices</TableHead>
                 <TableHead>Stripe metadata</TableHead>
+                <TableHead />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -171,6 +173,9 @@ function PlansCard({ extension }: { extension: Extension }) {
                   <TableCell>
                     <code className="text-xs text-muted-foreground">extport_plan={plan.id}</code>
                   </TableCell>
+                  <TableCell>
+                    <PlanEditDialog plan={plan} extensionId={extension.id} />
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -178,6 +183,72 @@ function PlansCard({ extension }: { extension: Extension }) {
         )}
       </CardContent>
     </Card>
+  )
+}
+
+function PlanEditDialog({ plan, extensionId }: { plan: Plan; extensionId: string }) {
+  const queryClient = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [maxActivations, setMaxActivations] = useState(String(plan.maxActivations))
+
+  const save = useMutation({
+    mutationFn: () =>
+      api<{ plan: Plan }>(`/api/v1/plans/${plan.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ maxActivations: Number.parseInt(maxActivations, 10) || plan.maxActivations }),
+      }),
+    onSuccess: () => {
+      setOpen(false)
+      void queryClient.invalidateQueries({ queryKey: ['extensions', extensionId, 'plans'] })
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  })
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm">
+          Edit
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            Edit {plan.name} ({plan.tier})
+          </DialogTitle>
+        </DialogHeader>
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            save.mutate()
+          }}
+        >
+          <label className="text-sm font-medium">
+            Max devices per license
+            <Input
+              className="mt-1"
+              type="number"
+              min={1}
+              max={100}
+              value={maxActivations}
+              onChange={(e) => setMaxActivations(e.target.value)}
+            />
+            <span className="mt-1 block text-xs font-normal text-muted-foreground">
+              Applies to licenses issued from now on — already-sold licenses keep the limit they were sold with.
+            </span>
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Name and tier can't be edited: installed extensions carry them as their verification contract
+            (<code>productName</code> and the SDK's tier table), so changing either would fail every existing
+            device's check. Selling something different? Create a new plan.
+          </p>
+          <Button type="submit" disabled={save.isPending}>
+            Save
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -301,7 +372,7 @@ function LicensesCard({ extension }: { extension: Extension }) {
                   </TableCell>
                   <TableCell className="text-muted-foreground">{license.source.replace('_webhook', '')}</TableCell>
                   <TableCell className="text-muted-foreground">
-                    {new Date(license.createdAt).toLocaleDateString()}
+                    {formatDate(license.createdAt)}
                   </TableCell>
                   <TableCell>
                     <DevicesDialog license={license} />
@@ -363,9 +434,9 @@ function DevicesDialog({ license }: { license: LicenseRow }) {
                   <div>
                     <code className="text-xs">{device.deviceFingerprint.slice(0, 13)}…</code>
                     <p className="text-xs text-muted-foreground">
-                      activated {new Date(device.activatedAt).toLocaleDateString()}
+                      activated {formatDate(device.activatedAt)}
                       {device.lastHeartbeatAt
-                        ? ` · last seen ${new Date(device.lastHeartbeatAt).toLocaleDateString()}`
+                        ? ` · last seen ${formatDate(device.lastHeartbeatAt)}`
                         : ''}
                     </p>
                   </div>

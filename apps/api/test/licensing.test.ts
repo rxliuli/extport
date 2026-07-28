@@ -128,6 +128,36 @@ describe('plans & manual license issuance', () => {
     expect(((await listed.json()) as { licenses: License[] }).licenses).toHaveLength(0)
   })
 
+  it('PATCH edits only maxActivations; snapshots on existing licenses stay', async () => {
+    const { sessionCookie, plan, license } = await setupLicensedProduct()
+    const res = await request(`/api/v1/plans/${plan.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ maxActivations: 10 }),
+    })
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { plan: Plan }).plan.maxActivations).toBe(10)
+
+    // Already-issued licenses keep their snapshot; new ones get the new limit.
+    const oldLicense = await request(`/api/v1/licenses/${license.id}`, { headers: { cookie: sessionCookie } })
+    expect(((await oldLicense.json()) as { license: License }).license.maxActivations).toBe(3)
+    const issued = await request('/api/v1/licenses', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ planId: plan.id, buyerEmail: 'later@example.com' }),
+    })
+    expect(((await issued.json()) as { license: License }).license.maxActivations).toBe(10)
+
+    // Cross-tenant PATCH must miss.
+    const b = await seedTenantWithUser()
+    const cross = await request(`/api/v1/plans/${plan.id}`, {
+      method: 'PATCH',
+      headers: { cookie: b.sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ maxActivations: 99 }),
+    })
+    expect(cross.status).toBe(404)
+  })
+
   it('lists licenses filtered by plan', async () => {
     const { sessionCookie, license, plan } = await setupLicensedProduct()
     const res = await request(`/api/v1/licenses?plan=${plan.id}`, { headers: { cookie: sessionCookie } })

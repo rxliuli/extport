@@ -18,15 +18,13 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { LicensingSection } from '@/LicensingSection'
 import { credentialsQuery, extensionQuery, targetsQuery, timelineQuery } from '@/queries'
 import { relativeTime } from '@/status'
 import { ageDays } from '@/status'
 import { VersionSummary } from '@/VersionSummary'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, Outlet, useNavigate } from '@tanstack/react-router'
 import {
   ArrowLeft,
   CircleCheck,
@@ -43,7 +41,7 @@ import {
 import { useState } from 'react'
 import { toast } from 'sonner'
 
-export const Route = createFileRoute('/extensions/$extensionId')({ component: ExtensionDetailPage })
+export const Route = createFileRoute('/extensions/$extensionId')({ component: ExtensionDetailLayout })
 
 const STORES: Store[] = ['chrome', 'firefox', 'edge', 'safari']
 
@@ -51,7 +49,7 @@ function errorMessage(err: unknown): string {
   return err instanceof ApiError ? err.message : String(err)
 }
 
-function TargetsSection({ extensionId }: { extensionId: string }) {
+export function TargetsSection({ extensionId }: { extensionId: string }) {
   const queryClient = useQueryClient()
   const { data: targets = [] } = useQuery(targetsQuery(extensionId))
   const { data: credentials = [] } = useQuery(credentialsQuery)
@@ -311,7 +309,7 @@ function opsEventDetail(event: PublishEvent): string | null {
 // deployment_versions pivoted into rows = versions, columns = stores — the
 // release-progress view. Target-level health (error/recovered/stale_review)
 // has no version to belong to, so it lives in the ops list below instead.
-function VersionMatrixSection({ extensionId }: { extensionId: string }) {
+export function VersionMatrixSection({ extensionId }: { extensionId: string }) {
   const { data } = useQuery(timelineQuery(extensionId))
   const { data: targets = [] } = useQuery(targetsQuery(extensionId))
   const versions = data?.versions ?? []
@@ -460,17 +458,11 @@ function VersionMatrixSection({ extensionId }: { extensionId: string }) {
   )
 }
 
-function ExtensionDetailPage() {
+function ExtensionDetailLayout() {
   const { extensionId } = Route.useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data: extension, isPending } = useQuery(extensionQuery(extensionId))
-  // Same query TargetsSection/VersionMatrixSection already make — React
-  // Query dedupes by key, so this doesn't add a request. Used only to hide
-  // the CI onboarding hint below once there's proof the tenant already
-  // knows how to push (kept for extensions with nothing pushed yet).
-  const { data: timeline } = useQuery(timelineQuery(extensionId))
-  const hasPushedBefore = (timeline?.versions.length ?? 0) > 0
 
   const reconcile = useMutation({
     mutationFn: () =>
@@ -550,33 +542,23 @@ function ExtensionDetailPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="publishing">
-        <TabsList>
-          <TabsTrigger value="publishing">Publishing</TabsTrigger>
-          <TabsTrigger value="licensing">Licensing</TabsTrigger>
-        </TabsList>
-        <TabsContent value="publishing" className="mt-4 space-y-6">
-          <TargetsSection extensionId={extensionId} />
-          {!hasPushedBefore && (
-            <p className="text-sm text-muted-foreground">
-              Haven't pushed a build yet?{' '}
-              <a
-                href="https://docs.extport.dev/getting-started/"
-                target="_blank"
-                rel="noreferrer"
-                className="underline underline-offset-4 hover:text-foreground"
-              >
-                See the getting-started guide
-              </a>
-              .
-            </p>
-          )}
-          <VersionMatrixSection extensionId={extensionId} />
-        </TabsContent>
-        <TabsContent value="licensing" className="mt-4">
-          <LicensingSection extension={extension} />
-        </TabsContent>
-      </Tabs>
+      {/* Real routes rather than tab state so both halves have copyable,
+          deep-linkable URLs. */}
+      <nav className="flex items-center gap-1 rounded-lg bg-muted p-1 text-sm font-medium w-fit">
+        {(['publishing', 'licensing'] as const).map((section) => (
+          <Link
+            key={section}
+            to={`/extensions/$extensionId/${section}`}
+            params={{ extensionId }}
+            className="rounded-md px-3 py-1.5 text-muted-foreground transition-colors hover:text-foreground"
+            activeProps={{ className: 'bg-background text-foreground shadow-sm' }}
+          >
+            {section === 'publishing' ? 'Publishing' : 'Licensing'}
+          </Link>
+        ))}
+      </nav>
+
+      <Outlet />
     </div>
   )
 }

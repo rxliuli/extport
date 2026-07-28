@@ -1,3 +1,10 @@
+/** Absolute dates render as local-time YYYY-MM-DD everywhere — never the locale-dependent M/D/YYYY. */
+export function formatDate(iso: string): string {
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 export function ageDays(since: string | null): number | null {
   if (!since) return null
   return Math.floor((Date.now() - new Date(since).getTime()) / 86_400_000)
