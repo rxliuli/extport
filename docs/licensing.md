@@ -1,10 +1,10 @@
 # Licensing (design)
 
-Status: **slices A + B implemented** (A accepted 2026-07-28 — real
-activation from substack-exporter's dev build against production; B coded
-and tested the same day, its acceptance — a Stripe test-mode purchase
-landing a working code in an inbox — pending the tenant-side Stripe
-setup). Slice C not started.
+Status: **slices A + B accepted** (2026-07-28). A: real activation from
+substack-exporter's dev build against production. B: a Stripe test-mode
+Payment Link purchase fulfilled end-to-end — signature-verified webhook →
+issued license → emailed code that activates against the public wire
+protocol. Slice C not started.
 Predecessor: [license-kit](https://github.com/rxliuli/license-kit)
 (store.rxliuli.com), which has run this exact model in production for the
 author's paid extensions. Its data will be imported; its client storage
@@ -223,19 +223,35 @@ because all three dimensions switch independently:
   own schedule.
 - **Sales** — Stripe allows multiple webhook endpoints on one account
   (each with its own signing secret), so license-kit's and extport's
-  endpoints coexist for the whole transition. The per-product switch is
-  the Payment Link's metadata: replacing `product_name`/`tier` with
-  `extport_plan` moves that product's fulfillment to extport and
-  nothing else. Refund events are safe to deliver to both: each side acts
+  endpoints coexist for the whole transition. The fleet historically
+  sells through license-kit's own checkout endpoint (API-created
+  sessions stamping `product_name`/`tier` metadata read from the
+  price) — but that endpoint is a hand-written Payment Link: it wraps
+  a static priceId with static metadata and nothing else. So the
+  migration moves each **plan onto a real Payment Link** (one link per
+  plan: metadata `extport_plan`, promotion codes enabled, confirmation
+  message pointing at the email). Single-tier extensions deep-link
+  from their upgrade button straight to Stripe checkout — strictly
+  fewer clicks than the storefront hop. Multi-tier stays backend-free
+  too: a chooser is inherent to selling two things, and it can be
+  static per-tier links in the extension's own plan dialog (whose
+  `plans` table already knows the tiers) or a Stripe pricing-table
+  embed. Storefront buy buttons become static hrefs (pages stay for
+  SEO); license-kit's checkout endpoint retires with the last plan,
+  and tenant zero lands on the exact zero-code path recommended to
+  every other tenant. The one license-kit patch shipped up front: its
+  webhook skips sessions carrying `extport_plan` (both endpoints
+  receive all events during coexistence). Refund events are safe to deliver to both: each side acts
   only on its own DB, and license-kit revoking its stale copy of a
   migrated license is a no-op in practice.
 
 Per-product cutover sequence:
 
-1. **Flip the Payment Link metadata.** New sales now fulfill in extport.
-   (license-kit's webhook needs a one-line patch first: skip sessions
-   carrying `extport_plan`, otherwise flipped sessions hit its
-   "missing fulfillment data" throw → 500 → Stripe retry noise.)
+1. **Flip the sale: create the plan's Payment Link and repoint the buy
+   buttons at it** (storefront href now; the extension's own upgrade
+   button with its next release). New sales fulfill in extport — the
+   skip patch above keeps license-kit's webhook from hitting its
+   "missing fulfillment data" throw → 500 → retry noise.
 2. **Run the import for that product.** Because the flip happened first,
    the import covers every code sold pre-flip and every code sold
    post-flip is extport-native — no code can fall between.
