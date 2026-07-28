@@ -6,15 +6,17 @@ code paths as external tenants.
 
 Two independent per-extension modules, plus build tooling that feeds into the first:
 
-- **Publishing** (Phase 1, in progress) — reconciliation-loop based store publishing
+- **Publishing** (live) — reconciliation-loop based store publishing
   (Chrome / Firefox / Edge / Safari), latest-wins versioning, status matrix, notifications.
-- **Licensing** (Phase 2, core loop implemented) — BYO-Stripe activation codes,
-  verified online with cached local state (deliberately no client-side crypto),
-  lazy seat decay, buyer magic-link pages. Design: `docs/licensing.md`.
-- **Cross-platform build** (planned) — official GitHub Action wrapping Safari's Xcode
-  conversion, signing, and notarization, run in your own CI with your own Apple
-  credentials (extport never sees them); eventually a scaffold pre-wired to ship to
-  Chrome / Firefox / Edge / Safari desktop, Safari on iOS, and Firefox on Android.
+  Safari's Xcode build, signing, and upload run in your own CI via `extport safari-build`
+  with your own Apple credentials — extport never sees them.
+- **Licensing** (live) — BYO-Stripe activation codes fulfilled from your own Stripe
+  Payment Links, verified online with cached local state (deliberately no client-side
+  crypto), lazy seat decay, buyer magic-link portal. Design: `docs/licensing.md`,
+  tenant guide: [docs.extport.dev/licensing](https://docs.extport.dev/licensing/).
+- **Scaffold** (planned) — a template that bootstraps a new extension pre-wired to ship
+  to Chrome / Firefox / Edge / Safari on desktop, Safari on iOS, and Firefox on Android
+  from day one.
 
 ## License
 
