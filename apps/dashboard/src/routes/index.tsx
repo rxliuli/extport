@@ -82,7 +82,6 @@ function ExtensionsPage() {
                       >
                         {ext.name}
                       </Link>
-                      <code className="text-xs text-muted-foreground">{ext.id}</code>
                     </TableCell>
                     {STORES.map((s) => {
                       const target = ext.targets.find((t) => t.store === s)
