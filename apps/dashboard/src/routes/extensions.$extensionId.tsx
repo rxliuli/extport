@@ -549,17 +549,6 @@ function ExtensionDetailPage() {
         </div>
       </div>
 
-      {!hasPushedBefore && (
-        <Card className="bg-muted/50">
-          <CardContent className="py-4">
-            <p className="mb-2 text-sm font-medium">Upload artifacts for this extension from CI:</p>
-            <pre className="overflow-x-auto rounded-md bg-background p-3 text-xs">
-              {`npx extport push dist.zip --extension ${extension.slug} --version 1.2.3\n# EXTPORT_API_KEY must be set (Settings → API keys)`}
-            </pre>
-          </CardContent>
-        </Card>
-      )}
-
       <Tabs defaultValue="publishing">
         <TabsList>
           <TabsTrigger value="publishing">Publishing</TabsTrigger>
@@ -567,6 +556,20 @@ function ExtensionDetailPage() {
         </TabsList>
         <TabsContent value="publishing" className="mt-4 space-y-6">
           <TargetsSection extensionId={extensionId} />
+          {!hasPushedBefore && (
+            <p className="text-sm text-muted-foreground">
+              Haven't pushed a build yet?{' '}
+              <a
+                href="https://docs.extport.dev/getting-started/"
+                target="_blank"
+                rel="noreferrer"
+                className="underline underline-offset-4 hover:text-foreground"
+              >
+                See the getting-started guide
+              </a>
+              .
+            </p>
+          )}
           <VersionMatrixSection extensionId={extensionId} />
         </TabsContent>
         <TabsContent value="licensing" className="mt-4">
