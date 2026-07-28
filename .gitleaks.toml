@@ -1,0 +1,14 @@
+# All findings to date are false positives: synthetic test-fixture keys
+# (generated for tests, never registered anywhere) and a variable named
+# r2Key. Real secrets live only in .dev.vars (gitignored) and Workers
+# secrets — never in this repository.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures and identifier-name false positives"
+paths = [
+  '''apps/api/test/.*\.test\.ts''',
+  '''packages/store-adapters/test/.*\.test\.ts''',
+]
+regexes = ['''artifacts\.r2Key''']

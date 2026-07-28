@@ -16,6 +16,16 @@ Two independent per-extension modules, plus build tooling that feeds into the fi
   credentials (extport never sees them); eventually a scaffold pre-wired to ship to
   Chrome / Firefox / Edge / Safari desktop, Safari on iOS, and Firefox on Android.
 
+## License
+
+The platform (`apps/*`, `packages/shared`, `packages/store-adapters`) is
+licensed under the [Elastic License 2.0](LICENSE): you may use, copy,
+modify, and **self-host** it freely — what you may not do is provide it
+to others as a managed (SaaS) service. The packages that end up in *your*
+code stay permissive: [`@extport/sdk`](packages/sdk),
+[`@extport/cli`](packages/cli), and [`@extport/wxt`](packages/wxt) are
+MIT-licensed.
+
 ## Layout
 
 | Path | Purpose |
