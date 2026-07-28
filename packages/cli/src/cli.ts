@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 import process from 'node:process'
 import { buildPushUrl, resolvePushContext, resolvePushOptions, type PushDefaults, type PushOptions, type RawPushArgs } from './args'
 import { clearGlobalConfig, loadGlobalConfig, loadProjectConfig, saveGlobalConfig, saveProjectConfig, type ProjectConfig } from './config'
+import { detectShell, extractCompletionSchema, generateCompletion, type Shell } from './completion'
 import { exec } from './exec'
 import { fetchEnabledTargets } from './extensions-api'
 import { login } from './login'
@@ -266,6 +267,24 @@ async function runInit(): Promise<void> {
   outro('Wrote extport.config.json — commit it, it has no secrets.')
 }
 
+async function runCompletionCommand(shellArg: string | undefined): Promise<void> {
+  let shell: Shell | undefined
+  if (shellArg !== undefined) {
+    if (shellArg !== 'bash' && shellArg !== 'zsh' && shellArg !== 'fish') {
+      throw new Error(`unknown shell "${shellArg}" — expected bash, zsh, or fish`)
+    }
+    shell = shellArg
+  } else {
+    shell = detectShell(process.env)
+  }
+  if (!shell) {
+    throw new Error('could not detect your shell — pass it explicitly: extport completion bash|zsh|fish')
+  }
+  // `main` (defined below) is only read once this actually runs, well after
+  // the module finishes evaluating — safe despite the apparent ordering.
+  console.log(generateCompletion(extractCompletionSchema(main), shell))
+}
+
 const apiUrlArg = { type: 'string', description: 'Platform URL (or env EXTPORT_API_URL)' } as const
 
 // citty's own error handling prints the raw Error object (full stack trace) —
@@ -370,6 +389,13 @@ const main = defineCommand({
           debug: args.debug as boolean | undefined,
         }),
       ),
+    }),
+    completion: defineCommand({
+      meta: { name: 'completion', description: 'Print a shell completion script — e.g. eval "$(extport completion zsh)"' },
+      args: {
+        shell: { type: 'positional', description: 'bash, zsh, or fish — omit to auto-detect the running shell', required: false },
+      },
+      run: withCleanErrors((args) => runCompletionCommand(args.shell as string | undefined)),
     }),
   },
 })
