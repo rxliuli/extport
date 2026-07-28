@@ -108,7 +108,6 @@ export const extensions = sqliteTable(
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull(),
     name: text('name').notNull(),
-    slug: text('slug').notNull(),
     iconUrl: text('icon_url'),
     // Publishing has no extension-level switch: configuring a store target IS
     // the opt-in, and pausing is per-target (publish_targets.enabled).
@@ -117,7 +116,9 @@ export const extensions = sqliteTable(
     ...timestamps,
   },
   (t) => [
-    uniqueIndex('extensions_slug_idx').on(t.tenantId, t.slug),
+    // The name doubles as the licensing verification key (frozen while
+    // licensingEnabled) — one entity, one key, so it's unique per tenant.
+    uniqueIndex('extensions_name_idx').on(t.tenantId, t.name),
     index('extensions_tenant_idx').on(t.tenantId),
   ],
 )

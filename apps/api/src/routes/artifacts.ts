@@ -16,7 +16,7 @@ const route = new Hono<AppEnv>()
 
 route.use('*', requireAuth, requireActiveTenant)
 
-const EXTENSION_MSG = 'extension query param is required (id or slug)'
+const EXTENSION_MSG = 'extension query param is required (the ext_… id)'
 const VERSION_MSG = 'version must be 1-4 dot-separated integers (e.g. 1.2.3)'
 const STORE_MSG = `store must be one of: ${STORES.join(', ')}`
 
@@ -43,7 +43,7 @@ async function resolveExtension(c: Context<AppEnv>, ref: string): Promise<Extens
     .where(
       and(
         eq(extensions.tenantId, tenant.id),
-        or(eq(extensions.id, ref), eq(extensions.slug, ref)),
+        eq(extensions.id, ref),
       ),
     )
     .limit(1)

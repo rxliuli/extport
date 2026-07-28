@@ -141,6 +141,13 @@
       "when": 1785238975691,
       "tag": "0019_plans_drop_name",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1785239983255,
+      "tag": "0020_drop_extension_slug",
+      "breakpoints": true
     }
   ]
 }

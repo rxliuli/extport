@@ -74,7 +74,6 @@ async function setupChromeScenario(opts: ScenarioOptions = {}) {
     id: extensionId,
     tenantId,
     name: 'Ext',
-    slug: `ext-${extensionId.slice(-10).toLowerCase()}`,
   })
 
   const dek = await tenantDek(env, dekInfo)
@@ -596,7 +595,6 @@ async function setupSafariScenario(opts: { artifacts?: { version: string }[]; ve
     id: extensionId,
     tenantId,
     name: 'Ext',
-    slug: `ext-${extensionId.slice(-10).toLowerCase()}`,
   })
   const dek = await tenantDek(env, dekInfo)
   const encryptedPayload = await encryptJson(dek, { keyId: 'K1', issuerId: 'iss-1', privateKeyP8: await makeP8() })

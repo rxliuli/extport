@@ -506,7 +506,7 @@ function ExtensionDetailLayout() {
         <div className="flex items-center gap-4">
           <div>
             <h2 className="text-2xl font-bold tracking-tight">{extension.name}</h2>
-            <code className="text-xs text-muted-foreground">{extension.slug}</code>
+            <code className="text-xs text-muted-foreground">{extension.id}</code>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => reconcile.mutate()} disabled={reconcile.isPending}>

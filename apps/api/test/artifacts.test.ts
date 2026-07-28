@@ -21,16 +21,24 @@ function upload(
 }
 
 describe('extensions', () => {
-  it('creates with a slug derived from the name', async () => {
+  it('creates an extension and enforces per-tenant name uniqueness', async () => {
     const { sessionCookie } = await seedTenantWithUser()
     const res = await request('/api/v1/extensions', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'Clean Twitter!' }),
+      body: JSON.stringify({ name: 'Clean Twitter' }),
     })
     expect(res.status).toBe(201)
-    const { extension } = (await res.json()) as { extension: { slug: string } }
-    expect(extension.slug).toBe('clean-twitter')
+    const { extension } = (await res.json()) as { extension: { name: string } }
+    expect(extension.name).toBe('Clean Twitter')
+
+    // The name doubles as the licensing verification key — unique per tenant.
+    const dupe = await request('/api/v1/extensions', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Clean Twitter' }),
+    })
+    expect(dupe.status).toBe(409)
   })
 
   it('enforces the free-plan extension limit', async () => {
@@ -47,15 +55,16 @@ describe('extensions', () => {
     expect(res.status).toBe(403)
   })
 
-  it('rejects duplicate slugs within a tenant', async () => {
-    const { sessionCookie } = await seedTenantWithUser()
-    await createExtension(sessionCookie, 'Same')
+  it('name uniqueness is per tenant, not global', async () => {
+    const a = await seedTenantWithUser()
+    const b = await seedTenantWithUser()
+    await createExtension(a.sessionCookie, 'Same Name')
     const res = await request('/api/v1/extensions', {
       method: 'POST',
-      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'same' }),
+      headers: { cookie: b.sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Same Name' }),
     })
-    expect(res.status).toBe(409)
+    expect(res.status).toBe(201)
   })
 })
 
@@ -65,7 +74,7 @@ describe('artifact upload', () => {
     const extension = await createExtension(sessionCookie)
     const key = await createApiKey(sessionCookie)
 
-    const res = await upload({ key }, `extension=${extension.slug}&version=1.2.3&store=chrome`, fakeZip())
+    const res = await upload({ key }, `extension=${extension.id}&version=1.2.3&store=chrome`, fakeZip())
     expect(res.status).toBe(201)
     const { artifact, warning } = (await res.json()) as {
       artifact: { r2Key: string; sha256: string; size: number; store: string; source: string }
@@ -98,7 +107,7 @@ describe('artifact upload', () => {
       credentialId: newId('storeCredential'),
     })
 
-    const res = await upload({ key }, `extension=${extension.slug}&version=1.2.3&store=chrome`, fakeZip())
+    const res = await upload({ key }, `extension=${extension.id}&version=1.2.3&store=chrome`, fakeZip())
     expect(res.status).toBe(201)
     const { warning } = (await res.json()) as { warning?: string }
     expect(warning).toBeUndefined()
@@ -125,10 +134,10 @@ describe('artifact upload', () => {
     const extension = await createExtension(sessionCookie)
     const key = await createApiKey(sessionCookie)
 
-    expect((await upload({ key }, `extension=${extension.slug}&version=v1`, fakeZip())).status).toBe(400)
-    expect((await upload({ key }, `extension=${extension.slug}&version=1.0&store=opera`, fakeZip())).status).toBe(400)
+    expect((await upload({ key }, `extension=${extension.id}&version=v1`, fakeZip())).status).toBe(400)
+    expect((await upload({ key }, `extension=${extension.id}&version=1.0&store=opera`, fakeZip())).status).toBe(400)
     expect((await upload({ key }, `extension=nope&version=1.0`, fakeZip())).status).toBe(404)
-    const notZip = await upload({ key }, `extension=${extension.slug}&version=1.0`, new Uint8Array([1, 2, 3, 4]))
+    const notZip = await upload({ key }, `extension=${extension.id}&version=1.0`, new Uint8Array([1, 2, 3, 4]))
     expect(notZip.status).toBe(400)
   })
 
@@ -146,7 +155,7 @@ describe('artifact upload', () => {
     const extension = await createExtension(sessionCookie)
     const key = await createApiKey(sessionCookie)
 
-    const res = await request(`/api/v1/artifacts?extension=${extension.slug}&version=0.0.8&store=safari`, {
+    const res = await request(`/api/v1/artifacts?extension=${extension.id}&version=0.0.8&store=safari`, {
       method: 'POST',
       headers: { authorization: `Bearer ${key}` },
     })
@@ -164,7 +173,7 @@ describe('artifact upload', () => {
     const { sessionCookie } = await seedTenantWithUser()
     const extension = await createExtension(sessionCookie)
     const key = await createApiKey(sessionCookie)
-    const query = `extension=${extension.slug}&version=0.0.8&store=safari`
+    const query = `extension=${extension.id}&version=0.0.8&store=safari`
 
     const first = await request(`/api/v1/artifacts?${query}`, { method: 'POST', headers: { authorization: `Bearer ${key}` } })
     expect(first.status).toBe(201)
@@ -178,13 +187,13 @@ describe('artifact upload', () => {
     const extension = await createExtension(sessionCookie)
     const key = await createApiKey(sessionCookie)
 
-    const chrome = await request(`/api/v1/artifacts?extension=${extension.slug}&version=1.0.0&store=chrome`, {
+    const chrome = await request(`/api/v1/artifacts?extension=${extension.id}&version=1.0.0&store=chrome`, {
       method: 'POST',
       headers: { authorization: `Bearer ${key}` },
     })
     expect(chrome.status).toBe(400)
 
-    const universal = await request(`/api/v1/artifacts?extension=${extension.slug}&version=1.0.0`, {
+    const universal = await request(`/api/v1/artifacts?extension=${extension.id}&version=1.0.0`, {
       method: 'POST',
       headers: { authorization: `Bearer ${key}` },
     })
@@ -199,7 +208,7 @@ describe('artifact upload', () => {
     const form = new FormData()
     form.set('file', new Blob([fakeZip(1)]), 'extension.zip')
     form.set('source', new Blob([new Uint8Array([1, 2, 3, 4])]), 'source.zip')
-    const res = await request(`/api/v1/artifacts?extension=${extension.slug}&version=1.0.0&store=firefox`, {
+    const res = await request(`/api/v1/artifacts?extension=${extension.id}&version=1.0.0&store=firefox`, {
       method: 'POST',
       headers: { authorization: `Bearer ${key}` },
       body: form,
@@ -221,7 +230,7 @@ describe('artifact upload', () => {
 
     const form = new FormData()
     form.set('file', new Blob([fakeZip(1)]), 'extension.zip')
-    const res = await request(`/api/v1/artifacts?extension=${extension.slug}&version=1.0.0&store=firefox`, {
+    const res = await request(`/api/v1/artifacts?extension=${extension.id}&version=1.0.0&store=firefox`, {
       method: 'POST',
       headers: { authorization: `Bearer ${key}` },
       body: form,
@@ -239,7 +248,7 @@ describe('artifact upload', () => {
     const form = new FormData()
     form.set('file', new Blob([fakeZip(1)]), 'extension.zip')
     form.set('source', new Blob([new Uint8Array([1, 2, 3, 4])]), 'source.zip')
-    const res = await request(`/api/v1/artifacts?extension=${extension.slug}&version=1.0.0&store=chrome`, {
+    const res = await request(`/api/v1/artifacts?extension=${extension.id}&version=1.0.0&store=chrome`, {
       method: 'POST',
       headers: { authorization: `Bearer ${key}` },
       body: form,
@@ -251,10 +260,10 @@ describe('artifact upload', () => {
     const { sessionCookie } = await seedTenantWithUser()
     const extension = await createExtension(sessionCookie)
     const key = await createApiKey(sessionCookie)
-    await upload({ key }, `extension=${extension.slug}&version=1.0.0`, fakeZip(3))
-    await upload({ key }, `extension=${extension.slug}&version=1.1.0`, fakeZip(4))
+    await upload({ key }, `extension=${extension.id}&version=1.0.0`, fakeZip(3))
+    await upload({ key }, `extension=${extension.id}&version=1.1.0`, fakeZip(4))
 
-    const res = await request(`/api/v1/artifacts?extension=${extension.slug}`, {
+    const res = await request(`/api/v1/artifacts?extension=${extension.id}`, {
       headers: { authorization: `Bearer ${key}` },
     })
     const { artifacts } = (await res.json()) as { artifacts: Array<{ version: string }> }

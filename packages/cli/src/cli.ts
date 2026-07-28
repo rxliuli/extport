@@ -228,7 +228,7 @@ async function runInit(): Promise<void> {
 
   const existing = await fetch(new URL('/api/v1/extensions', apiUrl), { headers: { authorization: `Bearer ${globalConfig.apiKey}` } })
     .then((res) => (res.ok ? res.json() : { extensions: [] }))
-    .then((body) => (body as { extensions?: { slug: string; name: string }[] }).extensions ?? [])
+    .then((body) => (body as { extensions?: { id: string; name: string }[] }).extensions ?? [])
     .catch(() => [])
 
   let extension: string
@@ -236,15 +236,15 @@ async function runInit(): Promise<void> {
     const OTHER = '__other__'
     const choice = await select({
       message: 'Which extension is this project for?',
-      options: [...existing.map((e) => ({ value: e.slug, label: `${e.name} (${e.slug})` })), { value: OTHER, label: 'Something else (type an id/slug)' }],
+      options: [...existing.map((e) => ({ value: e.id, label: e.name })), { value: OTHER, label: 'Something else (type an ext_… id)' }],
     })
     if (isCancel(choice)) {
       cancel('cancelled')
       return
     }
-    extension = choice === OTHER ? await promptText('Extension id or slug:', { validate: requiredField('Extension') }) : choice
+    extension = choice === OTHER ? await promptText('Extension id (ext_…):', { validate: requiredField('Extension') }) : choice
   } else {
-    extension = await promptText('Extension id or slug:', { validate: requiredField('Extension') })
+    extension = await promptText('Extension id (ext_…):', { validate: requiredField('Extension') })
   }
 
   const wantsSafari = await confirm({ message: 'Does this project publish to Safari (App Store Connect)?', initialValue: false })
@@ -336,7 +336,7 @@ const main = defineCommand({
           description: "Path to the zip file — omit in a WXT project to use .output/{name}-{version}-{browser}.zip (or always, for --store safari)",
           required: false,
         },
-        extension: { type: 'string', description: 'Target extension, id or slug (required — or extport.config.json\'s "extension")' },
+        extension: { type: 'string', description: 'Target extension id, ext_… (required — or extport.config.json\'s "extension")' },
         version: { type: 'string', description: "Artifact version, 1-4 dot-separated integers (or inferred from the zip's manifest.json / package.json)" },
         store: {
           type: 'enum',

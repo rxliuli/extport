@@ -12,16 +12,6 @@ import { queueLatestArtifact } from '../reconcile/queue'
 import { resolveTargetPlatforms, runReconciliation } from '../reconcile/run'
 import { deriveTargetLifecycles } from '../reconcile/status'
 
-const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/
-
-export function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 63)
-}
-
 const route = new Hono<AppEnv>()
 
 route.use('*', requireAuth, requireActiveTenant)
@@ -37,7 +27,7 @@ route.get(
       .select()
       .from(extensions)
       .where(eq(extensions.tenantId, c.get('tenant').id))
-      .orderBy(extensions.slug)
+      .orderBy(extensions.name)
     return c.json({ extensions: rows })
   },
 )
@@ -58,7 +48,7 @@ route.get(
       .select()
       .from(extensions)
       .where(eq(extensions.tenantId, tenant.id))
-      .orderBy(extensions.slug)
+      .orderBy(extensions.name)
 
     const targetRows = await db
       .select({ target: publishTargets, credential: storeCredentials })
@@ -97,7 +87,6 @@ route.get(
       extensions: extensionRows.map((extension) => ({
         id: extension.id,
         name: extension.name,
-        slug: extension.slug,
         targets: targetsByExtension.get(extension.id) ?? [],
       })),
     })
@@ -106,14 +95,13 @@ route.get(
 
 const createExtensionBodySchema = v.object({
   name: v.pipe(v.string('name is required'), v.trim(), v.minLength(1, 'name is required')),
-  slug: v.optional(v.pipe(v.string(), v.trim())),
 })
 
 route.post(
   '/',
   describeRoute({
     summary: 'Create an extension',
-    description: 'slug defaults to a slugified version of name if omitted.',
+    description: 'name must be unique per tenant — it doubles as the licensing verification key.',
     responses: { 201: { description: 'Created' }, 403: { description: 'Plan limit reached' }, 409: { description: 'Slug already exists' } },
   }),
   validator('json', createExtensionBodySchema, badRequest),
@@ -121,10 +109,6 @@ route.post(
     const db = c.get('db')
     const tenant = c.get('tenant')
     const body = c.req.valid('json')
-    const slug = body.slug || slugify(body.name)
-    if (!SLUG_RE.test(slug)) {
-      return c.json({ error: 'slug must be lowercase alphanumeric with dashes' }, 400)
-    }
 
     const limit = PLAN_LIMITS[tenant.plan].maxExtensions
     if (limit !== null) {
@@ -140,11 +124,11 @@ route.post(
     const existing = await db
       .select({ id: extensions.id })
       .from(extensions)
-      .where(and(eq(extensions.tenantId, tenant.id), eq(extensions.slug, slug)))
-    if (existing.length > 0) return c.json({ error: `slug "${slug}" already exists` }, 409)
+      .where(and(eq(extensions.tenantId, tenant.id), eq(extensions.name, body.name)))
+    if (existing.length > 0) return c.json({ error: `an extension named "${body.name}" already exists` }, 409)
 
     const id = newId('extension')
-    await db.insert(extensions).values({ id, tenantId: tenant.id, name: body.name, slug })
+    await db.insert(extensions).values({ id, tenantId: tenant.id, name: body.name })
     const [created] = await db.select().from(extensions).where(eq(extensions.id, id))
     return c.json({ extension: created }, 201)
   },

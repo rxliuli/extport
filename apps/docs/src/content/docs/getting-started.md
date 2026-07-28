@@ -58,7 +58,7 @@ Either from your own machine:
 
 ```sh
 npx extport login
-npx extport push dist/my-extension.zip --extension my-extension --version 1.0.0
+npx extport push dist/my-extension.zip --extension ext_yourExtensionId --version 1.0.0
 ```
 
 Or from CI, using the published GitHub Actions:

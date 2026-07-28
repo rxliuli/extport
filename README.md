@@ -54,9 +54,9 @@ After changing `apps/api/wrangler.jsonc` or `.dev.vars`, regenerate types with
 
 ```sh
 # one line in any CI job; EXTPORT_API_KEY from Settings → API keys
-npx extport push dist.zip --extension my-extension --version 1.2.3
+npx extport push dist.zip --extension ext_yourExtensionId --version 1.2.3
 # store-specific builds:
-npx extport push dist-chrome.zip --extension my-extension --version 1.2.3 --store chrome
+npx extport push dist-chrome.zip --extension ext_yourExtensionId --version 1.2.3 --store chrome
 ```
 
 Versions are immutable: identical re-uploads are idempotent (200), changed

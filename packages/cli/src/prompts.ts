@@ -32,7 +32,7 @@ export const requiredField = required
 export async function fillMissingPushDefaults(raw: RawPushArgs, env: Record<string, string | undefined>, defaults: PushDefaults): Promise<PushDefaults> {
   const filled = { ...defaults }
   if (!raw.extension && !filled.extension) {
-    filled.extension = await ask('Extension (id or slug):', { validate: required('Extension') })
+    filled.extension = await ask('Extension id (ext_…):', { validate: required('Extension') })
   }
   if (!raw.apiKey && !env.EXTPORT_API_KEY && !filled.apiKey) {
     filled.apiKey = await ask("API key (run 'extport login' to avoid this next time):", { mask: true, validate: required('API key') })

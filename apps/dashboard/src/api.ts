@@ -7,7 +7,6 @@ export interface Me {
 export interface Extension {
   id: string
   name: string
-  slug: string
   licensingEnabled: boolean
 }
 
@@ -50,7 +49,6 @@ export interface MatrixTarget {
 export interface MatrixExtension {
   id: string
   name: string
-  slug: string
   targets: MatrixTarget[]
 }
 
