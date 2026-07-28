@@ -74,3 +74,23 @@ Or from CI, using the published GitHub Actions:
 Omit `--store`/`store:` to push a universal zip to every store target you've configured for that extension, or
 target one store specifically (e.g. for Firefox's separate source-zip requirement). Safari has no zip upload at
 all — it's built and signed locally via `extport safari-build`, see the [Safari](/stores/safari/) page.
+
+## Shell completion
+
+`extport completion bash|zsh|fish` prints a Tab-completion script for subcommands, flag names, and the values of
+`--store`/`--platform`. It only prints — add the right line to your shell's own config to make it stick, same as
+`gh`/`kubectl`/`rustup`:
+
+```sh
+# ~/.zshrc
+eval "$(extport completion zsh)"
+
+# ~/.bashrc
+eval "$(extport completion bash)"
+
+# ~/.config/fish/config.fish
+extport completion fish | source
+```
+
+Open a new terminal (or `source` the file you just edited) to pick it up. The shell name is optional — omit it
+(`extport completion`) and it detects the one you're currently running.
