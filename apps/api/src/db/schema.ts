@@ -155,7 +155,7 @@ export const publishTargets = sqliteTable(
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
     storeItemId: text('store_item_id').notNull(),
     // Edge only: Partner Center's Submission API needs storeItemId to be the
-    // internal GUID Product ID, but its public store-detail page (used as a
+    // internal GUID Plan ID, but its public store-detail page (used as a
     // getState fallback, since the Submission API can't query status at all)
     // is keyed by the store-facing crx id instead — two different Microsoft
     // ID namespaces for the same listing. Unused by every other store.
@@ -291,8 +291,8 @@ export const publishEvents = sqliteTable(
 
 // ===== Licensing 模块(Phase 2 实现,schema 先落地) =====
 
-export const products = sqliteTable(
-  'products',
+export const plans = sqliteTable(
+  'plans',
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull(),
@@ -309,8 +309,8 @@ export const products = sqliteTable(
     ...timestamps,
   },
   (t) => [
-    index('products_tenant_idx').on(t.tenantId),
-    uniqueIndex('products_ext_tier_idx').on(t.extensionId, t.tier),
+    index('plans_tenant_idx').on(t.tenantId),
+    uniqueIndex('plans_ext_tier_idx').on(t.extensionId, t.tier),
   ],
 )
 
@@ -319,13 +319,13 @@ export const licenses = sqliteTable(
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull(),
-    productId: text('product_id').notNull(),
+    planId: text('plan_id').notNull(),
     key: text('key').notNull(),
     buyerEmail: text('buyer_email').notNull(),
     entitlementType: text('entitlement_type', {
       enum: ['perpetual', 'balance', 'recurring'],
     }).notNull().$defaultFn(() => 'perpetual'),
-    // Snapshot at issuance — later product edits must not retroactively
+    // Snapshot at issuance — later plan edits must not retroactively
     // change already-sold licenses.
     maxActivations: integer('max_activations').notNull(),
     status: text('status', { enum: ['active', 'locked', 'refunded'] }).notNull().$defaultFn(() => 'active'),
@@ -382,6 +382,26 @@ export const licenseEvents = sqliteTable(
   (t) => [index('license_events_license_idx').on(t.licenseId, t.createdAt)],
 )
 
+// One payment-provider credential per (tenant, provider) — the Stripe
+// webhook signing secret, envelope-encrypted exactly like store
+// credentials. The tenant's Stripe account itself stays theirs; extport
+// only verifies webhook signatures with this. See docs/licensing.md.
+export const paymentCredentials = sqliteTable(
+  'payment_credentials',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    provider: text('provider', { enum: ['stripe'] }).notNull(),
+    // Last four characters of the secret — the only plaintext-derived value stored.
+    hint: text('hint').notNull(),
+    // { webhookSecret } encrypted with the tenant DEK.
+    encryptedPayload: text('encrypted_payload').notNull(),
+    keyVersion: integer('key_version').notNull().$defaultFn(() => 1),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('payment_credentials_tenant_provider_idx').on(t.tenantId, t.provider)],
+)
+
 export type Tenant = typeof tenants.$inferSelect
 export type User = typeof users.$inferSelect
 export type Session = typeof sessions.$inferSelect
@@ -392,7 +412,8 @@ export type PublishTarget = typeof publishTargets.$inferSelect
 export type Artifact = typeof artifacts.$inferSelect
 export type DeploymentVersion = typeof deploymentVersions.$inferSelect
 export type PublishEvent = typeof publishEvents.$inferSelect
-export type Product = typeof products.$inferSelect
+export type Plan = typeof plans.$inferSelect
 export type License = typeof licenses.$inferSelect
 export type Activation = typeof activations.$inferSelect
 export type LicenseEvent = typeof licenseEvents.$inferSelect
+export type PaymentCredential = typeof paymentCredentials.$inferSelect

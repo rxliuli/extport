@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { describeRoute, resolver, validator } from 'hono-openapi'
 import * as v from 'valibot'
-import { artifacts, deploymentVersions, extensions, licenses, products, publishEvents, publishTargets, storeCredentials, type Db } from '../db'
+import { artifacts, deploymentVersions, extensions, licenses, plans, publishEvents, publishTargets, storeCredentials, type Db } from '../db'
 import { tenantDek } from '../lib/kms'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
@@ -211,8 +211,8 @@ route.delete(
     const [licenseRow] = await db
       .select({ count: sql<number>`count(*)` })
       .from(licenses)
-      .innerJoin(products, eq(licenses.productId, products.id))
-      .where(eq(products.extensionId, extension.id))
+      .innerJoin(plans, eq(licenses.planId, plans.id))
+      .where(eq(plans.extensionId, extension.id))
     if ((licenseRow?.count ?? 0) > 0) {
       return c.json({ error: 'licenses have been issued for this extension; it cannot be deleted' }, 409)
     }
@@ -232,7 +232,7 @@ route.delete(
     await db.delete(deploymentVersions).where(eq(deploymentVersions.extensionId, extension.id))
     await db.delete(artifacts).where(eq(artifacts.extensionId, extension.id))
     await db.delete(publishTargets).where(eq(publishTargets.extensionId, extension.id))
-    await db.delete(products).where(eq(products.extensionId, extension.id)) // license-less by the guard above
+    await db.delete(plans).where(eq(plans.extensionId, extension.id)) // license-less by the guard above
     await db.delete(extensions).where(eq(extensions.id, extension.id))
 
     return c.json({ ok: true })

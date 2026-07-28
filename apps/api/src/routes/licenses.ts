@@ -3,8 +3,8 @@ import { and, desc, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
-import { licenseEvents, licenses, products } from '../db'
-import { generateLicenseKey } from '../lib/license-key'
+import { licenseEvents, licenses, plans } from '../db'
+import { uniqueLicenseKey } from '../lib/license-key'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
 
@@ -21,13 +21,13 @@ route.get(
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
-    const productId = c.req.query('product')
+    const planId = c.req.query('plan')
     const rows = await db
       .select()
       .from(licenses)
       .where(
-        productId
-          ? and(eq(licenses.tenantId, tenant.id), eq(licenses.productId, productId))
+        planId
+          ? and(eq(licenses.tenantId, tenant.id), eq(licenses.planId, planId))
           : eq(licenses.tenantId, tenant.id),
       )
       .orderBy(desc(licenses.createdAt))
@@ -36,7 +36,7 @@ route.get(
 )
 
 const issueLicenseBodySchema = v.object({
-  productId: v.pipe(v.string('productId is required'), v.trim(), v.minLength(1, 'productId is required')),
+  planId: v.pipe(v.string('planId is required'), v.trim(), v.minLength(1, 'planId is required')),
   buyerEmail: v.pipe(v.string('buyerEmail is required'), v.trim(), v.email('buyerEmail must be a valid email')),
 })
 
@@ -44,8 +44,8 @@ route.post(
   '/',
   describeRoute({
     summary: 'Issue a license',
-    description: 'Manually issues an activation code for a product. The response is the only place the key is shown in full.',
-    responses: { 201: { description: 'Issued' }, 404: { description: 'Product not found' } },
+    description: 'Manually issues an activation code for a plan. The response is the only place the key is shown in full.',
+    responses: { 201: { description: 'Issued' }, 404: { description: 'Plan not found' } },
   }),
   validator('json', issueLicenseBodySchema, badRequest),
   async (c) => {
@@ -53,32 +53,25 @@ route.post(
     const tenant = c.get('tenant')
     const body = c.req.valid('json')
 
-    const [product] = await db
+    const [plan] = await db
       .select()
-      .from(products)
-      .where(and(eq(products.tenantId, tenant.id), eq(products.id, body.productId)))
-    if (!product) return c.json({ error: 'product not found' }, 404)
+      .from(plans)
+      .where(and(eq(plans.tenantId, tenant.id), eq(plans.id, body.planId)))
+    if (!plan) return c.json({ error: 'plan not found' }, 404)
 
-    // 80-bit keys collide only in theory; the loop is a courtesy and the
-    // unique index on licenses.key is the real backstop.
-    let key = generateLicenseKey()
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const [dupe] = await db.select({ id: licenses.id }).from(licenses).where(eq(licenses.key, key))
-      if (!dupe) break
-      key = generateLicenseKey()
-    }
+    const key = await uniqueLicenseKey(db)
 
     const id = newId('license')
     await db.insert(licenses).values({
       id,
       tenantId: tenant.id,
-      productId: product.id,
+      planId: plan.id,
       key,
       buyerEmail: body.buyerEmail,
-      entitlementType: product.entitlementType,
-      // Snapshot: later product edits must not retroactively change
+      entitlementType: plan.entitlementType,
+      // Snapshot: later plan edits must not retroactively change
       // already-issued licenses.
-      maxActivations: product.maxActivations,
+      maxActivations: plan.maxActivations,
       source: 'manual',
     })
     await db.insert(licenseEvents).values({
@@ -86,7 +79,7 @@ route.post(
       tenantId: tenant.id,
       licenseId: id,
       type: 'issued',
-      payload: { source: 'manual', productId: product.id },
+      payload: { source: 'manual', planId: plan.id },
     })
 
     const [created] = await db.select().from(licenses).where(eq(licenses.id, id))

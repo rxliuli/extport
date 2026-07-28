@@ -14,7 +14,9 @@ import extensionsRoutes from './routes/extensions'
 import keysRoutes from './routes/keys'
 import licensesRoutes from './routes/licenses'
 import licensingRoutes from './routes/licensing'
-import productsRoutes from './routes/products'
+import paymentCredentialsRoutes from './routes/payment-credentials'
+import plansRoutes from './routes/plans'
+import stripeWebhookRoutes from './routes/stripe-webhook'
 import tenantRoutes from './routes/tenant'
 import { requireAuth, withDb, type AppEnv } from './middleware/auth'
 
@@ -37,10 +39,13 @@ api.route('/v1/artifacts', artifactsRoutes)
 api.route('/v1/credentials', credentialsRoutes)
 api.route('/v1/tenant', tenantRoutes)
 // /v1/licensing is public — called by end users' devices, keyed by license
-// code alone. products/licenses are tenant-authed like everything else.
+// code alone; the stripe webhook receiver is public too, authenticated by
+// signature. plans/licenses/payment-credentials are tenant-authed.
 api.route('/v1/licensing', licensingRoutes)
-api.route('/v1/products', productsRoutes)
+api.route('/v1/licensing/webhooks/stripe', stripeWebhookRoutes)
+api.route('/v1/plans', plansRoutes)
 api.route('/v1/licenses', licensesRoutes)
+api.route('/v1/payment-credentials', paymentCredentialsRoutes)
 
 // Public — this is the whole point of generating it (docs/spec a third-party
 // developer can hand to a client generator without needing to ask us for it).

@@ -14,10 +14,11 @@ export const ID_PREFIXES = {
   artifact: 'art',
   deploymentVersion: 'dep',
   publishEvent: 'pev',
-  product: 'prod',
+  plan: 'plan',
   license: 'lic',
   activation: 'act',
   licenseEvent: 'lev',
+  paymentCredential: 'pay',
 } as const
 
 export type IdKind = keyof typeof ID_PREFIXES

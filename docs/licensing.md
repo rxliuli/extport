@@ -1,9 +1,10 @@
 # Licensing (design)
 
-Status: **slice A implemented** (2026-07-27) — schema restructure,
-public activate/check, manual issuance API, and `@extport/sdk` are live in
-code with full test coverage; dogfood against a real fleet extension is
-the remaining slice-A acceptance step. Slices B/C not started.
+Status: **slices A + B implemented** (A accepted 2026-07-28 — real
+activation from substack-exporter's dev build against production; B coded
+and tested the same day, its acceptance — a Stripe test-mode purchase
+landing a working code in an inbox — pending the tenant-side Stripe
+setup). Slice C not started.
 Predecessor: [license-kit](https://github.com/rxliuli/license-kit)
 (store.rxliuli.com), which has run this exact model in production for the
 author's paid extensions. Its data will be imported; its client storage
@@ -44,9 +45,9 @@ Fixed in extport:
 - **No seat decay** — license-kit devices only accumulate; with random
   UUID fingerprints, seats eventually exhaust. extport releases idle seats
   (below).
-- **Tier lives on codes, not products** — license-kit snapshots
-  `planTier` onto each code with no product catalog behind it. extport
-  models products explicitly (below).
+- **Tier lives on codes, not plans** — license-kit snapshots
+  `planTier` onto each code with no catalog behind it. extport models
+  plans explicitly (below).
 - **`Math.random()` codes** — license-kit's generator is not
   cryptographically random. extport generates the same visual format
   (`XXXX-XXXX-XXXX-XXXX`, 32-char alphabet without I/O/0/1) from
@@ -70,7 +71,7 @@ POST /api/v1/licensing/check      { code, productName, fingerprint }
 ```
 
 - **No tenant in the URL.** Codes are globally unique; a code resolves
-  license → product → extension → tenant. `productName` is a cross-check
+  license → plan → extension → tenant. `productName` is a cross-check
   (the extension asking must name the product the code was sold for), not
   a lookup key. Brute-force defense is code entropy (80 bits), same as
   license-kit.
@@ -93,14 +94,14 @@ POST /api/v1/licensing/check      { code, productName, fingerprint }
 - **`expiresAt` is emitted as `null`** (perpetual has no expiry) but
   tolerated on the client when reading stored state — imported license-kit
   records carry `dayjs().add(100, 'year')` values that must keep parsing.
-- Endpoints 404 unless the product's extension has `licensingEnabled`.
+- Endpoints 404 unless the plan's extension has `licensingEnabled`.
 
 ## Entitlements: perpetual only
 
 All of the author's paid extensions are one-time purchases; v1 implements
 only `perpetual`. The `entitlementType` enum keeps its other values
 (TS-level only, no DB constraint) but no code path reads them. The
-`licenses.balance` column is dropped — re-add it when a balance product
+`licenses.balance` column is dropped — re-add it when a balance plan
 actually exists. Licenses have no `expiresAt` column.
 
 ## Schema deltas
@@ -110,8 +111,8 @@ one cheap migration with zero data concerns.
 
 | Table | Change |
 |---|---|
-| `products` | + `tier` (text). One row per (extension, tier); `name` is the app-level name shared across tiers ("IMP Translate" basic + pro are two rows, same name) and is what the SDK sends as `productName`. − `stripeMetadataKey`: the metadata key is fixed (`extport_product`), its value is the product id. |
-| `licenses` | + `maxActivations` snapshot at issuance (product edits must not retroactively change sold licenses). − `balance`. Unique index on `sourceRef` (webhook idempotency + refund lookup). Status: `active / locked / refunded`. |
+| `plans` (né `products`) | + `tier` (text). One row per (extension, tier); `name` is the app-level name shared across tiers ("IMP Translate" basic + pro are two rows, same name) and is what the SDK sends as `productName` — that wire field name is frozen, the table is not. Renamed products → plans (2026-07-28): "product" collides with Stripe/Paddle's Product and Edge's Partner Center Product ID, while the SDK (`plans`, `usePlan`), the buyer UI ("Current Plan"), and license-kit (`planTier`) already speak *plan*. − `stripeMetadataKey`: the metadata key is fixed (`extport_plan`), its value is the plan id. |
+| `licenses` | + `maxActivations` snapshot at issuance (plan edits must not retroactively change sold licenses). − `balance`. Unique index on `sourceRef` (webhook idempotency + refund lookup). Status: `active / locked / refunded`. |
 | `activations` | Unique index on (`licenseId`, `deviceFingerprint`); re-activation of a known fingerprint reuses the row (clears `releasedAt`). A seat is an activation with `releasedAt IS NULL`. |
 | `license_events` | Enum becomes `issued / activated / seat_released / revoked / reset`. Heartbeats are not events. |
 | `tenant_signing_keys` | Dropped. |
@@ -145,7 +146,7 @@ nothing worth a persisted timestamp.
 ## Plans gate issuance — never validation
 
 The tenant's subscription to extport pays for *creating* things:
-publishing quota, products, issuing new licenses. It never pays for
+publishing quota, plans, issuing new licenses. It never pays for
 keeping already-issued licenses verifiable. When a tenant downgrades,
 churns to free, or walks away entirely, `activate`/`check` for every
 license they ever issued keeps serving indefinitely — validation traffic
@@ -171,7 +172,7 @@ The tenant's own Stripe account; extport never touches money. The
 zero-code tenant story:
 
 1. Create a Payment Link in the Stripe dashboard, set metadata
-   `extport_product = <product id>`.
+   `extport_plan = <plan id>`.
 2. Point a Stripe webhook (`checkout.session.completed`,
    `charge.refunded`, `charge.dispute.created`) at
    `POST /api/v1/licensing/webhooks/stripe/:tenantId`, store the signing
@@ -179,7 +180,7 @@ zero-code tenant story:
 
 Fulfillment: verify signature → dedupe by `sourceRef` (payment intent id,
 falling back to session id for 100%-discount zero-total sessions, as
-license-kit does) → resolve product from metadata → issue license with the
+license-kit does) → resolve plan from metadata → issue license with the
 buyer email from `customer_details` → email the code (extport.dev sending
 domain is already onboarded).
 
@@ -224,7 +225,7 @@ because all three dimensions switch independently:
   (each with its own signing secret), so license-kit's and extport's
   endpoints coexist for the whole transition. The per-product switch is
   the Payment Link's metadata: replacing `product_name`/`tier` with
-  `extport_product` moves that product's fulfillment to extport and
+  `extport_plan` moves that product's fulfillment to extport and
   nothing else. Refund events are safe to deliver to both: each side acts
   only on its own DB, and license-kit revoking its stale copy of a
   migrated license is a no-op in practice.
@@ -233,7 +234,7 @@ Per-product cutover sequence:
 
 1. **Flip the Payment Link metadata.** New sales now fulfill in extport.
    (license-kit's webhook needs a one-line patch first: skip sessions
-   carrying `extport_product`, otherwise flipped sessions hit its
+   carrying `extport_plan`, otherwise flipped sessions hit its
    "missing fulfillment data" throw → 500 → Stripe retry noise.)
 2. **Run the import for that product.** Because the flip happened first,
    the import covers every code sold pre-flip and every code sold
@@ -263,7 +264,7 @@ Import mapping, `source: 'imported'`:
 | license-kit | extport |
 |---|---|
 | `activation_code.code` | `licenses.key` — **verbatim** |
-| `activation_code.planTier` + `productName` | resolve/create `products` row (extension, tier) |
+| `activation_code.planTier` + `productName` | resolve/create `plans` row (extension, tier) |
 | `activation_code.maxDevices` | `licenses.maxActivations` |
 | `activation_code.status` (`active/revoked/expired`) | `active` / `refunded` / `refunded` |
 | `user.email` | `licenses.buyerEmail` (denormalized; `buyers` row in slice C) |

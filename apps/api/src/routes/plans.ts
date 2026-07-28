@@ -3,11 +3,11 @@ import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
-import { extensions, products } from '../db'
+import { extensions, plans } from '../db'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
 
-// Licensing product catalog: one row per (extension, tier). `name` is the
+// Licensing plan catalog: one row per (extension, tier). `name` is the
 // app-level name shared across tiers — it's what the SDK sends as
 // productName. See docs/licensing.md.
 const route = new Hono<AppEnv>()
@@ -16,21 +16,21 @@ route.use('*', requireAuth, requireActiveTenant)
 
 route.get(
   '/',
-  describeRoute({ summary: 'List products', responses: { 200: { description: 'OK' } } }),
+  describeRoute({ summary: 'List plans', responses: { 200: { description: 'OK' } } }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
     const extensionId = c.req.query('extension')
     const rows = await db
       .select()
-      .from(products)
+      .from(plans)
       .where(
         extensionId
-          ? and(eq(products.tenantId, tenant.id), eq(products.extensionId, extensionId))
-          : eq(products.tenantId, tenant.id),
+          ? and(eq(plans.tenantId, tenant.id), eq(plans.extensionId, extensionId))
+          : eq(plans.tenantId, tenant.id),
       )
-      .orderBy(products.createdAt)
-    return c.json({ products: rows })
+      .orderBy(plans.createdAt)
+    return c.json({ plans: rows })
   },
 )
 
@@ -44,8 +44,8 @@ const createProductBodySchema = v.object({
 route.post(
   '/',
   describeRoute({
-    summary: 'Create a product',
-    description: 'One product per (extension, tier). name is the app-level name the SDK sends as productName, shared across tiers.',
+    summary: 'Create a plan',
+    description: 'One plan per (extension, tier). name is the app-level name the SDK sends as productName, shared across tiers.',
     responses: { 201: { description: 'Created' }, 404: { description: 'Extension not found' }, 409: { description: 'Tier already exists for this extension' } },
   }),
   validator('json', createProductBodySchema, badRequest),
@@ -54,7 +54,7 @@ route.post(
     const tenant = c.get('tenant')
     const body = c.req.valid('json')
 
-    // The SDK resolves unknown tiers to 'free' — a paid product named
+    // The SDK resolves unknown tiers to 'free' — a paid plan named
     // 'free' could never activate anything.
     if (body.tier === 'free') return c.json({ error: 'tier "free" is reserved for the unpaid tier' }, 400)
 
@@ -65,13 +65,13 @@ route.post(
     if (!extension) return c.json({ error: 'extension not found' }, 404)
 
     const [conflict] = await db
-      .select({ id: products.id })
-      .from(products)
-      .where(and(eq(products.extensionId, extension.id), eq(products.tier, body.tier)))
+      .select({ id: plans.id })
+      .from(plans)
+      .where(and(eq(plans.extensionId, extension.id), eq(plans.tier, body.tier)))
     if (conflict) return c.json({ error: `tier "${body.tier}" already exists for this extension` }, 409)
 
-    const id = newId('product')
-    await db.insert(products).values({
+    const id = newId('plan')
+    await db.insert(plans).values({
       id,
       tenantId: tenant.id,
       extensionId: extension.id,
@@ -79,8 +79,8 @@ route.post(
       tier: body.tier,
       maxActivations: body.maxActivations ?? 3,
     })
-    const [created] = await db.select().from(products).where(eq(products.id, id))
-    return c.json({ product: created }, 201)
+    const [created] = await db.select().from(plans).where(eq(plans.id, id))
+    return c.json({ plan: created }, 201)
   },
 )
 

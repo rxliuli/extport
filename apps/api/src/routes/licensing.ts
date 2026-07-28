@@ -4,7 +4,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
-import { activations, extensions, licenseEvents, licenses, products, type Activation, type Db, type License } from '../db'
+import { activations, extensions, licenseEvents, licenses, plans, type Activation, type Db, type License } from '../db'
 import { badRequest } from '../lib/validation'
 import type { AppEnv } from '../middleware/auth'
 
@@ -12,7 +12,7 @@ import type { AppEnv } from '../middleware/auth'
 // users' browsers rather than tenants. Deliberately unauthenticated: the
 // license key IS the credential (80 bits of entropy, see lib/license-key.ts),
 // and there is no tenant in the URL because a key already resolves
-// license → product → extension → tenant on its own. `productName` is a
+// license → plan → extension → tenant on its own. `productName` is a
 // cross-check against misconfigured extensions, not a lookup key.
 // Wire contract and every design decision here: docs/licensing.md.
 const route = new Hono<AppEnv>()
@@ -52,10 +52,10 @@ const checkBodySchema = v.object({
 
 async function lookupByCode(db: Db, code: string) {
   const [row] = await db
-    .select({ license: licenses, product: products, extension: extensions })
+    .select({ license: licenses, plan: plans, extension: extensions })
     .from(licenses)
-    .innerJoin(products, eq(licenses.productId, products.id))
-    .innerJoin(extensions, eq(products.extensionId, extensions.id))
+    .innerJoin(plans, eq(licenses.planId, plans.id))
+    .innerJoin(extensions, eq(plans.extensionId, extensions.id))
     .where(eq(licenses.key, code))
   return row
 }
@@ -111,12 +111,12 @@ route.post(
 
     const row = await lookupByCode(db, code)
     if (!row) return c.json({ success: false, message: 'invalid activation code' })
-    const { license, product, extension } = row
+    const { license, plan, extension } = row
     if (!extension.licensingEnabled) return c.json({ error: 'not found' }, 404)
-    if (product.name !== productName) return c.json({ success: false, message: 'activation code belongs to a different product' })
+    if (plan.name !== productName) return c.json({ success: false, message: 'activation code belongs to a different plan' })
     if (license.status !== 'active') return c.json({ success: false, message: 'activation code is no longer active' })
 
-    const ok = { success: true, message: 'activated', data: { tier: product.tier, expiresAt: null } }
+    const ok = { success: true, message: 'activated', data: { tier: plan.tier, expiresAt: null } }
 
     const [existing] = await db
       .select()
@@ -182,11 +182,11 @@ route.post(
 
     const row = await lookupByCode(db, code)
     if (!row) return c.json({ success: true, data: { isActive: false, tier: null, expiresAt: null } })
-    const { license, product, extension } = row
+    const { license, plan, extension } = row
     if (!extension.licensingEnabled) return c.json({ error: 'not found' }, 404)
 
-    const inactive = { success: true, data: { isActive: false, tier: product.tier, expiresAt: null } }
-    if (product.name !== productName) return c.json(inactive)
+    const inactive = { success: true, data: { isActive: false, tier: plan.tier, expiresAt: null } }
+    if (plan.name !== productName) return c.json(inactive)
     if (license.status !== 'active') return c.json(inactive)
 
     const [activation] = await db
@@ -196,7 +196,7 @@ route.post(
     if (!activation || activation.releasedAt) return c.json(inactive)
 
     await touchHeartbeat(db, activation)
-    return c.json({ success: true, data: { isActive: true, tier: product.tier, expiresAt: null } })
+    return c.json({ success: true, data: { isActive: true, tier: plan.tier, expiresAt: null } })
   },
 )
 
