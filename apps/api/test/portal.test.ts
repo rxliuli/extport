@@ -16,7 +16,7 @@ async function setupLicensed(buyerEmail = 'buyer@example.com') {
   const planRes = await request('/api/v1/plans', {
     method: 'POST',
     headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ extensionId: extension.id, name: 'My Plan', tier: 'pro' }),
+    body: JSON.stringify({ extensionId: extension.id, tier: 'pro' }),
   })
   const { plan } = (await planRes.json()) as { plan: Plan }
   const licenseRes = await request('/api/v1/licenses', {
@@ -51,7 +51,7 @@ describe('GET /v1/portal/purchase/:sessionId', () => {
     expect(fresh.status).toBe(200)
     const body = (await fresh.json()) as { purchase: { key: string; productName: string; tier: string } }
     expect(body.purchase.key).toBe(license.key)
-    expect(body.purchase.productName).toBe('My Plan')
+    expect(body.purchase.productName).toBe('My Extension')
     expect(body.purchase.tier).toBe('pro')
 
     const old = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
@@ -106,7 +106,7 @@ describe('GET /v1/portal/licenses', () => {
     await request('/api/v1/licensing/activate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: license.key, productName: 'My Plan', fingerprint: 'fp-alice' }),
+      body: JSON.stringify({ code: license.key, productName: 'My Extension', fingerprint: 'fp-alice' }),
     })
 
     expect((await request('/api/v1/portal/licenses')).status).toBe(401)
@@ -131,7 +131,7 @@ describe('tenant seat release + license detail', () => {
     await request('/api/v1/licensing/activate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: license.key, productName: 'My Plan', fingerprint: 'fp-release' }),
+      body: JSON.stringify({ code: license.key, productName: 'My Extension', fingerprint: 'fp-release' }),
     })
 
     const release = () =>
@@ -150,7 +150,7 @@ describe('tenant seat release + license detail', () => {
     const check = await request('/api/v1/licensing/check', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: license.key, productName: 'My Plan', fingerprint: 'fp-release' }),
+      body: JSON.stringify({ code: license.key, productName: 'My Extension', fingerprint: 'fp-release' }),
     })
     expect(((await check.json()) as { data: { isActive: boolean } }).data.isActive).toBe(false)
 

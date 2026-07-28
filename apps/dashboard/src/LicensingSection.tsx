@@ -70,7 +70,6 @@ function PlansCard({ extension }: { extension: Extension }) {
   const { data: plans = [] } = useQuery(plansQuery(extension.id))
   const [open, setOpen] = useState(false)
   // Prefills are suggestions the tenant confirms — never auto-created rows.
-  const [name, setName] = useState(extension.name)
   const [tier, setTier] = useState('pro')
   const [maxActivations, setMaxActivations] = useState('3')
 
@@ -80,7 +79,6 @@ function PlansCard({ extension }: { extension: Extension }) {
         method: 'POST',
         body: JSON.stringify({
           extensionId: extension.id,
-          name: name.trim(),
           tier: tier.trim(),
           maxActivations: Number.parseInt(maxActivations, 10) || 3,
         }),
@@ -110,16 +108,13 @@ function PlansCard({ extension }: { extension: Extension }) {
               className="flex flex-col gap-3"
               onSubmit={(e) => {
                 e.preventDefault()
-                if (name.trim() && tier.trim()) add.mutate()
+                if (tier.trim()) add.mutate()
               }}
             >
-              <label className="text-sm font-medium">
-                Product name
-                <Input className="mt-1" value={name} onChange={(e) => setName(e.target.value)} />
-                <span className="mt-1 block text-xs font-normal text-muted-foreground">
-                  Must match the <code>productName</code> your extension passes to @extport/sdk. Shared across tiers.
-                </span>
-              </label>
+              <p className="text-xs text-muted-foreground">
+                The <code>productName</code> your extension passes to @extport/sdk is this extension's name
+                (<span className="font-medium">{extension.name}</span>) — it stays locked while licensing is enabled.
+              </p>
               <label className="text-sm font-medium">
                 Tier
                 <Input className="mt-1" value={tier} onChange={(e) => setTier(e.target.value)} />
@@ -155,7 +150,6 @@ function PlansCard({ extension }: { extension: Extension }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
                 <TableHead>Tier</TableHead>
                 <TableHead>Max devices</TableHead>
                 <TableHead>Stripe metadata</TableHead>
@@ -165,7 +159,6 @@ function PlansCard({ extension }: { extension: Extension }) {
             <TableBody>
               {plans.map((plan) => (
                 <TableRow key={plan.id}>
-                  <TableCell>{plan.name}</TableCell>
                   <TableCell>
                     <Badge variant="secondary">{plan.tier}</Badge>
                   </TableCell>
@@ -214,7 +207,7 @@ function PlanEditDialog({ plan, extensionId }: { plan: Plan; extensionId: string
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            Edit {plan.name} ({plan.tier})
+            Edit {plan.tier}
           </DialogTitle>
         </DialogHeader>
         <form
@@ -310,7 +303,7 @@ function LicensesCard({ extension }: { extension: Extension }) {
                     <SelectContent>
                       {plans.map((plan) => (
                         <SelectItem key={plan.id} value={plan.id}>
-                          {plan.name} ({plan.tier})
+                          {plan.tier}
                         </SelectItem>
                       ))}
                     </SelectContent>

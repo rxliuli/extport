@@ -91,11 +91,26 @@ const devices = d1(
 
 // ---- read extport (plans to resolve, existing rows for idempotency) ------
 const tiers = [...new Set(codes.map((c) => c.plan_tier))]
+// productName maps to extensions.name (the verification contract, frozen
+// while licensing is enabled); names may theoretically duplicate, so
+// assert a single match.
+const exts = d1(
+  EXTPORT_API_DIR,
+  'extport',
+  `SELECT id, name FROM extensions WHERE tenant_id = ${q(TENANT_ID)} AND name = ${q(productName)}`,
+)
+if (exts.length !== 1) {
+  console.error(
+    `extport has ${exts.length} extensions named ${JSON.stringify(productName)} — need exactly 1 ` +
+      '(create it, or rename to match license-kit\'s product_name, before importing).',
+  )
+  process.exit(1)
+}
 const plans = d1(
   EXTPORT_API_DIR,
   'extport',
-  `SELECT id, name, tier, max_activations FROM plans
-   WHERE tenant_id = ${q(TENANT_ID)} AND name = ${q(productName)}`,
+  `SELECT id, tier, max_activations FROM plans
+   WHERE tenant_id = ${q(TENANT_ID)} AND extension_id = ${q(exts[0].id)}`,
 )
 const planByTier = new Map(plans.map((p) => [p.tier, p]))
 const missingTiers = tiers.filter((t) => !planByTier.has(t))

@@ -187,6 +187,21 @@ route.patch(
     if (typeof body.licensingEnabled === 'boolean') patch.licensingEnabled = body.licensingEnabled
     if (Object.keys(patch).length === 0) return c.json({ error: 'nothing to update' }, 400)
 
+    // While licensing is enabled, the name is part of the verification
+    // contract (the SDK's productName is cross-checked against it) —
+    // renaming would fail every installed device's check. The freeze lifts
+    // once the identity key moves to extensionId; see docs/licensing.md.
+    if (patch.name !== undefined) {
+      const [current] = await db
+        .select({ name: extensions.name, licensingEnabled: extensions.licensingEnabled })
+        .from(extensions)
+        .where(and(eq(extensions.tenantId, tenant.id), eq(extensions.id, c.req.param('id'))))
+      if (!current) return c.json({ error: 'not found' }, 404)
+      if (current.licensingEnabled && patch.name !== current.name) {
+        return c.json({ error: 'name is locked while licensing is enabled — it is the productName your shipped extension verifies against' }, 409)
+      }
+    }
+
     const result = await db
       .update(extensions)
       .set(patch)

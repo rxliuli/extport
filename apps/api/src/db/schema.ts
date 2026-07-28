@@ -155,7 +155,7 @@ export const publishTargets = sqliteTable(
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
     storeItemId: text('store_item_id').notNull(),
     // Edge only: Partner Center's Submission API needs storeItemId to be the
-    // internal GUID Plan ID, but its public store-detail page (used as a
+    // internal GUID Product ID, but its public store-detail page (used as a
     // getState fallback, since the Submission API can't query status at all)
     // is keyed by the store-facing crx id instead — two different Microsoft
     // ID namespaces for the same listing. Unused by every other store.
@@ -297,10 +297,10 @@ export const plans = sqliteTable(
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull(),
     extensionId: text('extension_id').notNull(),
-    // App-level name shared across tiers of the same extension — this is what
-    // the SDK sends as `productName` (a cross-check, not a lookup key).
-    name: text('name').notNull(),
     // 'basic' / 'pro' / ... — 'free' is reserved for the SDK's unpaid tier.
+    // What the SDK sends as `productName` is cross-checked against
+    // extensions.name (frozen while licensingEnabled) — a plan has no name
+    // of its own. The end-state key is extensionId; see docs/licensing.md.
     tier: text('tier').notNull(),
     entitlementType: text('entitlement_type', {
       enum: ['perpetual', 'balance', 'recurring'],

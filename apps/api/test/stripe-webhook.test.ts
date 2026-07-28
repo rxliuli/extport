@@ -62,7 +62,7 @@ async function setupStripeTenant() {
   const productRes = await request('/api/v1/plans', {
     method: 'POST',
     headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ extensionId: extension.id, name: 'My Plan', tier: 'pro' }),
+    body: JSON.stringify({ extensionId: extension.id, tier: 'pro' }),
   })
   const { plan } = (await productRes.json()) as { plan: Plan }
   const credRes = await request('/api/v1/payment-credentials', {
@@ -163,7 +163,7 @@ describe('checkout.session.completed fulfillment', () => {
     const activateRes = await request('/api/v1/licensing/activate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: license.key, productName: 'My Plan', fingerprint: 'fp-buyer' }),
+      body: JSON.stringify({ code: license.key, productName: 'My Extension', fingerprint: 'fp-buyer' }),
     })
     const activated = (await activateRes.json()) as { success: boolean; data?: { tier: string } }
     expect(activated.success).toBe(true)
@@ -231,7 +231,7 @@ describe('charge.refunded / charge.dispute.created revocation', () => {
     const activateRes = await request('/api/v1/licensing/activate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: license!.key, productName: 'My Plan', fingerprint: 'fp-refunded' }),
+      body: JSON.stringify({ code: license!.key, productName: 'My Extension', fingerprint: 'fp-refunded' }),
     })
     expect(((await activateRes.json()) as { success: boolean }).success).toBe(false)
   })

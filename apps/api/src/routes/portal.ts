@@ -3,7 +3,7 @@ import { Hono, type Context } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
-import { activations, licenses, magicLinks, plans } from '../db'
+import { activations, extensions, licenses, magicLinks, plans } from '../db'
 import {
   BUYER_SESSION_COOKIE,
   consumeMagicLink,
@@ -42,9 +42,10 @@ route.get(
   async (c) => {
     const db = c.get('db')
     const [row] = await db
-      .select({ license: licenses, plan: plans })
+      .select({ license: licenses, plan: plans, extension: extensions })
       .from(licenses)
       .innerJoin(plans, eq(licenses.planId, plans.id))
+      .innerJoin(extensions, eq(plans.extensionId, extensions.id))
       .where(eq(licenses.checkoutSessionId, c.req.param('sessionId')))
     if (!row) return c.json({ error: 'not found' }, 404)
     if (Date.now() - new Date(row.license.createdAt).getTime() > PURCHASE_LOOKUP_WINDOW_MS) {
@@ -53,7 +54,7 @@ route.get(
     return c.json({
       purchase: {
         key: row.license.key,
-        productName: row.plan.name,
+        productName: row.extension.name,
         tier: row.plan.tier,
         maxActivations: row.license.maxActivations,
         buyerEmail: row.license.buyerEmail,
@@ -138,9 +139,10 @@ route.get(
     // Across tenants on purpose: these are the buyer's own purchases,
     // wherever they were bought.
     const rows = await db
-      .select({ license: licenses, plan: plans })
+      .select({ license: licenses, plan: plans, extension: extensions })
       .from(licenses)
       .innerJoin(plans, eq(licenses.planId, plans.id))
+      .innerJoin(extensions, eq(plans.extensionId, extensions.id))
       .where(eq(licenses.buyerEmail, email))
       .orderBy(licenses.createdAt)
 
@@ -157,12 +159,12 @@ route.get(
 
     return c.json({
       email,
-      licenses: rows.map(({ license, plan }) => ({
+      licenses: rows.map(({ license, plan, extension }) => ({
         key: license.key,
         status: license.status,
         maxActivations: license.maxActivations,
         createdAt: license.createdAt,
-        productName: plan.name,
+        productName: extension.name,
         tier: plan.tier,
         devices: (devicesByLicense.get(license.id) ?? []).map((d) => ({
           fingerprint: d.deviceFingerprint,

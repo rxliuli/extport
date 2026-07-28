@@ -2,7 +2,7 @@ import { decryptJson, newId } from '@extport/shared'
 import { and, eq } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { describeRoute } from 'hono-openapi'
-import { licenseEvents, licenses, paymentCredentials, plans, tenants, type Tenant } from '../db'
+import { extensions, licenseEvents, licenses, paymentCredentials, plans, tenants, type Tenant } from '../db'
 import { uniqueLicenseKey } from '../lib/license-key'
 import { sendLicenseEmail } from '../lib/licensing-email'
 import { tenantDek } from '../lib/kms'
@@ -108,11 +108,13 @@ async function handleCheckoutCompleted(c: Context<AppEnv>, tenant: Tenant, sessi
   // session id is equally unique and refunds can't occur for them anyway.
   const sourceRef = paymentIntentId(session) ?? session.id
 
-  const [plan] = await db
-    .select()
+  const [row] = await db
+    .select({ plan: plans, extension: extensions })
     .from(plans)
+    .innerJoin(extensions, eq(plans.extensionId, extensions.id))
     .where(and(eq(plans.id, planId), eq(plans.tenantId, tenant.id)))
-  if (!plan) return c.json({ error: `extport_plan "${planId}" does not match a plan of this tenant` }, 500)
+  if (!row) return c.json({ error: `extport_plan "${planId}" does not match a plan of this tenant` }, 500)
+  const { plan, extension } = row
 
   const [dupe] = await db.select({ id: licenses.id }).from(licenses).where(eq(licenses.sourceRef, sourceRef))
   // No email re-send on replays: a retry that reaches here after an email
@@ -144,7 +146,7 @@ async function handleCheckoutCompleted(c: Context<AppEnv>, tenant: Tenant, sessi
 
   await sendLicenseEmail(c.env, {
     to: buyerEmail,
-    productName: plan.name,
+    productName: extension.name,
     tier: plan.tier,
     key,
     maxActivations: plan.maxActivations,

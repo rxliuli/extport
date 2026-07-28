@@ -7,9 +7,9 @@ import { extensions, plans } from '../db'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
 
-// Licensing plan catalog: one row per (extension, tier). `name` is the
-// app-level name shared across tiers — it's what the SDK sends as
-// productName. See docs/licensing.md.
+// Licensing plan catalog: one row per (extension, tier). What the SDK
+// sends as productName is the extension's name (frozen while licensing
+// is enabled) — a plan has no name of its own. See docs/licensing.md.
 const route = new Hono<AppEnv>()
 
 route.use('*', requireAuth, requireActiveTenant)
@@ -36,7 +36,6 @@ route.get(
 
 const createProductBodySchema = v.object({
   extensionId: v.pipe(v.string('extensionId is required'), v.trim(), v.minLength(1, 'extensionId is required')),
-  name: v.pipe(v.string('name is required'), v.trim(), v.minLength(1, 'name is required'), v.maxLength(200)),
   tier: v.pipe(v.string('tier is required'), v.trim(), v.minLength(1, 'tier is required'), v.maxLength(32)),
   maxActivations: v.optional(v.pipe(v.number('maxActivations must be a number'), v.integer('maxActivations must be an integer'), v.minValue(1, 'maxActivations must be at least 1'), v.maxValue(100, 'maxActivations must be at most 100'))),
 })
@@ -45,7 +44,7 @@ route.post(
   '/',
   describeRoute({
     summary: 'Create a plan',
-    description: 'One plan per (extension, tier). name is the app-level name the SDK sends as productName, shared across tiers.',
+    description: "One plan per (extension, tier). The SDK's productName is the extension's name — a plan has no name of its own.",
     responses: { 201: { description: 'Created' }, 404: { description: 'Extension not found' }, 409: { description: 'Tier already exists for this extension' } },
   }),
   validator('json', createProductBodySchema, badRequest),
@@ -75,7 +74,6 @@ route.post(
       id,
       tenantId: tenant.id,
       extensionId: extension.id,
-      name: body.name,
       tier: body.tier,
       maxActivations: body.maxActivations ?? 3,
     })
@@ -89,15 +87,14 @@ const patchPlanBodySchema = v.object({
 })
 
 // Deliberately only maxActivations (snapshot semantics — affects future
-// issuance only). `name` and `tier` are burned into installed extension
-// binaries as the productName cross-check and the SDK's tier table;
-// editing either would fail every existing device's check and clear
-// their cached entitlement. Sell a different tier? Create a new plan.
+// issuance only). `tier` is burned into installed extension binaries as
+// the SDK's tier table; editing it would fail existing devices' checks.
+// Sell a different tier? Create a new plan.
 route.patch(
   '/:id',
   describeRoute({
     summary: "Update a plan's device limit",
-    description: 'Only maxActivations is editable — name and tier are wire contracts baked into shipped extensions.',
+    description: 'Only maxActivations is editable — tier is a wire contract baked into shipped extensions.',
     responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } },
   }),
   validator('json', patchPlanBodySchema, badRequest),

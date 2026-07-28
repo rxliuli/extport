@@ -113,7 +113,7 @@ route.post(
     if (!row) return c.json({ success: false, message: 'invalid activation code' })
     const { license, plan, extension } = row
     if (!extension.licensingEnabled) return c.json({ error: 'not found' }, 404)
-    if (plan.name !== productName) return c.json({ success: false, message: 'activation code belongs to a different plan' })
+    if (extension.name !== productName) return c.json({ success: false, message: 'activation code belongs to a different product' })
     if (license.status !== 'active') return c.json({ success: false, message: 'activation code is no longer active' })
 
     const ok = { success: true, message: 'activated', data: { tier: plan.tier, expiresAt: null } }
@@ -186,7 +186,7 @@ route.post(
     if (!extension.licensingEnabled) return c.json({ error: 'not found' }, 404)
 
     const inactive = { success: true, data: { isActive: false, tier: plan.tier, expiresAt: null } }
-    if (plan.name !== productName) return c.json(inactive)
+    if (extension.name !== productName) return c.json(inactive)
     if (license.status !== 'active') return c.json(inactive)
 
     const [activation] = await db

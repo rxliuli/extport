@@ -119,8 +119,7 @@ export interface CredentialRow {
 export interface Plan {
   id: string
   extensionId: string
-  /** App-level name shared across tiers — what the SDK sends as productName. */
-  name: string
+  /** The SDK's productName is the extension's name — a plan has no name of its own. */
   tier: string
   entitlementType: 'perpetual' | 'balance' | 'recurring'
   maxActivations: number
