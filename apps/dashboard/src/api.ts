@@ -151,6 +151,16 @@ export interface ActivationRow {
   releasedAt: string | null
 }
 
+export interface PaymentCredentialRow {
+  id: string
+  provider: 'stripe'
+  hint: string
+  /** ISO date string (Date -> JSON) */
+  createdAt: string
+  /** ISO date string (Date -> JSON) */
+  updatedAt: string
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,

@@ -9,6 +9,7 @@ import {
   type LicenseRow,
   type MatrixExtension,
   type Me,
+  type PaymentCredentialRow,
   type Plan,
   type PublishEvent,
   type PublishTarget,
@@ -70,6 +71,12 @@ export const licensesQuery = queryOptions({
 export const credentialsQuery = queryOptions({
   queryKey: ['credentials'],
   queryFn: () => api<{ credentials: CredentialRow[] }>('/api/v1/credentials').then((r) => r.credentials),
+})
+
+export const paymentCredentialsQuery = queryOptions({
+  queryKey: ['payment-credentials'],
+  queryFn: () =>
+    api<{ credentials: PaymentCredentialRow[] }>('/api/v1/payment-credentials').then((r) => r.credentials),
 })
 
 export const keysQuery = queryOptions({

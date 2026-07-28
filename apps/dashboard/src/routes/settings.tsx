@@ -1,4 +1,5 @@
 import { api, ApiError, type ApiKeyRow, type CredentialRow } from '@/api'
+import { formatDate } from '@/status'
 import { DatePicker } from '@/components/date-picker'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -9,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { credentialsQuery, keysQuery } from '@/queries'
+import { credentialsQuery, keysQuery, paymentCredentialsQuery } from '@/queries'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { KeyRound, Loader2, Plus } from 'lucide-react'
@@ -402,12 +403,92 @@ function CredentialsSection() {
   )
 }
 
+function PaymentCredentialsSection() {
+  const queryClient = useQueryClient()
+  const { data: credentials = [] } = useQuery(paymentCredentialsQuery)
+  const stripe = credentials.find((c) => c.provider === 'stripe')
+  const [secret, setSecret] = useState('')
+  const [editing, setEditing] = useState(false)
+
+  const save = useMutation({
+    mutationFn: (webhookSecret: string) =>
+      api('/api/v1/payment-credentials', {
+        method: 'POST',
+        body: JSON.stringify({ provider: 'stripe', webhookSecret }),
+      }),
+    onSuccess: () => {
+      setSecret('')
+      setEditing(false)
+      void queryClient.invalidateQueries({ queryKey: paymentCredentialsQuery.queryKey })
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  })
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Payment credentials</CardTitle>
+        <CardDescription>
+          Your Stripe webhook signing secret (whsec_…) — used only to verify licensing fulfillment webhooks. The
+          secret itself is write-only and never shown again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {stripe && !editing ? (
+          <div className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+            <div className="flex items-center gap-3">
+              <span className="font-medium">stripe</span>
+              <code className="text-muted-foreground">whsec_…{stripe.hint}</code>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground">updated {formatDate(stripe.updatedAt)}</span>
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                Replace
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (secret.trim()) save.mutate(secret.trim())
+            }}
+          >
+            <Input
+              type="password"
+              placeholder="whsec_…"
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              autoComplete="off"
+            />
+            <Button type="submit" disabled={save.isPending}>
+              {save.isPending && <Loader2 className="animate-spin" />}
+              {stripe ? 'Replace secret' : 'Save secret'}
+            </Button>
+            {stripe && (
+              <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+            )}
+          </form>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Found on your Stripe webhook endpoint's page (Developers → Webhooks → your endpoint → Signing secret). Test
+          and live mode have separate secrets — store whichever mode your sales currently run in.
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
+
 function SettingsPage() {
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
       <ApiKeysSection />
       <CredentialsSection />
+      <PaymentCredentialsSection />
     </div>
   )
 }
