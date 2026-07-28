@@ -152,6 +152,7 @@ describe('checkout.session.completed fulfillment', () => {
     expect(license.key).toMatch(KEY_RE)
     expect(license.source).toBe('stripe_webhook')
     expect(license.sourceRef).toBe((event.data.object as { payment_intent: string }).payment_intent)
+    expect(license.checkoutSessionId).toBe((event.data.object as { id: string }).id)
     expect(license.buyerEmail).toBe('buyer@example.com')
     expect(license.maxActivations).toBe(plan.maxActivations)
 

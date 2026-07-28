@@ -16,6 +16,7 @@ import licensesRoutes from './routes/licenses'
 import licensingRoutes from './routes/licensing'
 import paymentCredentialsRoutes from './routes/payment-credentials'
 import plansRoutes from './routes/plans'
+import portalRoutes from './routes/portal'
 import stripeWebhookRoutes from './routes/stripe-webhook'
 import tenantRoutes from './routes/tenant'
 import { requireAuth, withDb, type AppEnv } from './middleware/auth'
@@ -43,6 +44,9 @@ api.route('/v1/tenant', tenantRoutes)
 // signature. plans/licenses/payment-credentials are tenant-authed.
 api.route('/v1/licensing', licensingRoutes)
 api.route('/v1/licensing/webhooks/stripe', stripeWebhookRoutes)
+// Buyer portal (portal.extport.dev): success-page lookup + magic-link
+// sign-in + read-only purchase list. Cookie-authed, same-origin.
+api.route('/v1/portal', portalRoutes)
 api.route('/v1/plans', plansRoutes)
 api.route('/v1/licenses', licensesRoutes)
 api.route('/v1/payment-credentials', paymentCredentialsRoutes)

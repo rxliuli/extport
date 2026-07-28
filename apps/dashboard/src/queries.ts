@@ -6,8 +6,10 @@ import {
   type CredentialRow,
   type DeploymentVersion,
   type Extension,
+  type LicenseRow,
   type MatrixExtension,
   type Me,
+  type Plan,
   type PublishEvent,
   type PublishTarget,
 } from './api'
@@ -53,6 +55,17 @@ export const timelineQuery = (id: string) =>
     queryFn: () => api<{ versions: DeploymentVersion[]; events: PublishEvent[] }>(`/api/v1/extensions/${id}/timeline`),
     refetchInterval: POLL_MS,
   })
+
+export const plansQuery = (extensionId: string) =>
+  queryOptions({
+    queryKey: ['extensions', extensionId, 'plans'],
+    queryFn: () => api<{ plans: Plan[] }>(`/api/v1/plans?extension=${extensionId}`).then((r) => r.plans),
+  })
+
+export const licensesQuery = queryOptions({
+  queryKey: ['licenses'],
+  queryFn: () => api<{ licenses: LicenseRow[] }>('/api/v1/licenses').then((r) => r.licenses),
+})
 
 export const credentialsQuery = queryOptions({
   queryKey: ['credentials'],

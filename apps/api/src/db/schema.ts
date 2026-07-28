@@ -331,6 +331,11 @@ export const licenses = sqliteTable(
     status: text('status', { enum: ['active', 'locked', 'refunded'] }).notNull().$defaultFn(() => 'active'),
     source: text('source', { enum: ['stripe_webhook', 'manual', 'imported'] }).notNull(),
     sourceRef: text('source_ref'),
+    // Stripe Checkout Session id (cs_…), stored at fulfillment for the
+    // success page's time-boxed lookup — extport holds no tenant API key
+    // to resolve cs → pi later. sourceRef stays the PaymentIntent (what
+    // refund events reference).
+    checkoutSessionId: text('checkout_session_id'),
     ...timestamps,
   },
   (t) => [
@@ -340,6 +345,7 @@ export const licenses = sqliteTable(
     // Webhook idempotency + refund lookup. SQLite unique indexes admit any
     // number of NULLs, so manual licenses (no sourceRef) are unaffected.
     uniqueIndex('licenses_source_ref_idx').on(t.sourceRef),
+    uniqueIndex('licenses_checkout_session_idx').on(t.checkoutSessionId),
   ],
 )
 
@@ -402,6 +408,43 @@ export const paymentCredentials = sqliteTable(
   (t) => [uniqueIndex('payment_credentials_tenant_provider_idx').on(t.tenantId, t.provider)],
 )
 
+// ===== 买家门户(slice C) =====
+
+// Magic-link sign-in for the buyer portal. Identity is just an email —
+// licenses already carry buyerEmail, and nothing needs a profile row.
+// The emailed link carries a one-time code, hashed at rest exactly like
+// session tokens; verifying it mints a buyer session.
+export const magicLinks = sqliteTable(
+  'magic_links',
+  {
+    id: text('id').primaryKey(),
+    email: text('email').notNull(),
+    codeHash: text('code_hash').notNull(),
+    usedAt: text('used_at'),
+    expiresAt: text('expires_at').notNull(),
+    createdAt: text('created_at').notNull().$defaultFn(now),
+  },
+  (t) => [
+    uniqueIndex('magic_links_code_idx').on(t.codeHash),
+    index('magic_links_email_idx').on(t.email),
+  ],
+)
+
+export const buyerSessions = sqliteTable(
+  'buyer_sessions',
+  {
+    id: text('id').primaryKey(),
+    email: text('email').notNull(),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: text('expires_at').notNull(),
+    createdAt: text('created_at').notNull().$defaultFn(now),
+  },
+  (t) => [
+    uniqueIndex('buyer_sessions_token_idx').on(t.tokenHash),
+    index('buyer_sessions_email_idx').on(t.email),
+  ],
+)
+
 export type Tenant = typeof tenants.$inferSelect
 export type User = typeof users.$inferSelect
 export type Session = typeof sessions.$inferSelect
@@ -417,3 +460,5 @@ export type License = typeof licenses.$inferSelect
 export type Activation = typeof activations.$inferSelect
 export type LicenseEvent = typeof licenseEvents.$inferSelect
 export type PaymentCredential = typeof paymentCredentials.$inferSelect
+export type MagicLink = typeof magicLinks.$inferSelect
+export type BuyerSession = typeof buyerSessions.$inferSelect

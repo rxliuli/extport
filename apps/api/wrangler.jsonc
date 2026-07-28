@@ -25,9 +25,13 @@
   // Same Worker — a separate hostname only because that default gets baked
   // into installed extension binaries, and a UI hostname must never be the
   // least-changeable contract in the system. See docs/licensing.md.
+  // portal.* is the buyer-facing surface (checkout success page + purchase
+  // portal) — like api.*, its URLs get baked into long-lived external
+  // config (Payment Link redirects, magic-link emails).
   "routes": [
     { "pattern": "dash.extport.dev", "custom_domain": true },
-    { "pattern": "api.extport.dev", "custom_domain": true }
+    { "pattern": "api.extport.dev", "custom_domain": true },
+    { "pattern": "portal.extport.dev", "custom_domain": true }
   ],
   "d1_databases": [
     {
@@ -60,6 +64,7 @@
     // production secrets are set once via `wrangler secret put`).
     "CURRENT_KEK_VERSION": "1",
     "DASHBOARD_URL": "https://dash.extport.dev",
+    "PORTAL_URL": "https://portal.extport.dev",
     // The production GitHub OAuth App's client id (public, fine to commit) —
     // callback URL must be https://dash.extport.dev/api/auth/github/callback.
     "GITHUB_CLIENT_ID": "Ov23lidxVa6vp0AA8Mpf",

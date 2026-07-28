@@ -19,6 +19,8 @@ export const ID_PREFIXES = {
   activation: 'act',
   licenseEvent: 'lev',
   paymentCredential: 'pay',
+  magicLink: 'mgl',
+  buyerSession: 'bss',
 } as const
 
 export type IdKind = keyof typeof ID_PREFIXES

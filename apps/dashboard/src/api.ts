@@ -116,6 +116,41 @@ export interface CredentialRow {
   lastVerifiedAt: string | null
 }
 
+export interface Plan {
+  id: string
+  extensionId: string
+  /** App-level name shared across tiers — what the SDK sends as productName. */
+  name: string
+  tier: string
+  entitlementType: 'perpetual' | 'balance' | 'recurring'
+  maxActivations: number
+  /** ISO date string (Date -> JSON) */
+  createdAt: string
+}
+
+export interface LicenseRow {
+  id: string
+  planId: string
+  key: string
+  buyerEmail: string
+  status: 'active' | 'locked' | 'refunded'
+  maxActivations: number
+  source: 'stripe_webhook' | 'manual' | 'imported'
+  /** ISO date string (Date -> JSON) */
+  createdAt: string
+}
+
+export interface ActivationRow {
+  id: string
+  deviceFingerprint: string
+  /** ISO date string (Date -> JSON) */
+  activatedAt: string
+  /** ISO date string (Date -> JSON) */
+  lastHeartbeatAt: string | null
+  /** ISO date string (Date -> JSON) */
+  releasedAt: string | null
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,

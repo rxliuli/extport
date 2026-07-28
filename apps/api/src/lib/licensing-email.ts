@@ -16,6 +16,29 @@ export interface LicenseEmail {
   maxActivations: number
 }
 
+export async function sendMagicLinkEmail(env: Env, to: string, url: string): Promise<void> {
+  const text = [
+    `Click the link below to sign in to your purchases:`,
+    '',
+    url,
+    '',
+    `The link is valid for 15 minutes and can be used once. If you didn't`,
+    `request it, you can safely ignore this email.`,
+  ].join('\n')
+  const html = [
+    `<p>Click the link below to sign in to your purchases:</p>`,
+    `<p><a href="${escapeHtml(url)}">${escapeHtml(url)}</a></p>`,
+    `<p>The link is valid for 15 minutes and can be used once. If you didn't request it, you can safely ignore this email.</p>`,
+  ].join('\n')
+  await env.EMAIL.send({
+    to,
+    from: { email: env.NOTIFICATION_FROM_EMAIL, name: 'extport' },
+    subject: 'Sign in to your purchases',
+    text,
+    html,
+  })
+}
+
 export async function sendLicenseEmail(env: Env, email: LicenseEmail): Promise<void> {
   const text = [
     `Thanks for purchasing ${email.productName} (${email.tier})!`,

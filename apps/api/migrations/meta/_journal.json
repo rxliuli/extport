@@ -127,6 +127,13 @@
       "when": 1785224741645,
       "tag": "0017_rename_products_to_plans",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1785229416985,
+      "tag": "0018_buyer_portal",
+      "breakpoints": true
     }
   ]
 }

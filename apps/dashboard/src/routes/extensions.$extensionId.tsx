@@ -20,6 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { LicensingSection } from '@/LicensingSection'
 import { credentialsQuery, extensionQuery, targetsQuery, timelineQuery } from '@/queries'
 import { relativeTime } from '@/status'
 import { ageDays } from '@/status'
@@ -573,9 +574,7 @@ function ExtensionDetailPage() {
           <VersionMatrixSection extensionId={extensionId} />
         </TabsContent>
         <TabsContent value="licensing" className="mt-4">
-          <p className="text-sm text-muted-foreground">
-            Licensing is coming in Phase 2. Interested? Let us know and we'll notify you when it ships.
-          </p>
+          <LicensingSection extension={extension} />
         </TabsContent>
       </Tabs>
     </div>

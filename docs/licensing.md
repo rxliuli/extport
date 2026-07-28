@@ -4,7 +4,10 @@ Status: **slices A + B accepted** (2026-07-28). A: real activation from
 substack-exporter's dev build against production. B: a Stripe test-mode
 Payment Link purchase fulfilled end-to-end — signature-verified webhook →
 issued license → emailed code that activates against the public wire
-protocol. Slice C not started.
+protocol. Slice C implemented the same day (portal pages, tenant
+licensing UI, portal.extport.dev); its acceptance — a real
+checkout-redirect showing the code, and a magic-link round trip — is
+pending deploy.
 Predecessor: [license-kit](https://github.com/rxliuli/license-kit)
 (store.rxliuli.com), which has run this exact model in production for the
 author's paid extensions. Its data will be imported; its client storage
@@ -117,7 +120,8 @@ one cheap migration with zero data concerns.
 | `license_events` | Enum becomes `issued / activated / seat_released / revoked / reset`. Heartbeats are not events. |
 | `tenant_signing_keys` | Dropped. |
 | `payment_credentials` (new, slice B) | (tenantId, provider `'stripe'`, encrypted webhook secret, keyVersion) — same envelope encryption as store credentials. One Stripe account per tenant. |
-| `buyers`, `magic_links` (new, slice C) | Buyer identity is a tenant-scoped email; magic links are the only buyer auth. |
+| `magic_links`, `buyer_sessions` (new, slice C) | Buyer identity is just an email (licenses already carry `buyerEmail`; no profile table until something needs one); magic links are the only buyer auth. |
+| `licenses.checkoutSessionId` (new, slice C) | Stripe Checkout Session id (cs_…), stored at fulfillment for the success page's time-boxed lookup; `sourceRef` remains the PaymentIntent for refunds. |
 
 ## Seat decay — lazy, no cron
 
@@ -301,9 +305,35 @@ local storage and remain valid there; the server stops emitting them.
 - **B — money.** `payment_credentials`, Stripe webhook, fulfillment
   email. Done when a Stripe test-mode purchase lands a working code in an
   inbox.
-- **C — self-service.** `buyers` + `magic_links`, buyer portal (list
-  licenses/devices, release a device as the manual escape hatch), tenant
-  dashboard licensing UI.
+- **C — self-service.** Buyer-facing surface on **portal.extport.dev**
+  (same Worker, third hostname — like api.*, these URLs get baked into
+  long-lived external config: Payment Link redirects and emails):
+  - **Checkout success page**: Payment Links redirect to
+    `/purchase/success?session_id={CHECKOUT_SESSION_ID}`. The page polls
+    a public endpoint that resolves the session id to the fulfilled
+    license — the redirect always beats the webhook, so polling is the
+    wait, and only signature-verified webhook writes are ever shown.
+    Fulfillment stores `licenses.checkoutSessionId` (cs_… for the
+    success page; `sourceRef` stays the pi_… for refunds) because
+    extport holds no tenant API key to resolve cs → pi the way
+    license-kit could with its own account key. The lookup expires 24 h
+    after purchase (the session id rides in a URL — history-leak-proof
+    it with a window), after which the page points at the email and the
+    portal.
+  - **Buyer portal, read-only**: magic-link sign-in by email
+    (`magic_links` + `buyer_sessions`; identity is just the email —
+    no buyers profile table until something needs one), listing every
+    license under that buyerEmail with its devices. **No self-service
+    seat release**: lazy decay already frees honest idle seats, and a
+    release button would invite one-code-infinite-devices rotation.
+    Edge cases go through the tenant.
+  - **Tenant dashboard licensing UI** (dash.extport.dev): plans and
+    licenses on the extension page following the "Add a store" top-right
+    button convention; the create-plan form prefills name = extension
+    name, tier = `pro`, 3 activations (prefill is a suggestion the
+    tenant confirms — never an auto-created row). Includes the manual
+    seat release / reset control (the `reset` event) that the buyer
+    portal deliberately lacks.
 
 Rollout rhythm against the migration: after A, dogfood one low-stakes
 extension with a hand-issued code (no sales flip). After B, start flipping

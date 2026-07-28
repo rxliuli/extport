@@ -9,3 +9,6 @@ DASHBOARD_URL=http://localhost:5173
 # OAuth round trip (which needs a matching registered callback URL). Optional;
 # only uncomment for local testing. Never set outside .dev.vars.
 # DEV_LOGIN_ENABLED=true
+
+# Enables the temporary /auth/dev-login route (local development only).
+DEV_LOGIN_ENABLED=false

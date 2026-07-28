@@ -19,11 +19,19 @@ interface RouterContext {
   queryClient: QueryClient
 }
 
+// Buyer-facing pages (canonically served on portal.extport.dev, same
+// Worker) and /login live outside the tenant session: no auth redirect,
+// no tenant chrome.
+function isPublicPath(pathname: string): boolean {
+  return pathname === '/login' || pathname.startsWith('/portal') || pathname.startsWith('/purchase')
+}
+
 export const Route = createRootRouteWithContext<RouterContext>()({
-  // Runs on every navigation, before the matched route renders — /login is
-  // the one exception, or signing in would just bounce you back to itself.
+  // Runs on every navigation, before the matched route rendered — public
+  // paths are exempt, or signing in would just bounce you back to itself
+  // (and buyers have no tenant session at all).
   beforeLoad: async ({ context, location }) => {
-    if (location.pathname === '/login') return
+    if (isPublicPath(location.pathname)) return
     const me = await context.queryClient.ensureQueryData(meQuery)
     if (!me) {
       throw redirect({ to: '/login', search: { returnTo: location.href } })
@@ -48,7 +56,7 @@ function RootLayout() {
   // already sitting on a page (e.g. signed out in another tab), since a
   // live query going to null doesn't re-run beforeLoad on its own.
   useEffect(() => {
-    if (me === null && window.location.pathname !== '/login') {
+    if (me === null && !isPublicPath(window.location.pathname)) {
       void navigate({ to: '/login', search: { returnTo: window.location.pathname + window.location.search } })
     }
   }, [me, navigate])
@@ -57,6 +65,17 @@ function RootLayout() {
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
     queryClient.setQueryData(meQuery.queryKey, null)
     await navigate({ to: '/login' })
+  }
+
+  // Buyer pages render chrome-less even for a signed-in tenant — the
+  // audience is the buyer, not the tenant dashboard.
+  if (isPublicPath(window.location.pathname) && window.location.pathname !== '/login') {
+    return (
+      <TooltipProvider delayDuration={200}>
+        <Outlet />
+        <Toaster richColors />
+      </TooltipProvider>
+    )
   }
 
   return (

@@ -132,6 +132,7 @@ async function handleCheckoutCompleted(c: Context<AppEnv>, tenant: Tenant, sessi
     maxActivations: plan.maxActivations,
     source: 'stripe_webhook',
     sourceRef,
+    checkoutSessionId: session.id,
   })
   await db.insert(licenseEvents).values({
     id: newId('licenseEvent'),

@@ -3,7 +3,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
-import { licenseEvents, licenses, plans } from '../db'
+import { activations, licenseEvents, licenses, plans } from '../db'
 import { uniqueLicenseKey } from '../lib/license-key'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
@@ -84,6 +84,65 @@ route.post(
 
     const [created] = await db.select().from(licenses).where(eq(licenses.id, id))
     return c.json({ license: created }, 201)
+  },
+)
+
+route.get(
+  '/:id',
+  describeRoute({ summary: 'Get a license with its activations', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } } }),
+  async (c) => {
+    const db = c.get('db')
+    const tenant = c.get('tenant')
+    const [license] = await db
+      .select()
+      .from(licenses)
+      .where(and(eq(licenses.tenantId, tenant.id), eq(licenses.id, c.req.param('id'))))
+    if (!license) return c.json({ error: 'not found' }, 404)
+    const [plan] = await db.select().from(plans).where(eq(plans.id, license.planId))
+    const deviceRows = await db.select().from(activations).where(eq(activations.licenseId, license.id)).orderBy(activations.activatedAt)
+    return c.json({ license, plan: plan ?? null, activations: deviceRows })
+  },
+)
+
+const releaseBodySchema = v.object({
+  fingerprint: v.pipe(v.string('fingerprint is required'), v.trim(), v.minLength(1, 'fingerprint is required')),
+})
+
+// The manual escape hatch the buyer portal deliberately lacks — buyers
+// reach it through the tenant. Emits the 'reset' event.
+route.post(
+  '/:id/release',
+  describeRoute({
+    summary: "Release one of a license's seats",
+    responses: { 200: { description: 'Released (idempotent)' }, 404: { description: 'License or device not found' } },
+  }),
+  validator('json', releaseBodySchema, badRequest),
+  async (c) => {
+    const db = c.get('db')
+    const tenant = c.get('tenant')
+    const { fingerprint } = c.req.valid('json')
+    const [license] = await db
+      .select()
+      .from(licenses)
+      .where(and(eq(licenses.tenantId, tenant.id), eq(licenses.id, c.req.param('id'))))
+    if (!license) return c.json({ error: 'not found' }, 404)
+
+    const [activation] = await db
+      .select()
+      .from(activations)
+      .where(and(eq(activations.licenseId, license.id), eq(activations.deviceFingerprint, fingerprint)))
+    if (!activation) return c.json({ error: 'device not found' }, 404)
+    if (activation.releasedAt) return c.json({ ok: true })
+
+    await db.update(activations).set({ releasedAt: new Date().toISOString() }).where(eq(activations.id, activation.id))
+    await db.insert(licenseEvents).values({
+      id: newId('licenseEvent'),
+      tenantId: tenant.id,
+      licenseId: license.id,
+      type: 'reset',
+      payload: { fingerprint, by: 'tenant' },
+    })
+    return c.json({ ok: true })
   },
 )
 
