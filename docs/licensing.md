@@ -78,6 +78,14 @@ POST /api/v1/licensing/check      { code, productName, fingerprint }
   (the extension asking must name the product the code was sold for), not
   a lookup key. Brute-force defense is code entropy (80 bits), same as
   license-kit.
+- **`productName` is transitional, not the end-state.** A display-form
+  string is doing a machine-key job only because license-kit's wire and
+  data froze it ('Substack Exporter'), and the dual-backend cascade must
+  keep sending it either way. The end-state key is the immutable, opaque
+  **`extensionId`** — see the retirement step in the migration sequence.
+  (This is also why `extensions.name` stays freely editable: display
+  names must never be protocol keys, so freezing the label would be
+  fixing the coupling from the wrong end.)
 - **`check` is the heartbeat.** There is no separate heartbeat endpoint.
   Both endpoints refresh the activation's `lastHeartbeatAt`, but only
   write when the stored value is older than 12 h — otherwise every
@@ -287,7 +295,14 @@ whole migration, so it starts first.
 4. **Retire license-kit last**, then ship a post-retirement SDK release
    that drops the legacy cascade entry (until then, a mistyped code
    after retirement degrades from "invalid" to a retryable error —
-   cosmetic, and only on the typo path).
+   cosmetic, and only on the typo path). **The same release switches the
+   identity key from `productName` to `extensionId`**: the SDK config
+   takes the opaque `ext_…` id (copied from the dashboard, same gesture
+   as `plan_…` into Stripe metadata), extport's activate/check prefer
+   `extensionId` and keep accepting `productName` for the installed
+   long tail, and `plans.name` demotes to optional until dropped. One
+   release, three smells gone: the duplicated name, the name-edit lock,
+   and a display string acting as a wire contract.
 
 Buyer-portal gap: codes sold post-flip don't appear in the old
 store.rxliuli.com portal — extport's portal is slice C. So high-volume
