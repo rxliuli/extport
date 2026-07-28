@@ -40,12 +40,19 @@ function storedConfig(overrides: Partial<PlanConfig> = {}): PlanConfig {
   }
 }
 
-/** Routes check/activate to the given handlers; anything else fails the test. */
-function stubWire(handlers: { check?: (body: Record<string, unknown>) => Response; activate?: (body: Record<string, unknown>) => Response }) {
+/** Routes extport/legacy check+activate to the given handlers; anything else fails the test. */
+function stubWire(handlers: {
+  check?: (body: Record<string, unknown>) => Response
+  activate?: (body: Record<string, unknown>) => Response
+  legacyCheck?: (body: Record<string, unknown>) => Response
+  legacyActivate?: (body: Record<string, unknown>) => Response
+}) {
   const calls: { url: string; body: Record<string, unknown> }[] = []
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const body = JSON.parse(init!.body as string) as Record<string, unknown>
     calls.push({ url, body })
+    if (url === 'https://store.rxliuli.com/api/activation/check' && handlers.legacyCheck) return handlers.legacyCheck(body)
+    if (url === 'https://store.rxliuli.com/api/activation/activate' && handlers.legacyActivate) return handlers.legacyActivate(body)
     if (url.endsWith('/api/v1/licensing/check') && handlers.check) return handlers.check(body)
     if (url.endsWith('/api/v1/licensing/activate') && handlers.activate) return handlers.activate(body)
     throw new Error(`unexpected fetch: ${url}`)
@@ -201,6 +208,86 @@ describe('checkActivation', () => {
     const { fetchMock } = stubWire({})
     expect(await createClient().checkActivation()).toBeUndefined()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('默认双后端级联（迁移窗口）', () => {
+  const cascade = () => createClient({ apiBase: undefined })
+
+  it('extport 查无此码时回落 legacy,legacy 成功则持久化(保留其远期 expiresAt)', async () => {
+    const far = new Date(Date.now() + 100 * 365 * 24 * 3600_000).toISOString()
+    const { calls } = stubWire({
+      activate: ACTIVATE_REJECTED,
+      legacyActivate: () => jsonResponse({ success: true, message: 'ok', data: { tier: 'pro', expiresAt: far } }),
+    })
+    const r = await cascade().activate('LEGACY-CODE')
+    expect(r.success).toBe(true)
+    expect(calls.map((c) => c.url)).toEqual([
+      'https://api.extport.dev/api/v1/licensing/activate',
+      'https://store.rxliuli.com/api/activation/activate',
+    ])
+    const stored = (await idbGet('plan')) as PlanConfig
+    expect(stored.tier).toBe('pro')
+    expect(stored.expiresAt).toBe(far)
+  })
+
+  it('legacy 的 HTTP 400 是明确拒绝而非故障,且优先返回信息量大的消息', async () => {
+    stubWire({
+      activate: ACTIVATE_REJECTED,
+      legacyActivate: () => jsonResponse({ success: false, message: 'Activation code is no longer active' }, 400),
+    })
+    const r = await cascade().activate('OLD-CODE')
+    expect(r.success).toBe(false)
+    expect(r.message).toBe('Activation code is no longer active')
+    expect(await idbGet('plan')).toBeUndefined()
+  })
+
+  it('extport 明确拒绝但 legacy 不可达:抛出,不下"无效"结论', async () => {
+    stubWire({
+      activate: ACTIVATE_REJECTED,
+      legacyActivate: () => jsonResponse({ error: 'internal error' }, 500),
+    })
+    await expect(cascade().activate('SOME-CODE')).rejects.toBeInstanceOf(Response)
+  })
+
+  it('check 级联:extport 双拒但 legacy 仍激活 → true,状态保留', async () => {
+    await idbSet('plan', storedConfig())
+    stubWire({
+      check: CHECK_INACTIVE,
+      activate: ACTIVATE_REJECTED,
+      legacyCheck: () => jsonResponse({ success: true, message: 'ok', data: { isActive: true, expiresAt: null } }),
+    })
+    expect(await cascade().checkActivation()).toBe(true)
+    expect(await idbGet('plan')).toBeDefined()
+  })
+
+  it('check:extport 整体故障时 legacy 仍激活 → true(故障不参与否定)', async () => {
+    await idbSet('plan', storedConfig())
+    stubWire({
+      check: () => jsonResponse({ error: 'internal error' }, 500),
+      legacyCheck: () => jsonResponse({ success: true, message: 'ok', data: { isActive: true, expiresAt: null } }),
+    })
+    expect(await cascade().checkActivation()).toBe(true)
+  })
+
+  it('所有后端对 check 和重激活都明确否定,才清除本地状态', async () => {
+    await idbSet('plan', storedConfig())
+    stubWire({
+      check: CHECK_INACTIVE,
+      activate: ACTIVATE_REJECTED,
+      legacyCheck: () => jsonResponse({ success: true, message: 'ok', data: { isActive: false, expiresAt: null } }),
+      legacyActivate: () => jsonResponse({ success: false, message: 'Invalid activation code' }, 400),
+    })
+    expect(await cascade().checkActivation()).toBe(false)
+    expect(await idbGet('plan')).toBeUndefined()
+  })
+
+  it('设置 apiBase 时是单后端模式,不级联 legacy', async () => {
+    const { calls } = stubWire({ activate: ACTIVATE_REJECTED })
+    const r = await createClient().activate('BAD-CODE')
+    expect(r.success).toBe(false)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe('https://dash.example.com/api/v1/licensing/activate')
   })
 })
 

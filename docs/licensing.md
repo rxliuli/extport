@@ -213,6 +213,18 @@ immediately, which is too eager: this rule is the self-healing return path
 for a seat released by decay, and it is what makes the gradual fleet
 migration's mixed-version window safe (below).
 
+During the migration window the **default backend list is a cascade**:
+extport first, then license-kit (store.rxliuli.com), the second consulted
+only when a code is definitively rejected upstream — valid extport codes
+never touch it, so the legacy hop carries only pre-cutover codes and
+typos. `apiBase` is a dev/self-host override (single backend, no
+cascade). Clearing local state requires a definitive rejection **from
+every backend**; network failures and 5xx are expected states and never
+revoke anything. One wire nuance the cascade absorbs: license-kit's
+rejections arrive as HTTP 4xx with a JSON body (not 200 +
+`success: false`), which counts as definitive. The legacy entry is
+removed in a release after license-kit retires.
+
 ## Fleet migration (license-kit → extport) — per product, gradual
 
 **Hard rule: no existing paying user may be harmed. Nobody re-enters a
@@ -249,30 +261,33 @@ because all three dimensions switch independently:
   only on its own DB, and license-kit revoking its stale copy of a
   migrated license is a no-op in practice.
 
-Per-product cutover sequence:
+Per-product cutover sequence — **client first, server at leisure**. The
+SDK's default backend list is a cascade (extport, then license-kit,
+consulted only on definitive rejection — see the SDK section), which
+decouples the extension rollout from every server-side step. Sequencing
+principle: the store-review clock is the only uncontrollable step in the
+whole migration, so it starts first.
 
-1. **Flip the sale: create the plan's Payment Link and repoint the buy
-   buttons at it** (storefront href now; the extension's own upgrade
-   button with its next release). New sales fulfill in extport — the
-   skip patch above keeps license-kit's webhook from hitting its
-   "missing fulfillment data" throw → 500 → retry noise.
-2. **Run the import for that product.** Because the flip happened first,
-   the import covers every code sold pre-flip and every code sold
-   post-flip is extport-native — no code can fall between.
-3. **Release the extension version on `@extport/sdk`.**
-4. **Wait out the mixed-version window** (store review + browser
-   auto-update lag; weeks). Old clients keep working against license-kit
-   — its data is never deleted. Devices they activate there during the
-   window are unknown to extport and self-heal via the SDK's
-   re-activate-on-check-miss rule the first time the updated client
-   checks in. No delta re-imports.
-
-Known, accepted gap: an existing install still on the old SDK cannot
-activate a code sold post-flip (license-kit doesn't know it). New installs
-get the latest version from the store, so this only affects an existing
-user who buys during their extension's update lag — they activate once
-the update arrives. If it ever bites in practice, license-kit can proxy
-unknown codes through to extport (~20 lines); not built preemptively.
+1. **Ship the extension on the dual-backend `@extport/sdk`.** Behavior
+   today is unchanged (all codes still resolve via the license-kit
+   fallback); the capability to recognize extport codes is now riding
+   the review + auto-update pipeline.
+2. **Once the rollout saturates** (store version stats), flip the sale:
+   create the plan's Payment Link and repoint the buy buttons
+   (storefront href; extension upgrade button already deep-links). New
+   sales fulfill in extport; dual clients activate them on the first
+   hop. The residual gap is only installs still on a pre-dual version —
+   its size is chosen by picking the flip date, not dictated by review
+   queues.
+3. **Run the import whenever convenient.** With the cascade, old codes
+   and old devices keep resolving via the fallback — the import no
+   longer gates the flip or the release; it gates only license-kit's
+   retirement (and carries `sourceRef` so old Stripe-era refunds keep
+   revoking after the storefront webhook goes away).
+4. **Retire license-kit last**, then ship a post-retirement SDK release
+   that drops the legacy cascade entry (until then, a mistyped code
+   after retirement degrades from "invalid" to a retryable error —
+   cosmetic, and only on the typo path).
 
 Buyer-portal gap: codes sold post-flip don't appear in the old
 store.rxliuli.com portal — extport's portal is slice C. So high-volume

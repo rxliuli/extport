@@ -57,12 +57,36 @@ interface CheckResponse {
 
 export type PlanListener<TTier extends string, TLimit> = (plan: Plan<TTier, TLimit>, prev: Plan<TTier, TLimit>) => void
 
-const DEFAULT_API_BASE = 'https://api.extport.dev'
+interface LicensingBackend {
+  activateUrl: string
+  checkUrl: string
+}
+
+function extportBackend(base: string): LicensingBackend {
+  return {
+    activateUrl: `${base}/api/v1/licensing/activate`,
+    checkUrl: `${base}/api/v1/licensing/check`,
+  }
+}
+
+/**
+ * 迁移窗口的默认级联:extport 优先,只有码被明确拒绝时才回落 license-kit
+ * (车队切换前售出的码只存在于那边)。有效码永远在第一跳成功,所以第二跳
+ * 只承接"旧码激活"和"输错码"两种流量。license-kit 退役后在后续版本移除
+ * 第二项。
+ */
+const DEFAULT_BACKENDS: LicensingBackend[] = [
+  extportBackend('https://api.extport.dev'),
+  {
+    activateUrl: 'https://store.rxliuli.com/api/activation/activate',
+    checkUrl: 'https://store.rxliuli.com/api/activation/check',
+  },
+]
 
 export interface ActivationClientOptions<TTier extends string, TLimit> {
   /** 必须与 extport 产品目录里的 product name 一致（跨 tier 共享的应用级名字）。 */
   productName: string
-  /** extport 部署的 origin,默认官方生产环境。 */
+  /** 本地/自托管调试用:设置后只请求该 extport 后端,不级联 legacy。省略 = 生产默认级联。 */
   apiBase?: string
   /** 各档位的能力表,必须包含 'free'。存储中出现未知档位时按 free 处理 */
   plans: Record<TTier, TLimit>
@@ -82,7 +106,7 @@ export interface ActivationClientOptions<TTier extends string, TLimit> {
 
 export class ActivationClient<TTier extends string, TLimit> {
   private readonly options: ActivationClientOptions<TTier, TLimit>
-  private readonly apiBase: string
+  private readonly backends: LicensingBackend[]
   private readonly storage: StorageAdapter
   private readonly key: string
   private readonly freePlan: Plan<TTier, TLimit>
@@ -96,7 +120,7 @@ export class ActivationClient<TTier extends string, TLimit> {
       throw new Error('plans must include a "free" tier')
     }
     this.options = options
-    this.apiBase = options.apiBase ?? DEFAULT_API_BASE
+    this.backends = options.apiBase ? [extportBackend(options.apiBase)] : DEFAULT_BACKENDS
     this.storage = options.storage ?? idbStorage
     this.key = options.storageKey ?? 'plan'
     this.freePlan = Object.freeze({ tier: 'free' as TTier, limit: freeLimit })
@@ -153,53 +177,85 @@ export class ActivationClient<TTier extends string, TLimit> {
   async activate(code: string): Promise<ActivateResponse> {
     const existing = await this.storage.get<PlanConfig>(this.key)
     const fingerprint = existing?.fingerprint ?? crypto.randomUUID()
-    const r = await this.requestActivate(code, fingerprint)
-    if (!r.success || !r.data) return r
-    await this.persist({
-      code,
-      tier: r.data.tier,
-      expiresAt: r.data.expiresAt ?? null,
-      fingerprint,
-    })
-    return r
+    const rejections: ActivateResponse[] = []
+    let firstError: unknown
+    for (const backend of this.backends) {
+      let r: ActivateResponse
+      try {
+        r = await this.tryActivate(backend, code, fingerprint)
+      } catch (err) {
+        firstError ??= err
+        continue
+      }
+      if (r.success && r.data) {
+        await this.persist({ code, tier: r.data.tier, expiresAt: r.data.expiresAt ?? null, fingerprint })
+        return r
+      }
+      rejections.push(r)
+    }
+    // 有后端不可达时不能断言码无效——抛出,让调用方按暂时故障处理。
+    if (firstError !== undefined) throw firstError
+    // 全部明确拒绝:优先返回信息量大的那条("no longer active"/"maximum
+    // devices"比另一个后端查无此码的"invalid"更有意义)。
+    return rejections.find((r) => !/invalid/i.test(r.message)) ?? rejections[0]!
   }
 
   /**
    * 向服务端校验本设备的激活状态。返回 true=有效,false=已失效
    * （本地状态已清除）,undefined=本地无激活记录。
    *
-   * 服务端说"设备未激活"时并不立即清除本地状态——座位可能只是被闲置
-   * 衰减释放了,或记录还没随车队迁移导入。先拿存着的 code+fingerprint
-   * 自动重新激活一次,能自愈以上两种情况；只有那次激活也被明确拒绝
-   * （码被吊销/座位真满了）才清除。网络或服务端故障一律抛出而不清除。
+   * 每个后端内:说"设备未激活"时先拿存着的 code+fingerprint 自动重新
+   * 激活一次（座位衰减回归/迁移窗口自愈）；被明确拒绝才级联到下一个
+   * 后端。**只有所有后端都给出明确否定才清除本地状态**——网络故障或
+   * 5xx 是预期中的暂时状态,一律抛出,错误永远不触发清除。
    */
   async checkActivation(): Promise<boolean | undefined> {
     const config = await this.storage.get<PlanConfig>(this.key)
     if (!config) return undefined
-    const resp = await fetch(`${this.apiBase}/api/v1/licensing/check`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code: config.code,
-        productName: this.options.productName,
-        fingerprint: config.fingerprint,
-      }),
-    })
-    if (!resp.ok) throw resp
-    const r = (await resp.json()) as CheckResponse
-    if (!r.success || !r.data) throw new Error('Check device failed: no data')
-    if (r.data.isActive) return true
+    let sawError = false
+    let firstError: unknown
+    for (const backend of this.backends) {
+      let active: boolean
+      try {
+        const result = await this.postJson<CheckResponse>(backend.checkUrl, {
+          code: config.code,
+          productName: this.options.productName,
+          fingerprint: config.fingerprint,
+        })
+        if (result.kind === 'rejected') {
+          // check 端点的明确拒绝(罕见)——按未激活处理,交给下面的重激活
+          active = false
+        } else {
+          if (!result.body.success || !result.body.data) throw new Error('Check device failed: no data')
+          active = result.body.data.isActive
+        }
+      } catch (err) {
+        sawError = true
+        firstError ??= err
+        continue
+      }
+      if (active) return true
 
-    const reactivate = await this.requestActivate(config.code, config.fingerprint)
-    if (reactivate.success && reactivate.data) {
-      await this.persist({
-        code: config.code,
-        tier: reactivate.data.tier,
-        expiresAt: reactivate.data.expiresAt ?? null,
-        fingerprint: config.fingerprint,
-      })
-      return true
+      let reactivate: ActivateResponse
+      try {
+        reactivate = await this.tryActivate(backend, config.code, config.fingerprint)
+      } catch (err) {
+        sawError = true
+        firstError ??= err
+        continue
+      }
+      if (reactivate.success && reactivate.data) {
+        await this.persist({
+          code: config.code,
+          tier: reactivate.data.tier,
+          expiresAt: reactivate.data.expiresAt ?? null,
+          fingerprint: config.fingerprint,
+        })
+        return true
+      }
+      // 该后端明确拒绝了 check 和重激活 → 级联下一个后端
     }
+    if (sawError) throw firstError
 
     await this.storage.del(this.key)
     await this.getPlan()
@@ -207,19 +263,40 @@ export class ActivationClient<TTier extends string, TLimit> {
     return false
   }
 
-  private async requestActivate(code: string, fingerprint: string): Promise<ActivateResponse> {
-    const resp = await fetch(`${this.apiBase}/api/v1/licensing/activate`, {
+  private async tryActivate(backend: LicensingBackend, code: string, fingerprint: string): Promise<ActivateResponse> {
+    const result = await this.postJson<ActivateResponse>(backend.activateUrl, {
+      code,
+      productName: this.options.productName,
+      fingerprint,
+      deviceInfo: this.options.deviceInfo?.() ?? defaultDeviceInfo(),
+    })
+    if (result.kind === 'rejected') return { success: false, message: result.message }
+    return result.body
+  }
+
+  /**
+   * 区分三种结果:2xx=ok、4xx 且 body 可解析=后端的明确拒绝(license-kit
+   * 的"无效码"走 HTTP 400 而非 200+success:false)、其余(5xx/网络)=暂时
+   * 故障,抛出。
+   */
+  private async postJson<T>(
+    url: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ kind: 'ok'; body: T } | { kind: 'rejected'; message: string }> {
+    const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code,
-        productName: this.options.productName,
-        fingerprint,
-        deviceInfo: this.options.deviceInfo?.() ?? defaultDeviceInfo(),
-      }),
+      body: JSON.stringify(payload),
     })
-    if (!resp.ok) throw resp
-    return (await resp.json()) as ActivateResponse
+    if (resp.ok) return { kind: 'ok', body: (await resp.json()) as T }
+    if (resp.status >= 400 && resp.status < 500) {
+      const body = (await resp.json().catch(() => null)) as Record<string, unknown> | null
+      if (body) {
+        const message = [body['message'], body['error']].find((v) => typeof v === 'string') as string | undefined
+        return { kind: 'rejected', message: message ?? 'rejected' }
+      }
+    }
+    throw resp
   }
 
   private async persist(config: PlanConfig): Promise<void> {
