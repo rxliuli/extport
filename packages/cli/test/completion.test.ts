@@ -1,29 +1,66 @@
+import { spawn, type ChildProcess } from 'node:child_process'
 import type { CommandDef } from 'citty'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   detectShell,
   extractCompletionSchema,
   generateBashCompletion,
   generateFishCompletion,
   generateZshCompletion,
+  parseShellFromComm,
   type CompletionSchema,
 } from '../src/completion'
 
-describe('detectShell', () => {
-  it('prefers the shell-set version vars over $SHELL', () => {
-    expect(detectShell({ ZSH_VERSION: '5.9', SHELL: '/bin/bash' })).toBe('zsh')
-    expect(detectShell({ BASH_VERSION: '5.2', SHELL: '/bin/zsh' })).toBe('bash')
-    expect(detectShell({ FISH_VERSION: '3.7' })).toBe('fish')
+describe('parseShellFromComm', () => {
+  it('recognizes bash/zsh/fish by plain name', () => {
+    expect(parseShellFromComm('bash')).toBe('bash')
+    expect(parseShellFromComm('zsh')).toBe('zsh')
+    expect(parseShellFromComm('fish')).toBe('fish')
   })
 
-  it('falls back to $SHELL when no version var is set', () => {
-    expect(detectShell({ SHELL: '/usr/local/bin/fish' })).toBe('fish')
-    expect(detectShell({ SHELL: '/bin/bash' })).toBe('bash')
+  it('strips a full path down to the binary name', () => {
+    expect(parseShellFromComm('/bin/zsh')).toBe('zsh')
+    expect(parseShellFromComm('/usr/local/bin/fish')).toBe('fish')
+  })
+
+  it('strips the "-" login-shell prefix', () => {
+    expect(parseShellFromComm('-zsh')).toBe('zsh')
+  })
+
+  it('returns undefined for anything else', () => {
+    expect(parseShellFromComm('node')).toBeUndefined()
+    expect(parseShellFromComm('sh')).toBeUndefined()
+    expect(parseShellFromComm('')).toBeUndefined()
+  })
+})
+
+describe('detectShell', () => {
+  let spawned: ChildProcess | undefined
+  afterEach(() => {
+    spawned?.kill()
+    spawned = undefined
+  })
+
+  it('identifies a real running bash process by pid — not just the pure-parsing path', async () => {
+    // No -c command: bash -c '<simple command>' execs directly into that
+    // command (replacing itself, same pid) rather than staying resident as
+    // bash — confirmed the hard way, this test failed with that form
+    // because ps then reported the child command's name, not "bash". With
+    // no command and stdin left open, bash just waits and stays itself.
+    spawned = spawn('bash', [], { stdio: ['pipe', 'ignore', 'ignore'] })
+    await new Promise((resolve) => setTimeout(resolve, 200)) // let it actually start
+    expect(detectShell({}, spawned.pid)).toBe('bash')
+  })
+
+  it('falls back to $SHELL when the pid has no real process (ps fails)', () => {
+    const bogusPid = 999_999_999
+    expect(detectShell({ SHELL: '/usr/local/bin/fish' }, bogusPid)).toBe('fish')
+    expect(detectShell({ SHELL: '/bin/bash' }, bogusPid)).toBe('bash')
   })
 
   it('returns undefined when nothing usable is present', () => {
-    expect(detectShell({})).toBeUndefined()
-    expect(detectShell({ SHELL: '/bin/sh' })).toBeUndefined()
+    expect(detectShell({}, 999_999_999)).toBeUndefined()
+    expect(detectShell({ SHELL: '/bin/sh' }, 999_999_999)).toBeUndefined()
   })
 })
 

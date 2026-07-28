@@ -1,18 +1,50 @@
+import { execSync } from 'node:child_process'
 import type { ArgDef, ArgsDef, CommandDef, CommandMeta } from 'citty'
 
 export type Shell = 'bash' | 'zsh' | 'fish'
 
 /**
- * `$ZSH_VERSION`/`$BASH_VERSION`/`$FISH_VERSION` are set by the shell
- * binary itself at startup, before any rc file runs — reliable even when
- * this exact line ends up pasted into that rc file and re-run on every new
- * shell. `$SHELL` (the user's *login* shell, not necessarily the one
- * currently running) is a weaker fallback for a one-off interactive check.
+ * Maps a process "comm" name (as `ps -o comm=` reports it) to a known
+ * shell. Login shells prefix argv[0] with "-" (e.g. "-zsh") to mark
+ * themselves as such — stripped here, it's irrelevant to what shell it is.
+ * Pulled out as its own pure function so the parsing logic is unit
+ * testable without actually spawning `ps`.
  */
-export function detectShell(env: Record<string, string | undefined>): Shell | undefined {
-  if (env.ZSH_VERSION) return 'zsh'
-  if (env.BASH_VERSION) return 'bash'
-  if (env.FISH_VERSION) return 'fish'
+export function parseShellFromComm(comm: string): Shell | undefined {
+  const base = comm
+    .trim()
+    .split('/')
+    .pop()
+    ?.replace(/^-/, '')
+  if (base === 'bash' || base === 'zsh' || base === 'fish') return base
+  return undefined
+}
+
+/**
+ * $ZSH_VERSION/$BASH_VERSION/$FISH_VERSION looked like the obvious signal
+ * but turned out not to be one: confirmed against a real shell that none
+ * of the three are actually exported to a child process's environment by
+ * default (they're shell-internal parameters, not env vars) — a plain
+ * `node -e "console.log(process.env.BASH_VERSION)"` under bash prints
+ * undefined. $SHELL isn't reliable either: it's the user's configured
+ * *login* shell, not necessarily the one this process is actually running
+ * under (e.g. a bash script invoked from an interactive zsh session).
+ *
+ * What's actually reliable: asking the OS what the immediate parent
+ * process (`process.ppid` — the shell that launched this one) is
+ * currently named, via `ps`. Confirmed against a real terminal session —
+ * this resolves correctly regardless of the user's login shell. Falls
+ * back to $SHELL only if `ps` itself is unavailable (e.g. a minimal
+ * container image).
+ */
+export function detectShell(env: Record<string, string | undefined>, ppid: number = process.ppid): Shell | undefined {
+  try {
+    const comm = execSync(`ps -p ${ppid} -o comm=`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString()
+    const fromParent = parseShellFromComm(comm)
+    if (fromParent) return fromParent
+  } catch {
+    // ps unavailable, or the pid is already gone — fall through to $SHELL.
+  }
   const base = env.SHELL?.split('/').pop()
   if (base === 'bash' || base === 'zsh' || base === 'fish') return base
   return undefined
