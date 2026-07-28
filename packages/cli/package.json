@@ -1,6 +1,6 @@
 {
   "name": "@extport/cli",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "CLI for the extport extension publishing platform",
   "license": "MIT",
   "type": "module",
