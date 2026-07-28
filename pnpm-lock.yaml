@@ -51,6 +51,9 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -229,6 +232,9 @@ importers:
 
   packages/shared:
     dependencies:
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       nanoid:
         specifier: ^6.0.0
         version: 6.0.0

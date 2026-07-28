@@ -25,7 +25,7 @@ describe('DELETE /v1/extensions/:id', () => {
     })
     const { key } = (await keyRes.json()) as { key: string }
 
-    const uploadRes = await upload(key, extension.id, '1.0.0', fakeZip())
+    const uploadRes = await upload(key, extension.id, '1.0.0', fakeZip(0, '1.0.0'))
     expect(uploadRes.status).toBe(201)
     const { artifact } = (await uploadRes.json()) as { artifact: { r2Key: string } }
     expect(await env.ARTIFACTS.get(artifact.r2Key)).not.toBeNull()

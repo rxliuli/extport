@@ -1,4 +1,4 @@
-import { isValidExtensionVersion, newId, sha256Hex, STORES, type Store } from '@extport/shared'
+import { isValidExtensionVersion, newId, parseZipManifest, sha256Hex, STORES, validateArtifactManifest, type Store } from '@extport/shared'
 import { getAdapter } from '@extport/store-adapters'
 import { and, desc, eq, isNull, or } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
@@ -156,6 +156,16 @@ route.post(
     const targetStores = store
       ? [store]
       : (await db.select({ store: publishTargets.store }).from(publishTargets).where(eq(publishTargets.extensionId, extension.id))).map((t) => t.store)
+
+    // The cheap version of what each target store's review pipeline would
+    // reject hours or days later: no manifest.json, a version that isn't the
+    // one being pushed, a Chrome-only build headed for Firefox. Runs after
+    // the dedup check so re-pushes of pre-validation artifacts stay idempotent.
+    if (bytes.length > 0 && store !== 'safari') {
+      const problems = validateArtifactManifest(parseZipManifest(bytes), version, targetStores)
+      if (problems.length > 0) return c.json({ error: problems.join('; ') }, 400)
+    }
+
     for (const s of targetStores) {
       if (await isVersionRegression(db, extension.id, s, version)) {
         return c.json({ error: `version ${version} is not newer than the version already queued/in review/live on ${s}` }, 409)

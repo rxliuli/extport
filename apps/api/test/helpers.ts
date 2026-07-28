@@ -1,4 +1,5 @@
 import { newId } from '@extport/shared'
+import { strToU8, zipSync } from 'fflate'
 import { createExecutionContext, env } from 'cloudflare:test'
 import { app } from '../src/index'
 import { createDb, tenants, users } from '../src/db'
@@ -57,13 +58,28 @@ export async function createExtension(
   return body.extension
 }
 
-/** Smallest byte sequence our upload endpoint accepts as a zip. */
-export function fakeZip(seed = 0): Uint8Array {
-  const bytes = new Uint8Array(64)
-  bytes[0] = 0x50
-  bytes[1] = 0x4b
-  bytes[2] = 0x03
-  bytes[3] = 0x04
-  bytes[4] = seed & 0xff
-  return bytes
+/**
+ * A real zip carrying a manifest.json valid for every store (MV3, dual
+ * background, gecko.id) — `version` must match the version being pushed,
+ * `seed` varies the content. Deterministic: the mtime is pinned so identical
+ * (seed, version) pairs hash identically, which the dedup tests rely on.
+ */
+export function fakeZip(seed = 0, version = '1.2.3', manifest?: object): Uint8Array {
+  return zipSync(
+    {
+      'manifest.json': strToU8(
+        JSON.stringify(
+          manifest ?? {
+            manifest_version: 3,
+            name: 'Fake Extension',
+            version,
+            background: { service_worker: 'sw.js', scripts: ['bg.js'] },
+            browser_specific_settings: { gecko: { id: 'fake@extport.test' } },
+          },
+        ),
+      ),
+      'seed.txt': strToU8(String(seed)),
+    },
+    { mtime: new Date('2020-01-01T00:00:00Z') },
+  )
 }
