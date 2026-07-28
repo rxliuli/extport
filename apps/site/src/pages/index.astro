@@ -3,6 +3,8 @@ import Layout from '../layouts/Layout.astro'
 
 const SIGN_IN_URL = 'https://dash.extport.dev'
 const DISCORD_URL = 'https://discord.gg/Va9kcSqu3f'
+const GITHUB_URL = 'https://github.com/rxliuli/extport'
+const DOCS_URL = 'https://docs.extport.dev'
 
 const STORES = ['Chrome', 'Firefox', 'Edge', 'Safari']
 
@@ -23,17 +25,17 @@ const FEATURES = [
     title: 'CLI or GitHub Actions',
     body: 'Drop a couple of steps into your existing release workflow, or run the same commands by hand from your own machine.',
   },
-]
-
-const ROADMAP = [
   {
     title: 'Safari builds, without handing over your signing keys',
-    body: 'An official GitHub Action wraps the Xcode conversion, signing, and notarization Safari extensions need. It runs in your own CI with your own Apple credentials — extport never sees them.',
+    body: 'The extport CLI and its GitHub Action wrap the Xcode build, signing, and upload Safari needs — running in your own CI with your own Apple credentials, which extport never sees. Review submission is handled server-side like every other store.',
   },
   {
     title: 'Licensing',
-    body: 'BYO-Stripe activation codes with offline verification, seat management, and a buyer page — so charging for your extension doesn’t mean building payment infra from scratch.',
+    body: 'Sell activation codes through your own Stripe Payment Links: extport fulfills the purchase, emails the code, verifies activations from your extension via @extport/sdk, revokes on refunds, and gives buyers a self-service portal. Seats free themselves when devices go idle.',
   },
+]
+
+const ROADMAP = [
   {
     title: 'A scaffold that starts you on every platform',
     body: 'A template that bootstraps a new extension pre-wired to ship to Chrome, Firefox, Edge, and Safari on desktop, Safari on iOS, and Firefox on Android from day one.',
@@ -43,17 +45,21 @@ const ROADMAP = [
 
 <Layout
   title="extport — write one extension, reach every platform's users"
-  description="Chrome, Firefox, Edge, and Safari from one push today. Safari build tooling and licensing are on the roadmap toward one extension reaching desktop, Android, and iOS."
+  description="Chrome, Firefox, Edge, and Safari from one push — including Safari's Xcode build in your own CI — plus Stripe-powered licensing. Open source, self-hostable."
 >
   <div class="mx-auto flex min-h-svh max-w-5xl flex-col px-6">
     <header class="flex items-center justify-between py-6">
       <span class="text-lg font-bold tracking-tight">extport</span>
-      <a
-        href={SIGN_IN_URL}
-        class="rounded-md border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-card"
-      >
-        Sign in
-      </a>
+      <div class="flex items-center gap-4">
+        <a href={DOCS_URL} class="text-sm font-medium text-muted-foreground hover:text-foreground">Docs</a>
+        <a href={GITHUB_URL} class="text-sm font-medium text-muted-foreground hover:text-foreground">GitHub</a>
+        <a
+          href={SIGN_IN_URL}
+          class="rounded-md border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-card"
+        >
+          Sign in
+        </a>
+      </div>
     </header>
 
     <section class="flex flex-col gap-6 py-20 sm:py-28">
@@ -61,9 +67,9 @@ const ROADMAP = [
         Write one extension. Reach every platform's users.
       </h1>
       <p class="max-w-xl text-lg text-muted-foreground">
-        {STORES.join(', ')} today — one CLI push or GitHub Action, and extport handles submission to all four, with
-        one dashboard for what's live, in review, rejected, or stuck. Safari build tooling and licensing are next, on
-        the way to shipping one extension to desktop, Android, and iOS.
+        {STORES.join(', ')} — one CLI push or GitHub Action, and extport handles submission to all four, with one
+        dashboard for what's live, in review, rejected, or stuck. Safari's Xcode build runs in your own CI with your
+        own keys, and licensing lets you sell activation codes through your own Stripe. Open source, self-hostable.
       </p>
       <div class="flex flex-wrap items-center gap-3">
         <a
@@ -94,10 +100,10 @@ const ROADMAP = [
       <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">How it works</h2>
       <pre class="mt-4 overflow-x-auto rounded-lg border border-border bg-card p-4 text-sm leading-relaxed"><code>{`- uses: extport-dev/actions/push@v1
   with:
-    api-key: \${{ secrets.EXTPORT_API_KEY }}
-    extension: my-extension
-    zip-path: dist/my-extension.zip`}</code></pre>
+    store: chrome
+    api-key: \${{ secrets.EXTPORT_API_KEY }}`}</code></pre>
       <p class="mt-4 max-w-2xl text-sm text-muted-foreground">
+        The file, version, and extension are inferred from your build output and <code>extport.config.json</code>.
         Runs from your existing release workflow, or from the <code>extport</code> CLI on your own machine. Push once,
         and every configured store target picks it up.
       </p>
@@ -120,10 +126,10 @@ const ROADMAP = [
     <section class="border-t border-border py-16">
       <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">Where we're headed</h2>
       <p class="mt-4 max-w-2xl text-sm text-muted-foreground">
-        Publishing is what extport does today. The direction is one extension reaching every platform's users, not
-        just every store. Nothing below is built yet — it's the roadmap, not a feature list.
+        Publishing and licensing are what extport does today. The direction is one extension reaching every
+        platform's users, not just every store. Below is the roadmap, not a feature list.
       </p>
-      <div class="mt-8 grid gap-8 sm:grid-cols-3">
+      <div class="mt-8 grid gap-8 sm:grid-cols-2">
         {
           ROADMAP.map((item) => (
             <div>
@@ -137,10 +143,11 @@ const ROADMAP = [
 
     <section class="border-t border-border py-16">
       <div class="rounded-lg border border-border bg-card p-6">
-        <h2 class="font-semibold">Currently in closed beta</h2>
+        <h2 class="font-semibold">Currently in closed beta — and open source</h2>
         <p class="mt-2 max-w-xl text-sm text-muted-foreground">
           New accounts are reviewed by hand while extport is in beta. Sign in with GitHub to request access, and join
-          the Discord to reach us directly while you wait.
+          the Discord to reach us directly while you wait. The <a href={GITHUB_URL} class="underline underline-offset-4">source is on GitHub</a>
+          under the Elastic License 2.0 — self-hosting is explicitly allowed.
         </p>
         <div class="mt-4 flex flex-wrap gap-3">
           <a
@@ -161,7 +168,11 @@ const ROADMAP = [
 
     <footer class="mt-auto flex items-center justify-between border-t border-border py-8 text-sm text-muted-foreground">
       <span>extport</span>
-      <a href={DISCORD_URL} class="hover:text-foreground">Discord</a>
+      <div class="flex items-center gap-4">
+        <a href={DOCS_URL} class="hover:text-foreground">Docs</a>
+        <a href={GITHUB_URL} class="hover:text-foreground">GitHub</a>
+        <a href={DISCORD_URL} class="hover:text-foreground">Discord</a>
+      </div>
     </footer>
   </div>
 </Layout>
