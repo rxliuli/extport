@@ -11,10 +11,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { credentialsQuery, keysQuery, meQuery, paymentCredentialsQuery } from '@/queries'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useIsFetching, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { KeyRound, Loader2, Plus } from 'lucide-react'
-import { Fragment, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 export const Route = createFileRoute('/settings')({ component: SettingsPage })
@@ -48,7 +48,7 @@ function ApiKeysSection() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>API keys</CardTitle>
+        <CardTitle id="api-keys">API keys</CardTitle>
         <CardDescription>Used by the CLI and CI (`EXTPORT_API_KEY`) to push artifacts.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -263,7 +263,7 @@ function CredentialsSection() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Store credentials</CardTitle>
+        <CardTitle id="store-credentials">Store credentials</CardTitle>
         <CardDescription>
           Verified against the live store API before saving, then envelope-encrypted — only the last four characters are
           ever shown again.
@@ -427,7 +427,7 @@ function PaymentCredentialsSection() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Payment credentials</CardTitle>
+        <CardTitle id="payment-credentials">Payment credentials</CardTitle>
         <CardDescription>
           Your Stripe webhook signing secret (whsec_…) — used only to verify licensing fulfillment webhooks. The
           secret itself is write-only and never shown again.
@@ -511,6 +511,28 @@ function WebhookUrlRow() {
 }
 
 function SettingsPage() {
+  // Each section fetches its own data independently, so the page's real
+  // height isn't known until all three have loaded — a same-page #anchor
+  // link (e.g. from the docs) lands wherever the still-loading skeletons
+  // happened to put it, then the browser never re-scrolls once the real
+  // content pushes that section further down. Wait for the whole page's
+  // fetches to settle, then do it ourselves, once.
+  //
+  // isFetching reads 0 on the very first render too — before any child has
+  // mounted to actually start its query — so "isFetching === 0" alone
+  // can't mean "settled", only "not fetching *yet*" is indistinguishable
+  // from "not fetching *anymore*". hasFetchedRef disambiguates them: only
+  // trust a 0 once a nonzero has been observed first.
+  const isFetching = useIsFetching()
+  const hasFetchedRef = useRef(false)
+  const scrolledToHash = useRef(false)
+  useEffect(() => {
+    if (isFetching > 0) hasFetchedRef.current = true
+    if (scrolledToHash.current || !hasFetchedRef.current || isFetching > 0 || !window.location.hash) return
+    scrolledToHash.current = true
+    document.getElementById(window.location.hash.slice(1))?.scrollIntoView()
+  }, [isFetching])
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
