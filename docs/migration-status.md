@@ -58,6 +58,27 @@ straggler imports → license-kit webhook + checkout endpoints retire →
 post-retirement SDK release drops the cascade and switches the identity
 key `productName` → `extensionId`, unfreezing extension names.
 
+**Retirement is gentler than it looks — old clients fail open.** The
+pre-SDK hand-rolled clients treat any non-2xx from license-kit as a
+thrown error that callers swallow, keeping the local cached
+entitlement. So devices that never update past the license-kit era
+degrade to "checks fail forever, paid features never turn off" — the
+documented failure mode, not a cliff. New activations always come from
+new installs, which carry the SDK. The only hard gates on retirement:
+every product's codes imported, every product's sales flipped. Note the
+two-week saturation wait is a **one-time** gate for the sales flip;
+after flipping, releases never wait on propagation again.
+
+### store.rxliuli.com endgame
+
+| Component | Retires |
+|---|---|
+| checkout endpoint | per product at its flip (button becomes a static Payment Link href) |
+| login + "my codes" pages | once all imports are done — the sign-in button becomes a link to portal.extport.dev (imports preserve buyerEmail, so old buyers magic-link in and see every code and device, cross-product) |
+| Stripe/Paddle webhooks | license-kit retirement day |
+| activation endpoints | retirement day (old clients fail open, see above) |
+| product marketing pages | **kept forever** (SEO + buy links); the worker eventually shrinks to a static site |
+
 ## Known caveats carried forward
 
 - All pre-flip codes for Paddle-era products carry `txn_…` sourceRefs:
