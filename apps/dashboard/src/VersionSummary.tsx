@@ -23,9 +23,8 @@ function LifecycleLine({ lifecycle }: { lifecycle: TargetLifecycle }) {
     return <span className="text-muted-foreground/50">—</span>
   }
   return (
-    <span className="text-sm">
-      <span className="font-semibold text-green-700 dark:text-green-500">{lifecycle.liveVersion}</span>{' '}
-      <span className="text-muted-foreground">live</span>
+    <span className="text-sm font-semibold text-green-700 dark:text-green-500" title="live">
+      {lifecycle.liveVersion}
     </span>
   )
 }

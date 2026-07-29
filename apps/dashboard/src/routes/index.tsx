@@ -10,12 +10,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
+import { TbBrandChrome, TbBrandEdge, TbBrandFirefox, TbBrandSafari } from 'react-icons/tb'
 import { toast } from 'sonner'
 
 export const Route = createFileRoute('/')({ component: ExtensionsPage })
 
 const STORES: Store[] = ['chrome', 'firefox', 'edge', 'safari']
 const STORE_LABEL: Record<Store, string> = { chrome: 'Chrome', firefox: 'Firefox', edge: 'Edge', safari: 'Safari' }
+const STORE_ICON: Record<Store, typeof TbBrandChrome> = {
+  chrome: TbBrandChrome,
+  firefox: TbBrandFirefox,
+  edge: TbBrandEdge,
+  safari: TbBrandSafari,
+}
 
 function ExtensionsPage() {
   const { data: extensions, isPending } = useQuery(matrixQuery)
@@ -66,9 +73,17 @@ function ExtensionsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Extension</TableHead>
-                  {STORES.map((s) => (
-                    <TableHead key={s}>{STORE_LABEL[s]}</TableHead>
-                  ))}
+                  {STORES.map((s) => {
+                    const Icon = STORE_ICON[s]
+                    return (
+                      <TableHead key={s}>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Icon size={15} className="text-muted-foreground" />
+                          {STORE_LABEL[s]}
+                        </span>
+                      </TableHead>
+                    )
+                  })}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -86,7 +101,7 @@ function ExtensionsPage() {
                     {STORES.map((s) => {
                       const target = ext.targets.find((t) => t.store === s)
                       return (
-                        <TableCell key={s}>
+                        <TableCell key={s} className="min-h-11">
                           {target ? <VersionSummary lifecycles={target.lifecycles} /> : <span className="text-muted-foreground/50">—</span>}
                         </TableCell>
                       )
