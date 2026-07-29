@@ -3,7 +3,8 @@
 The strategy and its reasoning live in [`licensing.md` § Fleet
 migration](licensing.md) — read that first. This file is the operational
 checklist, distilled from the substack-exporter pilot (2026-07-28/29,
-every step below verified live). Tenant-zero specific by nature: paths
+every step below verified live). Where each product currently stands:
+[`migration-status.md`](migration-status.md). Tenant-zero specific by nature: paths
 reference the license-kit repo and store.rxliuli.com.
 
 ## Platform prerequisites (done once — do not repeat)
