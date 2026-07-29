@@ -442,3 +442,64 @@ describe('scenario: the long-idle device comes back', () => {
     expect(res.message).toMatch(/maximum number of devices \(2\)/)
   })
 })
+
+describe('GET /v1/licenses pagination', () => {
+  it('pages newest-first with a keyset cursor and filters by extension', async () => {
+    const { license, extension, sessionCookie } = await setupLicensedProduct()
+    // 60 more licenses via the issue endpoint → 61 total for this extension.
+    for (let i = 0; i < 60; i++) {
+      const res = await request('/api/v1/licenses', {
+        method: 'POST',
+        headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ planId: license.planId, buyerEmail: `b${i}@example.com` }),
+      })
+      expect(res.status).toBe(201)
+    }
+
+    const page1 = (await (
+      await request(`/api/v1/licenses?extension=${extension.id}`, { headers: { cookie: sessionCookie } })
+    ).json()) as { licenses: { id: string }[]; nextCursor: string | null }
+    expect(page1.licenses).toHaveLength(50)
+    expect(page1.nextCursor).not.toBeNull()
+
+    const page2 = (await (
+      await request(`/api/v1/licenses?extension=${extension.id}&cursor=${encodeURIComponent(page1.nextCursor!)}`, {
+        headers: { cookie: sessionCookie },
+      })
+    ).json()) as { licenses: { id: string }[]; nextCursor: string | null }
+    expect(page2.licenses).toHaveLength(11)
+    expect(page2.nextCursor).toBeNull()
+
+    // No overlap between pages — the (createdAt, id) keyset is strict.
+    const ids = new Set(page1.licenses.map((l) => l.id))
+    expect(page2.licenses.some((l) => ids.has(l.id))).toBe(false)
+
+    // Unknown extension: empty page, not an error.
+    const none = (await (
+      await request('/api/v1/licenses?extension=ext_nope', { headers: { cookie: sessionCookie } })
+    ).json()) as { licenses: unknown[] }
+    expect(none.licenses).toHaveLength(0)
+  })
+})
+
+describe('host-based surface isolation', () => {
+  it('api.extport.dev serves only /api', async () => {
+    const api = await request('https://api.extport.dev/api/healthz')
+    expect(api.status).toBe(200)
+    const spa = await request('https://api.extport.dev/login')
+    expect(spa.status).toBe(404)
+  })
+
+  it('portal.extport.dev serves only the portal surface', async () => {
+    const foreignApi = await request('https://portal.extport.dev/api/v1/plans')
+    expect(foreignApi.status).toBe(404)
+    const dashRoute = await request('https://portal.extport.dev/extensions/ext_x')
+    expect(dashRoute.status).toBe(302)
+    expect(dashRoute.headers.get('location')).toBe('/portal')
+    // The portal's own API prefix passes through the guard (404 here means it
+    // reached the route tree, which requires a real session/payload — not the
+    // host guard's flat rejection of foreign paths).
+    const ownApi = await request('https://portal.extport.dev/api/v1/portal/licenses')
+    expect([200, 401]).toContain(ownApi.status)
+  })
+})

@@ -1,4 +1,4 @@
-import { queryOptions } from '@tanstack/react-query'
+import { infiniteQueryOptions, queryOptions } from '@tanstack/react-query'
 import {
   api,
   ApiError,
@@ -63,10 +63,16 @@ export const plansQuery = (extensionId: string) =>
     queryFn: () => api<{ plans: Plan[] }>(`/api/v1/plans?extension=${extensionId}`).then((r) => r.plans),
   })
 
-export const licensesQuery = queryOptions({
-  queryKey: ['licenses'],
-  queryFn: () => api<{ licenses: LicenseRow[] }>('/api/v1/licenses').then((r) => r.licenses),
-})
+export const licensesInfiniteQuery = (extensionId: string) =>
+  infiniteQueryOptions({
+    queryKey: ['licenses', extensionId],
+    queryFn: ({ pageParam }) =>
+      api<{ licenses: LicenseRow[]; nextCursor: string | null }>(
+        `/api/v1/licenses?extension=${extensionId}${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''}`,
+      ),
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  })
 
 export const credentialsQuery = queryOptions({
   queryKey: ['credentials'],

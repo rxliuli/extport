@@ -16,7 +16,11 @@
   "assets": {
     "directory": "../dashboard/dist",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "binding": "ASSETS",
+    // Every request goes through the Worker so it can enforce host-based
+    // routing (api.* is API-only, portal.* is portal-only) before handing
+    // non-API paths to the assets binding.
+    "run_worker_first": true
   },
   // dash.* on purpose — the apex stays reserved for a future marketing site.
   // Requires the extport.dev zone to exist on this Cloudflare account before

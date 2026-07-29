@@ -23,6 +23,26 @@ import { requireAuth, withDb, type AppEnv } from './middleware/auth'
 
 const app = new Hono<AppEnv>()
 
+// Host-based surface isolation. One Worker serves three custom domains, and
+// with `run_worker_first: true` every request lands here first — so this is
+// the single place that keeps each domain to its own surface (previously the
+// asset layer served the dashboard SPA on any host, e.g. api.extport.dev/login).
+// Unknown hosts (localhost dev, *.workers.dev, tests) behave like dash: fully open.
+const PORTAL_PATHS = [/^\/portal/, /^\/purchase/, /^\/assets\//, /^\/favicon/, /^\/api\/v1\/portal\//]
+app.use('*', async (c, next) => {
+  const url = new URL(c.req.url)
+  if (url.hostname === 'api.extport.dev' && !url.pathname.startsWith('/api')) {
+    return c.json({ error: 'not found' }, 404)
+  }
+  if (url.hostname === 'portal.extport.dev' && !PORTAL_PATHS.some((re) => re.test(url.pathname))) {
+    // API paths outside the portal surface are hidden; everything else is a
+    // human who typed a dashboard URL on the wrong host — send them home.
+    if (url.pathname.startsWith('/api')) return c.json({ error: 'not found' }, 404)
+    return c.redirect('/portal', 302)
+  }
+  await next()
+})
+
 app.use('*', withDb)
 
 // Everything lives under /api so the deployed Worker needs exactly one
@@ -79,6 +99,17 @@ api.get('/v1/me', requireAuth, (c) => {
 })
 
 app.route('/api', api)
+
+// With run_worker_first: true, non-API paths no longer reach the asset layer
+// on their own — hand them over explicitly (the binding still applies the
+// SPA fallback). Unit tests run without built dashboard assets; the binding
+// check degrades those to a plain 404 instead of crashing.
+app.all('*', async (c) => {
+  if (!c.req.path.startsWith('/api') && c.env.ASSETS) {
+    return c.env.ASSETS.fetch(c.req.raw)
+  }
+  return c.json({ error: 'not found' }, 404)
+})
 
 app.notFound((c) => c.json({ error: 'not found' }, 404))
 

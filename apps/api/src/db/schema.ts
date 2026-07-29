@@ -331,6 +331,11 @@ export const licenses = sqliteTable(
     maxActivations: integer('max_activations').notNull(),
     status: text('status', { enum: ['active', 'locked', 'refunded'] }).notNull().$defaultFn(() => 'active'),
     source: text('source', { enum: ['stripe_webhook', 'manual', 'imported'] }).notNull(),
+    // Sale amount snapshot (Stripe's smallest currency unit) — the basis for
+    // future percentage-based licensing billing. Null for manual/imported
+    // rows until backfilled from the provider.
+    amountTotal: integer('amount_total'),
+    currency: text('currency'),
     sourceRef: text('source_ref'),
     // Stripe Checkout Session id (cs_…), stored at fulfillment for the
     // success page's time-boxed lookup — extport holds no tenant API key
@@ -343,6 +348,8 @@ export const licenses = sqliteTable(
     uniqueIndex('licenses_key_idx').on(t.key),
     index('licenses_tenant_idx').on(t.tenantId),
     index('licenses_buyer_idx').on(t.tenantId, t.buyerEmail),
+    // Keyset pagination for the dashboard's license list.
+    index('licenses_plan_created_idx').on(t.planId, t.createdAt),
     // Webhook idempotency + refund lookup. SQLite unique indexes admit any
     // number of NULLs, so manual licenses (no sourceRef) are unaffected.
     uniqueIndex('licenses_source_ref_idx').on(t.sourceRef),

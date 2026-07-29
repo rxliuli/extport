@@ -30,6 +30,9 @@ interface StripeCheckoutSession {
   payment_intent?: string | { id: string } | null
   customer_details?: { email?: string | null } | null
   metadata?: Record<string, string> | null
+  /** Smallest currency unit; 0 for 100%-promo sessions. */
+  amount_total?: number | null
+  currency?: string | null
 }
 
 interface StripeChargeLike {
@@ -135,6 +138,10 @@ async function handleCheckoutCompleted(c: Context<AppEnv>, tenant: Tenant, sessi
     source: 'stripe_webhook',
     sourceRef,
     checkoutSessionId: session.id,
+    // Snapshot the sale amount — the future basis for percentage-based
+    // licensing billing. Zero (100%-off promo) is a real, meaningful value.
+    amountTotal: session.amount_total ?? null,
+    currency: session.currency ?? null,
   })
   await db.insert(licenseEvents).values({
     id: newId('licenseEvent'),

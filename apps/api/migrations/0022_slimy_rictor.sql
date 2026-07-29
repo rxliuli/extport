@@ -1,0 +1,1 @@
+CREATE INDEX `licenses_plan_created_idx` ON `licenses` (`plan_id`,`created_at`);

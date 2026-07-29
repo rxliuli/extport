@@ -42,6 +42,8 @@ function checkoutEvent(planId: string, sessionOverrides: Record<string, unknown>
         id: nextRef('cs'),
         payment_status: 'paid',
         payment_intent: nextRef('pi'),
+        amount_total: 1999,
+        currency: 'usd',
         customer_details: { email: 'buyer@example.com' },
         metadata: { extport_plan: planId },
         ...sessionOverrides,
@@ -155,6 +157,9 @@ describe('checkout.session.completed fulfillment', () => {
     expect(license.checkoutSessionId).toBe((event.data.object as { id: string }).id)
     expect(license.buyerEmail).toBe('buyer@example.com')
     expect(license.maxActivations).toBe(plan.maxActivations)
+    // The sale amount snapshot — the basis for future percentage billing.
+    expect(license.amountTotal).toBe(1999)
+    expect(license.currency).toBe('usd')
 
     const events = await db.select().from(licenseEvents).where(eq(licenseEvents.licenseId, license.id))
     expect(events.map((e) => e.type)).toEqual(['issued'])

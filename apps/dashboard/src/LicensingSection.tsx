@@ -6,9 +6,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { licensesQuery, plansQuery } from '@/queries'
+import { licensesInfiniteQuery, plansQuery } from '@/queries'
 import { formatDate } from '@/status'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -248,9 +248,9 @@ function PlanEditDialog({ plan, extensionId }: { plan: Plan; extensionId: string
 function LicensesCard({ extension }: { extension: Extension }) {
   const queryClient = useQueryClient()
   const { data: plans = [] } = useQuery(plansQuery(extension.id))
-  const { data: allLicenses = [] } = useQuery(licensesQuery)
+  const licensesPages = useInfiniteQuery(licensesInfiniteQuery(extension.id))
   const planById = new Map(plans.map((p) => [p.id, p]))
-  const licenses = allLicenses.filter((l) => planById.has(l.planId))
+  const licenses = licensesPages.data?.pages.flatMap((p) => p.licenses) ?? []
   const [open, setOpen] = useState(false)
   const [planId, setPlanId] = useState('')
   const [buyerEmail, setBuyerEmail] = useState('')
@@ -374,6 +374,18 @@ function LicensesCard({ extension }: { extension: Extension }) {
               ))}
             </TableBody>
           </Table>
+        )}
+        {licensesPages.hasNextPage && (
+          <div className="mt-3 flex justify-center">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={licensesPages.isFetchingNextPage}
+              onClick={() => void licensesPages.fetchNextPage()}
+            >
+              Show more
+            </Button>
+          </div>
         )}
       </CardContent>
     </Card>

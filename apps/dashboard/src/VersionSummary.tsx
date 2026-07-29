@@ -1,13 +1,11 @@
 import type { TargetLifecycle } from './api'
 import { TriangleAlert } from 'lucide-react'
 
-// Store targets is "what's live right now, and is anything broken" —
-// in_review/queued/rejected duplicate the Versions matrix below (which has
-// full history plus hover detail for every fact), so they're not repeated
-// here. error replaces the live version entirely rather than sitting next to
-// it: it's blocking and needs attention, unlike live/in_review/queued, which
-// are just states passing through their normal flow. The live version isn't
-// lost — it's still in the matrix a scroll away.
+// One value per cell, by what deserves attention: error > in review > live,
+// with queued as a last resort so a brand-new target (first review pending,
+// nothing live yet) doesn't render as an empty dash. Amber marks "in the
+// pipeline" — same semantic color the Versions matrix uses; the live version
+// during a review is one click away on the detail page.
 function LifecycleLine({ lifecycle }: { lifecycle: TargetLifecycle }) {
   if (lifecycle.status === 'error') {
     return (
@@ -19,14 +17,28 @@ function LifecycleLine({ lifecycle }: { lifecycle: TargetLifecycle }) {
       </span>
     )
   }
-  if (!lifecycle.liveVersion) {
-    return <span className="text-muted-foreground/50">—</span>
+  if (lifecycle.inReviewVersion) {
+    return (
+      <span className="text-sm font-semibold text-amber-600 dark:text-amber-500" title="in review">
+        {lifecycle.inReviewVersion}
+      </span>
+    )
   }
-  return (
-    <span className="text-sm font-semibold text-green-700 dark:text-green-500" title="live">
-      {lifecycle.liveVersion}
-    </span>
-  )
+  if (lifecycle.liveVersion) {
+    return (
+      <span className="text-sm font-semibold text-green-700 dark:text-green-500" title="live">
+        {lifecycle.liveVersion}
+      </span>
+    )
+  }
+  if (lifecycle.queuedVersion) {
+    return (
+      <span className="text-sm font-semibold text-amber-600/70 dark:text-amber-500/70" title="queued">
+        {lifecycle.queuedVersion}
+      </span>
+    )
+  }
+  return <span className="text-muted-foreground/50">—</span>
 }
 
 /**

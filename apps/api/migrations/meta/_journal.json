@@ -148,6 +148,20 @@
       "when": 1785239983255,
       "tag": "0020_drop_extension_slug",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1785335744306,
+      "tag": "0021_secret_leech",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1785335759098,
+      "tag": "0022_slimy_rictor",
+      "breakpoints": true
     }
   ]
 }

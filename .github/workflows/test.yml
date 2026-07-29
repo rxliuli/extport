@@ -30,5 +30,9 @@ jobs:
             echo "GITHUB_CLIENT_SECRET=ci-placeholder"
             echo "DASHBOARD_URL=http://localhost:5173"
           } > apps/api/.dev.vars
+      # The assets binding (wrangler.jsonc) points at the dashboard build
+      # output; miniflare wants the directory to exist even though no test
+      # asserts asset content.
+      - run: mkdir -p apps/dashboard/dist
       - run: pnpm -r typecheck
       - run: pnpm -r test

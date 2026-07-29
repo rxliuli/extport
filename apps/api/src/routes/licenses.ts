@@ -1,5 +1,5 @@
 import { newId } from '@extport/shared'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray, lt, or } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
@@ -15,23 +15,56 @@ const route = new Hono<AppEnv>()
 
 route.use('*', requireAuth, requireActiveTenant)
 
+const PAGE_SIZE = 50
+
 route.get(
   '/',
-  describeRoute({ summary: 'List licenses', responses: { 200: { description: 'OK' } } }),
+  describeRoute({
+    summary: 'List licenses',
+    description:
+      'Newest first, 50 per page. Filter with ?plan= or ?extension=; pass the previous response\'s nextCursor as ?cursor= to fetch the next page.',
+    responses: { 200: { description: 'OK' } },
+  }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
     const planId = c.req.query('plan')
+    const extensionId = c.req.query('extension')
+    const cursor = c.req.query('cursor')
+
+    const filters = [eq(licenses.tenantId, tenant.id)]
+    if (planId) filters.push(eq(licenses.planId, planId))
+    if (extensionId) {
+      const planRows = await db
+        .select({ id: plans.id })
+        .from(plans)
+        .where(and(eq(plans.tenantId, tenant.id), eq(plans.extensionId, extensionId)))
+      if (planRows.length === 0) return c.json({ licenses: [], nextCursor: null })
+      filters.push(inArray(licenses.planId, planRows.map((p) => p.id)))
+    }
+    // Keyset cursor "createdAt~id": strictly older rows, with the random id
+    // as a stable tiebreak for rows created in the same millisecond.
+    if (cursor) {
+      const sep = cursor.lastIndexOf('~')
+      if (sep === -1) return c.json({ error: 'cursor must be "createdAt~id"' }, 400)
+      const createdAt = cursor.slice(0, sep)
+      const id = cursor.slice(sep + 1)
+      filters.push(
+        or(lt(licenses.createdAt, createdAt), and(eq(licenses.createdAt, createdAt), lt(licenses.id, id)))!,
+      )
+    }
+
     const rows = await db
       .select()
       .from(licenses)
-      .where(
-        planId
-          ? and(eq(licenses.tenantId, tenant.id), eq(licenses.planId, planId))
-          : eq(licenses.tenantId, tenant.id),
-      )
-      .orderBy(desc(licenses.createdAt))
-    return c.json({ licenses: rows })
+      .where(and(...filters))
+      .orderBy(desc(licenses.createdAt), desc(licenses.id))
+      .limit(PAGE_SIZE + 1)
+
+    const page = rows.slice(0, PAGE_SIZE)
+    const last = page[page.length - 1]
+    const nextCursor = rows.length > PAGE_SIZE ? `${last!.createdAt}~${last!.id}` : null
+    return c.json({ licenses: page, nextCursor })
   },
 )
 
