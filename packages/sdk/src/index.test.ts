@@ -178,6 +178,21 @@ describe('checkActivation', () => {
     expect(((await idbGet('plan')) as PlanConfig).tier).toBe('pro')
   })
 
+  it('静默复活全程无感：订阅者永远看不到降级抖动', async () => {
+    await idbSet('plan', storedConfig())
+    stubWire({ check: CHECK_INACTIVE, activate: ACTIVATE_OK })
+
+    const client = createClient()
+    await client.getPlan() // 快照就绪：pro
+    const seen: string[] = []
+    client.subscribe((plan, prev) => seen.push(`${prev.tier}->${plan.tier}`))
+
+    expect(await client.checkActivation()).toBe(true)
+    // 被驱逐→重激活的整个过程中档位从未变化——用户(和 UI)看不到任何 free 闪烁
+    expect(seen).toEqual([])
+    expect(client.getSnapshot().tier).toBe('pro')
+  })
+
   it('设备未激活且重激活被明确拒绝：清除本地状态,返回 false', async () => {
     await idbSet('plan', storedConfig())
     stubWire({ check: CHECK_INACTIVE, activate: ACTIVATE_REJECTED })

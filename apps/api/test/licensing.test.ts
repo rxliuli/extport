@@ -378,3 +378,67 @@ describe('extension deletion vs issued licenses', () => {
     expect(await db.select().from(plans).where(eq(plans.extensionId, extension.id))).toHaveLength(0)
   })
 })
+
+// The journey a long-idle device takes when it comes back. The product
+// promise under test: absence alone can NEVER cost a paying user their
+// entitlement — a seat is only ever lost to live contention, and a
+// returning device silently re-claims one whenever any seat is free,
+// including a seat freed at that very moment by decaying an idle peer.
+describe('scenario: the long-idle device comes back', () => {
+  const days = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString()
+
+  it('absence alone never expires a device — without contention no seat is ever released', async () => {
+    const { db, license } = await setupLicensedProduct({ maxActivations: 2 })
+    await activate({ code: license.key, productName: 'My Extension', fingerprint: 'fp-a' })
+
+    await db.update(activations).set({ lastHeartbeatAt: days(90) }).where(eq(activations.deviceFingerprint, 'fp-a'))
+    const res = (await (await check({ code: license.key, productName: 'My Extension', fingerprint: 'fp-a' })).json()) as WireResult
+    expect(res.data?.isActive).toBe(true)
+
+    const [row] = await db.select().from(activations).where(eq(activations.deviceFingerprint, 'fp-a'))
+    expect(row!.releasedAt).toBeNull()
+    expect(row!.lastHeartbeatAt! > days(90)).toBe(true) // heartbeat refreshed by the return
+  })
+
+  it('a returning evicted device resurrects by decaying an idle peer at that very moment', async () => {
+    const { db, license } = await setupLicensedProduct({ maxActivations: 2 })
+    await activate({ code: license.key, productName: 'My Extension', fingerprint: 'fp-a' })
+    await activate({ code: license.key, productName: 'My Extension', fingerprint: 'fp-b' })
+
+    // A goes idle; C's activation evicts it (the only idle seat).
+    await db.update(activations).set({ lastHeartbeatAt: days(31) }).where(eq(activations.deviceFingerprint, 'fp-a'))
+    expect(((await (await activate({ code: license.key, productName: 'My Extension', fingerprint: 'fp-c' })).json()) as WireResult).success).toBe(true)
+
+    // Later B goes idle too. A comes back: server no longer knows it…
+    await db.update(activations).set({ lastHeartbeatAt: days(31) }).where(eq(activations.deviceFingerprint, 'fp-b'))
+    const back = (await (await check({ code: license.key, productName: 'My Extension', fingerprint: 'fp-a' })).json()) as WireResult
+    expect(back.data?.isActive).toBe(false)
+
+    // …so the SDK re-activates with the stored code+fingerprint, which
+    // decays B and reuses A's original row. Silent resurrection.
+    expect(((await (await activate({ code: license.key, productName: 'My Extension', fingerprint: 'fp-a' })).json()) as WireResult).success).toBe(true)
+
+    const rows = await db.select().from(activations).where(eq(activations.licenseId, license.id))
+    expect(rows).toHaveLength(3) // a, b, c — rows are reused, never duplicated
+    const byFp = Object.fromEntries(rows.map((r) => [r.deviceFingerprint, r.releasedAt]))
+    expect(byFp['fp-a']).toBeNull()
+    expect(byFp['fp-b']).not.toBeNull()
+    expect(byFp['fp-c']).toBeNull()
+    const events = await db.select().from(licenseEvents).where(eq(licenseEvents.licenseId, license.id))
+    expect(events.filter((e) => e.type === 'seat_released')).toHaveLength(2) // A's eviction, then B's
+  })
+
+  it('a returning device is turned away only when every seat is held by a live device', async () => {
+    const { db, license } = await setupLicensedProduct({ maxActivations: 2 })
+    await activate({ code: license.key, productName: 'My Extension', fingerprint: 'fp-a' })
+    await activate({ code: license.key, productName: 'My Extension', fingerprint: 'fp-b' })
+
+    await db.update(activations).set({ lastHeartbeatAt: days(31) }).where(eq(activations.deviceFingerprint, 'fp-a'))
+    expect(((await (await activate({ code: license.key, productName: 'My Extension', fingerprint: 'fp-c' })).json()) as WireResult).success).toBe(true)
+
+    // B and C are both live: A's return is genuine over-subscription.
+    const res = (await (await activate({ code: license.key, productName: 'My Extension', fingerprint: 'fp-a' })).json()) as WireResult
+    expect(res.success).toBe(false)
+    expect(res.message).toMatch(/maximum number of devices \(2\)/)
+  })
+})
