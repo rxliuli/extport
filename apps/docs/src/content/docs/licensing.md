@@ -101,8 +101,8 @@ discount codes.
 In Workbench → **Webhooks**, add an event destination:
 
 - **URL**: `https://api.extport.dev/api/v1/licensing/webhooks/stripe/<your tenant id>`
-  — the exact URL is shown ready-to-copy in **Settings → Payment
-  credentials**.
+  — the exact URL is shown ready-to-copy in [**Settings → Payment
+  credentials**](https://dash.extport.dev/settings#payment-credentials).
 - **Events**: `checkout.session.completed`, `charge.refunded`,
   `charge.dispute.created` — the first fulfills purchases, the other two
   revoke licenses automatically on refunds and disputes.
@@ -111,7 +111,8 @@ In Workbench → **Webhooks**, add an event destination:
 ![The event destination in Stripe's Workbench, showing the endpoint URL, the three events, and the masked signing secret](../../assets/screenshots/stripe-webhook-detail.jpg)
 
 Then copy the destination's **signing secret** (`whsec_…`) into
-extport's **Settings → Payment credentials**. The secret is write-only —
+extport's [**Settings → Payment
+credentials**](https://dash.extport.dev/settings#payment-credentials). The secret is write-only —
 extport uses it solely to verify that webhook events really come from
 Stripe. Test and live mode have separate secrets; store whichever mode
 your sales currently run in.

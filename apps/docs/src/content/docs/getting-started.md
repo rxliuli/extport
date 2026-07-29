@@ -23,7 +23,7 @@ configured for each of Chrome, Firefox, Edge, and Safari.
 
 ## 3. Add your store credentials
 
-Under **Settings → Store credentials**, add a credential for each store you publish to. Each row shows the store,
+Under [**Settings → Store credentials**](https://dash.extport.dev/settings#store-credentials), add a credential for each store you publish to. Each row shows the store,
 a label, the last four characters of the credential, and whether it verified successfully:
 
 ![The Store credentials list, showing one row each for Safari, Edge, Firefox, and Chrome with their status](../../assets/screenshots/dashboard-store-credentials.png)
@@ -45,7 +45,7 @@ get linked together — for Redirector on Chrome, that's its real item id, `lioa
 
 ## 5. Get an API key
 
-Under **Settings → API keys**, name a key and click **Create**. The full value is shown exactly once — copy it
+Under [**Settings → API keys**](https://dash.extport.dev/settings#api-keys), name a key and click **Create**. The full value is shown exactly once — copy it
 immediately, since only the last four characters are shown afterward:
 
 ![The API keys panel right after creating a key named "ci", showing the full sk_live_… value in a "copy now — shown once" banner](../../assets/screenshots/dashboard-api-keys.png)
