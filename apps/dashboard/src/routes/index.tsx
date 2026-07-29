@@ -86,8 +86,10 @@ function ExtensionsPage() {
                     {STORES.map((s) => {
                       const target = ext.targets.find((t) => t.store === s)
                       return (
-                        <TableCell key={s} className="min-h-11">
-                          {target ? <VersionSummary lifecycles={target.lifecycles} /> : <span className="text-muted-foreground/50">—</span>}
+                        <TableCell key={s}>
+                          <div className="flex min-h-15 items-center">
+                            {target ? <VersionSummary lifecycles={target.lifecycles} /> : <span className="text-muted-foreground/50">—</span>}
+                          </div>
                         </TableCell>
                       )
                     })}
