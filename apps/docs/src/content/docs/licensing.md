@@ -73,14 +73,10 @@ which Stripe always collects.
 
 ![Stripe's Payment Links list in test mode](../../assets/screenshots/stripe-payment-links.jpg)
 
-Two settings on the link matter, and one of them can only be added
-**after** creating the link, from its detail page:
+Two settings on the link matter. **After payment** is part of the creation form itself; **Metadata** isn't — Stripe
+only exposes it once the link already exists, from its detail page:
 
-1. **Metadata** (detail page → *Edit metadata*): add one entry, key
-   `extport_plan`, value the `plan_…` id from your plans table. This is
-   how a payment finds the plan to fulfill — without it, extport ignores
-   the sale.
-2. **After payment** (edit → *After payment* tab): redirect to
+1. **After payment** (set while creating the link, or later via edit → *After payment* tab): redirect to
 
    ```
    https://portal.extport.dev/purchase/success?session_id={CHECKOUT_SESSION_ID}
@@ -90,6 +86,10 @@ Two settings on the link matter, and one of them can only be added
    the payment settles (`{CHECKOUT_SESSION_ID}` stays literal — Stripe
    fills it in). Skipping this works too — the code still arrives by
    email — but the redirect is the smoothest experience.
+2. **Metadata** (only after creating the link, from its detail page →
+   *Edit metadata*): add one entry, key `extport_plan`, value the
+   `plan_…` id from your plans table. This is how a payment finds the
+   plan to fulfill — without it, extport ignores the sale.
 
 ![The Payment Link detail page with the extport_plan metadata entry and the portal confirmation-page redirect](../../assets/screenshots/stripe-payment-link-metadata.jpg)
 

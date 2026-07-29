@@ -9,6 +9,7 @@ export default defineConfig({
     starlight({
       title: 'extport',
       description: 'Publish a browser extension to every store, from one push.',
+      favicon: '/favicon.png',
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/rxliuli/extport' },
         { icon: 'discord', label: 'Discord', href: 'https://discord.gg/Va9kcSqu3f' },
