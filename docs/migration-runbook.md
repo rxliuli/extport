@@ -54,8 +54,13 @@ only gates retirement. Corollaries, both verified:
 ### 3. Stripe: one live Payment Link per plan
 
 Reuse the existing live Price (the one license-kit already sells with).
-Create the link, then — **on the detail page, not the creation form**
-(the creation form has no metadata input):
+Paddle-era products have no Stripe Price — create a catalog Product first
+(`POST /v1/products` with `default_price_data`), then reference that price
+from the link. **Never use the payment link's inline `price_data`**: it
+creates an invisible one-off product that never appears in the Product
+catalog and can't be reused for another link. Via the API (unlike the
+dashboard form) metadata and the redirect can be set at creation time,
+skipping the detail-page step below:
 
 1. *Edit metadata*: `extport_plan` = the `plan_…` id from the dashboard
    plans table. Without it the sale fulfills nowhere.
