@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { matrixQuery } from '@/queries'
 import { VersionSummary } from '@/VersionSummary'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -20,6 +20,7 @@ const STORE_LABEL: Record<Store, string> = { chrome: 'Chrome', firefox: 'Firefox
 function ExtensionsPage() {
   const { data: extensions, isPending } = useQuery(matrixQuery)
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [name, setName] = useState('')
 
   const create = useMutation({
@@ -73,12 +74,17 @@ function ExtensionsPage() {
               </TableHeader>
               <TableBody>
                 {(extensions ?? []).map((ext) => (
-                  <TableRow key={ext.id}>
+                  <TableRow
+                    key={ext.id}
+                    onClick={() => navigate({ to: '/extensions/$extensionId', params: { extensionId: ext.id } })}
+                    className="cursor-pointer"
+                  >
                     <TableCell>
                       <Link
                         to="/extensions/$extensionId"
                         params={{ extensionId: ext.id }}
                         className="font-medium text-primary underline-offset-4 hover:underline"
+                        onClick={(e) => e.stopPropagation()}
                       >
                         {ext.name}
                       </Link>
@@ -87,9 +93,7 @@ function ExtensionsPage() {
                       const target = ext.targets.find((t) => t.store === s)
                       return (
                         <TableCell key={s}>
-                          <div className="flex min-h-15 items-center">
-                            {target ? <VersionSummary lifecycles={target.lifecycles} /> : <span className="text-muted-foreground/50">—</span>}
-                          </div>
+                          {target ? <VersionSummary lifecycles={target.lifecycles} /> : <span className="text-muted-foreground/50">—</span>}
                         </TableCell>
                       )
                     })}
