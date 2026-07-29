@@ -58,7 +58,10 @@ Paddle-era products have no Stripe Price — create a catalog Product first
 (`POST /v1/products` with `default_price_data`), then reference that price
 from the link. **Never use the payment link's inline `price_data`**: it
 creates an invisible one-off product that never appears in the Product
-catalog and can't be reused for another link. Via the API (unlike the
+catalog and can't be reused for another link. And there is no undo:
+payment links can only be deactivated, never deleted — every mistake is
+a permanent row in the dashboard list (filter Status=Active to hide
+them), so get the shape right before creating. Via the API (unlike the
 dashboard form) metadata and the redirect can be set at creation time,
 skipping the detail-page step below:
 
