@@ -5,7 +5,9 @@ Per-product progress tracker. The procedure is
 product actually stands. **Update this file as steps complete** — future
 migration work resumes from here.
 
-Last updated: 2026-07-29.
+Last updated: 2026-07-29 (evening — Twitter duo shipped on the SDK after
+the silent-resurrection scenario tests landed; blocker keeps its own
+IndexedDB kv store via a custom StorageAdapter).
 
 ## Platform (done once — all live)
 
@@ -40,25 +42,14 @@ the storefront flip).
 | Tumblr Exporter | 0.0.15 (both in review) | chrome, firefox | pending | https://buy.stripe.com/aFa5kD4rM5upaIidiv0ZW0c |
 | Instagram Exporter | 0.0.19 (all three in review) | chrome, firefox, edge | pending | basic tier: https://buy.stripe.com/eVq00jf6qf4Z17Icer0ZW0d |
 | Claude Exporter | 0.0.11 (both in review) | chrome, firefox | pending | https://buy.stripe.com/28EcN5bUe6ytcQqcer0ZW0e |
+| Twitter Blocker | 0.3.19 (firefox already online; chrome+edge+safari/macos in review, safari/ios queued) | chrome, firefox, edge, safari | pending (71 codes) | $19.99: https://buy.stripe.com/3cI7sLcYi9KF4jUguH0ZW0g |
+| Twitter Exporter | 0.8.52 (chrome+firefox in review, edge queued) | chrome, firefox, edge | pending (402 codes, incl. one 4-device and one 6-device — per-license maxActivations snapshots survive import) | basic $19.99: https://buy.stripe.com/28E8wP8I26ytdUuban0ZW0h · pro $39.99: https://buy.stripe.com/14A9ATe2m7CxaIia6j0ZW0i |
 
 **At the end of the wait, per product:** flip the storefront buy button
 to the Payment Link → run the import (`scripts/import-license-kit.mjs
 --product "…" --apply`) → one $0 promo-code purchase as end-to-end
 verification (runbook §5). Reddit's import already ran; re-run near
 retirement for stragglers.
-
-## Held back deliberately — largest paying user bases
-
-Client swap intentionally deferred until the batch above is flipped and
-verified (author's call: prove the recipe on low-volume products first).
-Stripe side is fully prepared; the swap itself is a mechanical
-`@rxliuli/activation-client` → `@extport/sdk` replacement and a CI
-release.
-
-| Product | Codes (active) | Plans | Payment Links |
-|---|---|---|---|
-| Twitter Blocker | 71 (67) | pro/3 | $19.99: https://buy.stripe.com/3cI7sLcYi9KF4jUguH0ZW0g |
-| Twitter Exporter | 402 (386), incl. one 4-device and one 6-device code (per-license maxActivations snapshots survive import) | basic/3 + pro/3 | basic $19.99: https://buy.stripe.com/28E8wP8I26ytdUuban0ZW0h · pro $39.99: https://buy.stripe.com/14A9ATe2m7CxaIia6j0ZW0i |
 
 ## After the last product flips
 
