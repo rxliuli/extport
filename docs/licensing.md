@@ -237,6 +237,9 @@ removed in a release after license-kit retires.
 
 ## Fleet migration (license-kit → extport) — per product, gradual
 
+> Operational checklist with the verified commands and pitfalls:
+> [`migration-runbook.md`](migration-runbook.md).
+
 **Hard rule: no existing paying user may be harmed. Nobody re-enters a
 code, nobody loses features, no purchase fails to fulfill.** Every
 ordering decision below exists to preserve this.
