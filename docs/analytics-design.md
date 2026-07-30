@@ -214,6 +214,22 @@ Firefox's manifest data-collection declaration (this event set falls
 under Mozilla's "technical and interaction data"). Making those two
 forms easy to fill correctly is worth more to tenants than any metric.
 
+Learned on the imp-translate canary (2026-07-30):
+
+- CWS form: country-from-IP means checking **Location** (its examples
+  name "region, IP address"), and the checked category shows publicly
+  on the listing's Privacy practices tab.
+- AMO **rejects `technicalAndInteraction` in
+  `data_collection_permissions.required`** — Firefox's position is that
+  technical data must always be user-declinable, so it can only be
+  declared `optional` (an install-time toggle, manageable later in
+  about:addons). The extension must then honor the toggle at runtime:
+  `permissions.getAll().data_collection` (key absent = browser without
+  the mechanism → manifest-level disclosure governs), re-synced on
+  `permissions.onAdded`/`onRemoved`. imp-translate's background is the
+  reference wiring; folding this into the SDK as automatic behavior is
+  the natural 0.0.4 improvement.
+
 ## Integration: @wxt-dev/analytics provider
 
 WXT ships a first-party analytics module — a thin message bus
