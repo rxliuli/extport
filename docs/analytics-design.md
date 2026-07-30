@@ -32,53 +32,77 @@ Why it fits extport:
   paid products, but analytics is wanted by every extension developer,
   including free ones.
 
-## Events and dimensions
+## The wire protocol: one ping
 
-Fixed event vocabulary: `installed`, `updated`, `opened`
-(popup/options), and a daily activity ping. Custom events allowed but
-capped (event name only, no properties) — Plausible's model, not GA4's.
+There is exactly one client event — the daily ping:
+`install_id + extension + version + language`. The server derives
+country (`request.cf`) and browser/OS (User-Agent), and everything else
+is inference over pings:
 
-Dimensions per event: **browser, extension version, country, language,
-OS**. The client payload is only `install_id` + version + event +
-language — the server derives country from `request.cf`, browser and OS
-from the User-Agent. The client collects almost nothing, which is the
-compliance story (see below). Region/language/OS is exactly the trio
-every store console converged on; version is the extport-specific
-addition.
+- **install** — an `install_id` seen for the first time
+- **update** — a ping whose version differs from the install's last one
+- **active** — the ping itself
+- **churn** — 30 days of silence
+
+No event field exists on the wire, so there is nothing to extend,
+validate, or cap — custom events aren't forbidden, they're unwritable
+(see non-goals). Browser/version/country/language/OS is exactly the
+dimension set the store consoles converged on, and the client payload
+carries almost none of it, which is the compliance story (below).
 
 **The SDK pings at most once per UTC day, client-side.** Event-driven
-only (background wake), no `alarms`, no permissions — the same ruling as
-the licensing heartbeat: a library must not demand host permissions, and
-timers would fake liveness for abandoned installs. Client-side dedup
-also means DAU = ping count, with no server-side distinct needed.
+only (background wake, plus immediately on `onInstalled` so install
+timing is accurate), no `alarms`, no permissions — the same ruling as
+the licensing heartbeat: a library must not demand host permissions,
+and timers would fake liveness for abandoned installs. The server
+enforces the same idempotency independently — a ping only counts if
+the install's `last_seen` predates today — so a misbehaving client
+cannot inflate anything.
 
-## Storage: three layers
+## Storage: three D1 tables, no second system
 
-| Layer | Store | Contents | Retention |
-|---|---|---|---|
-| Install state | D1 `installs` | one row per install: `install_id, extension, browser, first_seen, last_seen, last_version` | permanent (prunable after long idle) |
-| Daily rollups | D1, nightly cron | single-dimension time series: headline (dau/mau/installs/churned) plus per-version, per-country, per-language, per-OS daily actives | **permanent** |
-| Raw events | Workers Analytics Engine | every ping/event with all dimensions | **90 days, auto-deleted** (confirmed in CF docs; extension requires contacting CF) |
+| Table | Contents | Retention |
+|---|---|---|
+| `pings_raw` | one row per accepted ping, all dimensions resolved | **90 days, pruned by our own cron** |
+| `installs` | one row per install: `first_seen, last_seen, last_version` | permanent (prunable after long idle) |
+| `analytics_daily` | single-dimension time series: headline (dau/mau/installs/churned) plus per-version, per-country, per-language, per-OS daily actives | **permanent** |
 
-The boundary rule that makes the layering non-weird:
+Ingest is insert-only: one `pings_raw` insert plus one `installs`
+upsert. A nightly cron aggregates yesterday's raw rows into
+`analytics_daily` (one GROUP BY per dimension), snapshots the rolling
+30-day MAU from `installs` (cross-day uniques can't be recomputed
+after raw data ages out — history is those snapshots), counts
+yesterday's churn crossings, and prunes raw rows past 90 days.
 
-- **Single dimension × time → permanent rollup.** Store consoles
-  themselves offer 5-year single-dimension views (CWS "Last 5 years"),
-  so we cannot retain less. Cardinality is additive, not multiplicative
-  — a per-country daily table is `date × extension × browser × country`,
-  a few thousand rows/day at fleet scale, trivial for D1 forever.
-- **Dimension crosses (country × version × …) and custom-event detail →
-  the 90-day WAE window.** No store console offers cross-dimensional
-  views at all; ad-hoc drill-down is honestly windowed.
+The boundary rule: **single dimension × time → permanent.** Store
+consoles themselves offer 5-year single-dimension views (CWS "Last 5
+years"), so we cannot retain less. Cardinality is additive, not
+multiplicative — a per-country daily table is `date × extension ×
+browser × country`, a few thousand rows/day at fleet scale, trivial
+for D1 forever. The raw window exists for *recomputation*, not for
+product features — every promised chart reads `analytics_daily` or
+`installs`.
 
-Layer 1 exists so the exact metrics (MAU, current version distribution,
-churn) never depend on WAE's SQL capabilities or sampling. WAE
-adaptively samples at high volume (`_sample_interval` weighting) —
-acceptable for slices, not for headlines.
+Two designs were rejected here:
 
-Cross-day uniques (MAU/WAU) cannot be recomputed after raw data
-expires: the cron snapshots "30-day MAU as of today" daily into the
-rollup, and history is those snapshots.
+- **Aggregate-on-write counters** (the ping handler increments daily
+  rows directly, no raw table): every bucketing bug becomes permanent
+  — a week of misparsed User-Agents would be unrecoverable. Insert-only
+  ingest costs the same and any rollup bug within the window is fixed
+  by recompute.
+- **Workers Analytics Engine as the raw layer**: its 90-day cap means
+  every promised read hits D1 anyway, so it was never load-bearing;
+  its one real job — ad-hoc cross-dimension slicing — fell out of
+  scope under the console razor (no store console offers crosses); and
+  it samples at volume. This design knowingly rebuilds WAE's shape
+  inside D1, gaining full SQL, exact counts, a retention policy we own
+  rather than inherit, and one fewer storage system.
+
+Scale ceiling, honestly: D1 is a single writer and the raw table grows
+with DAU — 50k DAU ≈ 4.5M rows at 90 days (comfortable); a 1M-DAU
+tenant would not be. The escape hatch when a whale arrives: move the
+raw buffer to a queue (or WAE), keep everything else — the read model
+never changes.
 
 ## What the four consoles offer (surveyed 2026-07-30)
 
@@ -133,10 +157,17 @@ curves on day one instead of an empty chart growing in real time:
   async request/poll/snapshot flow; the fleet has one Safari product.
   Safari history honestly starts at SDK adoption.
 
-Import writes only the permanent rollup layer, never WAE.
+Import writes only the permanent rollup layer, never the raw table.
 
 ## Deliberately out of scope
 
+- **Custom events.** Cut entirely — no store console has them, and
+  they are the top of the GA4 slope (events want properties,
+  properties want funnels). Cutting them is also what collapsed the
+  wire protocol to a single ping. If fine-grained "which feature gets
+  used" instrumentation ever materializes as real tenant demand, it
+  belongs to a future instrumentation/logging module alongside error
+  reporting — not this dashboard.
 - **Error/crash reporting.** Not a store-console feature; different
   data shape (stack blobs, grouping, source maps, issue lifecycle,
   alerting — Sentry's product, not three charts); and it contaminates
