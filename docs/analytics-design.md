@@ -42,7 +42,7 @@ is inference over pings:
 - **install** — an `install_id` seen for the first time
 - **update** — a ping whose version differs from the install's last one
 - **active** — the ping itself
-- **churn** — 30 days of silence
+- **departure** — 30 days of silence, attributed to the last-seen day
 
 No event field exists on the wire, so there is nothing to extend,
 validate, or cap — custom events aren't forbidden, they're unwritable
@@ -65,14 +65,16 @@ cannot inflate anything.
 |---|---|---|
 | `pings_raw` | one row per accepted ping, all dimensions resolved | **90 days, pruned by our own cron** |
 | `installs` | one row per install: `first_seen, last_seen, last_version` | permanent (prunable after long idle) |
-| `analytics_daily` | single-dimension time series: headline (dau/mau/installs/churned) plus per-version, per-country, per-language, per-OS daily actives | **permanent** |
+| `analytics_daily` | single-dimension time series: headline (dau/mau/installs/departures) plus per-version, per-country, per-language, per-OS daily actives | **permanent** |
 
 Ingest is insert-only: one `pings_raw` insert plus one `installs`
 upsert. A nightly cron aggregates yesterday's raw rows into
 `analytics_daily` (one GROUP BY per dimension), snapshots the rolling
 30-day MAU from `installs` (cross-day uniques can't be recomputed
 after raw data ages out — history is those snapshots), counts
-yesterday's churn crossings, and prunes raw rows past 90 days.
+newly confirmed departures — written into the row of the day the
+install was last seen, 30 days back (see below) — and prunes raw rows
+past 90 days.
 
 The boundary rule: **single dimension × time → permanent.** Store
 consoles themselves offer 5-year single-dimension views (CWS "Last 5
@@ -124,13 +126,36 @@ Notes that shaped decisions:
   (a disabled extension runs no code). CWS and Edge show it; we
   structurally cannot.
 
-## Churn, not uninstalls
+## Departures, not uninstalls
 
-Nothing runs on uninstall. The metric is **inferred churn**: an
-install's `last_seen` crossing the 30-day idle line, named "churn" on
-the dashboard — never "uninstalls", which would claim store-console
-parity we can't deliver (and their numbers measure store-side events
-anyway).
+Nothing runs on uninstall. The metric is the **inferred departure**: an
+install that stays silent for 30 days — named "departures" on the
+dashboard, never "uninstalls", which would claim store-console parity
+we can't deliver (and their numbers measure store-side events anyway).
+
+**Attribution goes to the last-seen day, not the day the idle line is
+crossed.** Dating departures by crossing day would be doubly wrong: the
+whole curve shifts a month late, and a spike would point post-mortems
+at the wrong week (a botched July 15 release would read as an August
+exodus). Dated by last-seen day, the semantics are exact — that *is*
+the day they left — at an honest cost: **a day's count is only
+confirmed 30 days later** (until then returners keep shrinking it), so
+the chart draws confirmed days only and leaves the trailing 30 days
+blank, labeled "confirmed after 30 days of silence". Same principle as
+impressions: blank over fake.
+
+This makes the chart a **post-mortem tool, not a monitoring one** — and
+that's fine, because real-time exodus detection was never its job: a
+mass departure shows up in the DAU curve the next day, and installs
+(`first_seen`) are same-day exact. Those two lines monitor; departures
+quantify a month later.
+
+Edge cases that resolve themselves: the cron computes departures
+anyway (confirmation is just writing the count into the D−30 rollup
+row, cost zero), and an install that returns after 40 days genuinely
+did depart and come back — the historical departure stands, and the
+return is not a new install (same `install_id`), so nothing needs
+retroactive correction.
 
 Using `runtime.setUninstallURL` (with an `install_id` parameter) as the
 SDK's uninstall-tracking mechanism was considered and **rejected**: it
@@ -141,7 +166,7 @@ the same namespace intrusion the licensing `alarms` ruling forbade;
 Safari doesn't support it (breaking unified semantics); and per the
 no-config principle it doesn't get a toggle. Tenants remain free to set
 their own uninstall URL (e.g. a feedback survey) — the SDK never
-touches that slot. Disabled-looks-like-churned is an accepted,
+touches that slot. Disabled-looks-like-departed is an accepted,
 documented semantic gap.
 
 ## Cold-start import
@@ -192,7 +217,8 @@ forms easy to fill correctly is worth more to tenants than any metric.
 ## Rollout
 
 - Dashboard charts via shadcn/ui charts (Recharts): DAU/MAU lines,
-  installs-vs-churn bars, version-saturation stacked area with release
+  installs and confirmed-departures bars (the latter trailing 30
+  days), version-saturation stacked area with release
   markers.
 - **No dedicated fleet release wave.** `@extport/sdk/analytics` is a
   separate subpath (zero cost to licensing-only users) and rides the
