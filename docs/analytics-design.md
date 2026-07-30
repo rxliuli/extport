@@ -214,6 +214,43 @@ Firefox's manifest data-collection declaration (this event set falls
 under Mozilla's "technical and interaction data"). Making those two
 forms easy to fill correctly is worth more to tenants than any metric.
 
+## Integration: @wxt-dev/analytics provider
+
+WXT ships a first-party analytics module — a thin message bus
+(frontend contexts forward calls to the background over a runtime
+port) with pluggable providers that implement three upload functions
+(`page`/`track`/`identify`). Lifecycle tracking is provider-side, and
+the reference provider (Moderok) independently converged on this
+document's exact ping design: init-time UTC date-stamp dedup in
+storage, an `onInstalled` listener, no alarms.
+
+extport ships a provider as a subpath export
+(`@extport/sdk/wxt-analytics`) — **an adapter, not the foundation**:
+
+- The primary ping implementation lives in `@extport/sdk` itself (the
+  `attachBackground` hook the fleet already calls), framework-free.
+  The provider is a thin shell over that same client.
+- The provider forwards lifecycle pings only. `track`/`page`/
+  `identify` are no-ops (debug-mode warning: extport has no custom
+  events — run PostHog/Umami alongside in the same `providers` array
+  for that; the module fans events out to every provider). `autoTrack`
+  payloads are never forwarded: click `textContent` can carry user
+  content.
+- **Double integration dedupes structurally**, not just at the server:
+  both paths call the same client, guarded by a module-level in-flight
+  promise (same-startup race), a shared `extport:last-ping-date`
+  storage stamp (across service-worker restarts), and the server's
+  `last_seen` gate as the final backstop. The consent flag is likewise
+  one shared storage item, so the two integrations cannot disagree
+  about whether analytics is on.
+- The wxt module's `enabled` flag defaults to **false** — consent
+  plumbing for free (pairs with Firefox's data-collection
+  declarations). Tenants wanting always-on anonymous counters opt in
+  explicitly; that decision belongs to the tenant, never the library.
+- Distribution: Moderok entered the module's built-in provider list by
+  upstream PR; `providers/extport.ts` should take the same path once
+  the service is real.
+
 ## Rollout
 
 - Dashboard charts via shadcn/ui charts (Recharts): DAU/MAU lines,
