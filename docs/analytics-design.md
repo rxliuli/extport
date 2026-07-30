@@ -108,12 +108,17 @@ the dashboard — never "uninstalls", which would claim store-console
 parity we can't deliver (and their numbers measure store-side events
 anyway).
 
-`runtime.setUninstallURL` with an `install_id` parameter was considered
-and **rejected**: it pops a visible tab in the user's face at uninstall
-(a call the platform must not make on tenants' behalf), Safari doesn't
-support it (breaking unified semantics), and per the no-config
-principle it doesn't get a toggle. Disabled-looks-like-churned is an
-accepted, documented semantic gap.
+Using `runtime.setUninstallURL` (with an `install_id` parameter) as the
+SDK's uninstall-tracking mechanism was considered and **rejected**: it
+pops a visible tab in the user's face at uninstall (a call the platform
+must not make on tenants' behalf); the URL is a single per-extension
+slot that belongs to the host extension, and a library occupying it is
+the same namespace intrusion the licensing `alarms` ruling forbade;
+Safari doesn't support it (breaking unified semantics); and per the
+no-config principle it doesn't get a toggle. Tenants remain free to set
+their own uninstall URL (e.g. a feedback survey) — the SDK never
+touches that slot. Disabled-looks-like-churned is an accepted,
+documented semantic gap.
 
 ## Cold-start import
 
