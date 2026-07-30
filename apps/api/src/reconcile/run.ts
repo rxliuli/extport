@@ -281,17 +281,30 @@ async function reconcileLifecycle(
   // directly with the store. Either way the store is the source of truth —
   // without this, a wrong row like that would sit at in_review forever, since
   // nothing else here ever re-examines an inReview row that already exists.
-  // Gated on age (see PHANTOM_IN_REVIEW_GRACE_MS): a row with no submittedAt,
-  // or one submitted too recently to rule out a same-tick propagation race,
-  // is left alone rather than risk clearing a real, still-propagating
-  // approval.
-  const submittedLongEnoughAgo = !!inReview?.submittedAt && Date.now() - new Date(inReview.submittedAt).getTime() > PHANTOM_IN_REVIEW_GRACE_MS
-  if (inReview && actual.inReview.known && !actual.inReview.version && submittedLongEnoughAgo) {
-    await db
-      .update(deploymentVersions)
-      .set({ status: 'skipped', statusDetail: 'no longer found on the store — treated as never submitted' })
-      .where(eq(deploymentVersions.id, inReview.id))
-    inReview = null
+  //
+  // getState()'s "nothing in review" here is only the first-pass filter, not
+  // the final word: it's inferred by diffing two separate reads (current vs.
+  // latest-of-N), which for a store fast enough to approve mid-diff can
+  // misreport a real, still-propagating version as absent (confirmed against
+  // a real incident on Firefox — a genuinely successful submission got
+  // cleared a few minutes after submitting). adapter.confirmAbsent(), where
+  // implemented, authoritatively checks that one specific version instead of
+  // trusting the diff; where it isn't (see StoreAdapter.confirmAbsent's doc
+  // comment for why not every store has one), fall back to an age heuristic
+  // that only trusts "nothing" once it's been true long enough that a
+  // same-tick propagation race can't explain it.
+  if (inReview && actual.inReview.known && !actual.inReview.version) {
+    const reallyAbsent = adapter.confirmAbsent
+      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await adapter.confirmAbsent(credentials as any, storeTarget, inReview.version, platform)
+      : !!inReview.submittedAt && Date.now() - new Date(inReview.submittedAt).getTime() > PHANTOM_IN_REVIEW_GRACE_MS
+    if (reallyAbsent) {
+      await db
+        .update(deploymentVersions)
+        .set({ status: 'skipped', statusDetail: 'no longer found on the store — treated as never submitted' })
+        .where(eq(deploymentVersions.id, inReview.id))
+      inReview = null
+    }
   }
   // A submission we don't have an active row for — the first-ever tick for a
   // target that already had something mid-review before extport started

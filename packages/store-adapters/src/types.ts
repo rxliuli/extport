@@ -92,6 +92,20 @@ export interface StoreAdapter<TCredentials = unknown> {
   ): Promise<SubmissionResult>
   /** Only stores that can cancel an in-review submission implement this (Chrome, Safari). */
   withdraw?(credentials: TCredentials, target: StoreTarget, platform?: string): Promise<void>
+  /**
+   * Authoritatively confirms one specific version does not exist on the
+   * store at all — used to recover a local in_review row that shouldn't be
+   * (e.g. an adapter bug that flipped a row to in_review before the store
+   * actually had a real version). Deliberately narrower than getState():
+   * getState()'s "nothing in review" is inferred by diffing two separate
+   * reads (current vs. latest-of-N), which for a store fast enough to
+   * approve mid-diff can misreport a real, still-propagating version as
+   * absent (confirmed against a real incident on Firefox). A direct,
+   * single-version lookup sidesteps that inference entirely. Only stores
+   * with such a lookup implement this (Firefox); its absence means the
+   * caller falls back to a time-based heuristic instead.
+   */
+  confirmAbsent?(credentials: TCredentials, target: StoreTarget, version: string, platform?: string): Promise<boolean>
 }
 
 // Credential payload shapes stored (encrypted) in store_credentials.encrypted_payload.

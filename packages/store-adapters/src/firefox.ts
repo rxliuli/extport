@@ -178,6 +178,24 @@ async function rateLimited(res: Response, step: string): Promise<{ submitted: fa
   return { submitted: false, waiting: true, detail: `AMO rate limited during ${step}; retrying automatically. Store said: ${truncate(message)}` }
 }
 
+/**
+ * Direct, single-version lookup — sidesteps getState()'s "diff current vs.
+ * latest-of-5" inference entirely, which is what actually misreported a
+ * real, still-propagating version as absent (see StoreAdapter.confirmAbsent's
+ * doc comment). Prefixing the version with `v` forces AMO to look it up by
+ * version number rather than internal numeric id (its default for any value
+ * with no `.` — every version here has one, but the prefix costs nothing and
+ * matches AMO's own documented recommendation).
+ */
+async function confirmAbsent(credentials: FirefoxCredentials, addonId: string, version: string, fetchImpl: FetchLike): Promise<boolean> {
+  const res = await fetchImpl(addonUrl(addonId, `/versions/v${encodeURIComponent(version)}/`), {
+    headers: { authorization: await amoAuthHeader(credentials) },
+  })
+  if (res.status === 404) return true
+  if (!res.ok) throw new Error(`amo version lookup failed (${res.status}): ${truncate(await res.text())}`)
+  return false
+}
+
 function humanDuration(seconds: number): string {
   if (seconds < 90) return `${seconds} seconds`
   const minutes = Math.round(seconds / 60)
@@ -204,6 +222,7 @@ export function createFirefoxAdapter(
     getState: (credentials, target) => getState(credentials, target.storeItemId, fetchImpl),
     submit: (credentials, target, artifact, _version, _platform, sourceArtifact) =>
       submit(credentials, target.storeItemId, artifact, fetchImpl, poll, sourceArtifact),
+    confirmAbsent: (credentials, target, version) => confirmAbsent(credentials, target.storeItemId, version, fetchImpl),
     // Firefox review is automated/near-instant for the vast majority of submissions —
     // there is nothing in-flight to cancel by the time we could act on it.
   }

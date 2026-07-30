@@ -161,3 +161,23 @@ describe('firefox adapter — no withdraw capability', () => {
     expect(createFirefoxAdapter().withdraw).toBeUndefined()
   })
 })
+
+describe('firefox adapter — confirmAbsent', () => {
+  it('confirms absence on a 404 — the version truly does not exist', async () => {
+    const { fetch, calls } = queueFetch([{ status: 404, body: {} }])
+    const result = await createFirefoxAdapter(fetch).confirmAbsent!(creds, { storeItemId: ADDON }, '1.1.0')
+    expect(result).toBe(true)
+    expect(calls[0]!.url).toBe(`https://addons.mozilla.org/api/v5/addons/addon/${ADDON}/versions/v1.1.0/`)
+  })
+
+  it('does not confirm absence when the version exists, regardless of its review state', async () => {
+    const { fetch } = queueFetch([{ status: 200, body: { version: '1.1.0', file: { status: 'unreviewed' } } }])
+    const result = await createFirefoxAdapter(fetch).confirmAbsent!(creds, { storeItemId: ADDON }, '1.1.0')
+    expect(result).toBe(false)
+  })
+
+  it('throws rather than guessing on an unexpected error status', async () => {
+    const { fetch } = queueFetch([{ status: 500, body: 'amo is down' }])
+    await expect(createFirefoxAdapter(fetch).confirmAbsent!(creds, { storeItemId: ADDON }, '1.1.0')).rejects.toThrow(/amo version lookup failed/)
+  })
+})
