@@ -45,6 +45,13 @@ analyticsPublicRoutes.post(
 
     const today = isoDay(new Date())
     const ua = c.req.header('user-agent')
+    // Automation filter: CI e2e suites load production builds into headless
+    // browsers, and every test context is a fresh "install" — one workflow
+    // run injected ~20 phantom US/Linux installs on day zero. No real user
+    // runs HeadlessChrome; drop silently. (Fleet convention: e2e launches
+    // with --headless=new, which is also the only mode that loads MV3
+    // extensions — headed-under-xvfb CI would evade this filter.)
+    if (ua && /HeadlessChrome/i.test(ua)) return c.body(null, 204)
     const browser = parseBrowser(ua)
 
     // Server-side idempotency gate: the SDK already dedups per UTC day, but
@@ -55,38 +62,43 @@ analyticsPublicRoutes.post(
       .where(and(eq(analyticsInstalls.extensionId, extension.id), eq(analyticsInstalls.installId, body.installId)))
     if (install?.lastSeen === today) return c.body(null, 204)
 
-    await db
-      .insert(analyticsInstalls)
-      .values({
+    const cf = (c.req.raw as Request & { cf?: { country?: string } }).cf
+    // One batch = one D1 transaction. The client is an extension background
+    // that may be torn down mid-request (and Workers can be cancelled with
+    // it) — the install row and its ping must land together or not at all,
+    // or aborts leave phantom installs that never pinged.
+    await db.batch([
+      db
+        .insert(analyticsInstalls)
+        .values({
+          extensionId: extension.id,
+          installId: body.installId,
+          tenantId: extension.tenantId,
+          browser,
+          firstSeen: today,
+          lastSeen: today,
+          lastVersion: body.version,
+        })
+        // Two same-day pings racing past the gate resolve here; the raw
+        // duplicate they leave behind is neutralized by the rollup's
+        // count(distinct install_id).
+        .onConflictDoUpdate({
+          target: [analyticsInstalls.extensionId, analyticsInstalls.installId],
+          set: { lastSeen: today, lastVersion: body.version },
+        }),
+      db.insert(analyticsPings).values({
+        id: newId('analyticsPing'),
+        tenantId: extension.tenantId,
         extensionId: extension.id,
         installId: body.installId,
-        tenantId: extension.tenantId,
+        date: today,
         browser,
-        firstSeen: today,
-        lastSeen: today,
-        lastVersion: body.version,
-      })
-      // Two same-day pings racing past the gate resolve here; the raw
-      // duplicate they leave behind is neutralized by the rollup's
-      // count(distinct install_id).
-      .onConflictDoUpdate({
-        target: [analyticsInstalls.extensionId, analyticsInstalls.installId],
-        set: { lastSeen: today, lastVersion: body.version },
-      })
-
-    const cf = (c.req.raw as Request & { cf?: { country?: string } }).cf
-    await db.insert(analyticsPings).values({
-      id: newId('analyticsPing'),
-      tenantId: extension.tenantId,
-      extensionId: extension.id,
-      installId: body.installId,
-      date: today,
-      browser,
-      version: body.version,
-      os: parseOs(ua),
-      country: cf?.country?.toLowerCase() ?? null,
-      language: body.language?.toLowerCase() || null,
-    })
+        version: body.version,
+        os: parseOs(ua),
+        country: cf?.country?.toLowerCase() ?? null,
+        language: body.language?.toLowerCase() || null,
+      }),
+    ])
 
     return c.body(null, 204)
   },
