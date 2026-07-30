@@ -52,8 +52,9 @@
     }
   ],
   "triggers": {
-    // Reconciliation loop (spec §3.1) — every 30 minutes.
-    "crons": ["*/30 * * * *"]
+    // Reconciliation loop (spec §3.1) — every 30 minutes; nightly analytics
+    // rollup at 00:15 UTC (the expression is matched verbatim in index.ts).
+    "crons": ["*/30 * * * *", "15 0 * * *"]
   },
   "send_email": [
     {

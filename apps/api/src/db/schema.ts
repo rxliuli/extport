@@ -1,5 +1,5 @@
 import type { TenantSettings } from '@extport/shared'
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 // No SQL-level FOREIGN KEY constraints anywhere in this schema — every
 // "references" relationship below (tenantId, extensionId, artifactId, etc.)
@@ -453,6 +453,83 @@ export const buyerSessions = sqliteTable(
   ],
 )
 
+// ===== Analytics =====
+// See docs/analytics-design.md. The wire protocol is a single daily ping;
+// install/update/active/departure are all server-side inferences over pings.
+
+// One row per install, keyed by the client-generated random UUID — the
+// pseudonymous identity, deliberately unlinked from licensing's
+// deviceFingerprint. This table is what keeps the exact metrics (MAU,
+// current version distribution, departures) independent of the raw window.
+export const analyticsInstalls = sqliteTable(
+  'analytics_installs',
+  {
+    extensionId: text('extension_id').notNull(),
+    installId: text('install_id').notNull(),
+    tenantId: text('tenant_id').notNull(),
+    browser: text('browser').notNull(),
+    // Day granularity (UTC YYYY-MM-DD) throughout — every metric is daily,
+    // and the coarse timestamps are part of the privacy story.
+    firstSeen: text('first_seen').notNull(),
+    lastSeen: text('last_seen').notNull(),
+    lastVersion: text('last_version').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.extensionId, t.installId] }),
+    // Departure confirmation scans by exact last-seen day; MAU by range.
+    index('analytics_installs_last_seen_idx').on(t.lastSeen),
+    index('analytics_installs_ext_seen_idx').on(t.extensionId, t.lastSeen),
+    index('analytics_installs_ext_first_idx').on(t.extensionId, t.firstSeen),
+  ],
+)
+
+// Raw accepted pings, kept 90 days (pruned by our own cron) so rollups can
+// be recomputed after a bucketing bug — never read by product features.
+export const analyticsPings = sqliteTable(
+  'analytics_pings',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    extensionId: text('extension_id').notNull(),
+    installId: text('install_id').notNull(),
+    date: text('date').notNull(),
+    browser: text('browser').notNull(),
+    version: text('version').notNull(),
+    os: text('os'),
+    country: text('country'),
+    language: text('language'),
+    createdAt: text('created_at').notNull().$defaultFn(now),
+  },
+  // The nightly rollup and the 90-day prune both scan by day.
+  (t) => [index('analytics_pings_date_idx').on(t.date)],
+)
+
+// Permanent single-dimension daily series — what every chart reads.
+// dim 'total' rows carry the headline metrics; dimension rows carry dau
+// only (store consoles never cross dimensions, so neither do we).
+export const analyticsDaily = sqliteTable(
+  'analytics_daily',
+  {
+    tenantId: text('tenant_id').notNull(),
+    extensionId: text('extension_id').notNull(),
+    date: text('date').notNull(),
+    browser: text('browser').notNull(),
+    dim: text('dim', { enum: ['total', 'version', 'country', 'language', 'os'] }).notNull(),
+    dimValue: text('dim_value').notNull(),
+    dau: integer('dau').notNull().default(0),
+    installs: integer('installs').notNull().default(0),
+    // Attributed to the last-seen day and only written once confirmed
+    // (30 days of silence) — the chart's trailing month stays blank.
+    departures: integer('departures').notNull().default(0),
+    // Rolling 30-day MAU snapshot as of `date` — not derivable later.
+    mau: integer('mau').notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ columns: [t.extensionId, t.date, t.browser, t.dim, t.dimValue] }),
+    index('analytics_daily_series_idx').on(t.extensionId, t.dim, t.date),
+  ],
+)
+
 export type Tenant = typeof tenants.$inferSelect
 export type User = typeof users.$inferSelect
 export type Session = typeof sessions.$inferSelect
@@ -470,3 +547,6 @@ export type LicenseEvent = typeof licenseEvents.$inferSelect
 export type PaymentCredential = typeof paymentCredentials.$inferSelect
 export type MagicLink = typeof magicLinks.$inferSelect
 export type BuyerSession = typeof buyerSessions.$inferSelect
+export type AnalyticsInstall = typeof analyticsInstalls.$inferSelect
+export type AnalyticsPing = typeof analyticsPings.$inferSelect
+export type AnalyticsDailyRow = typeof analyticsDaily.$inferSelect

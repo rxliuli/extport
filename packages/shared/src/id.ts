@@ -21,6 +21,7 @@ export const ID_PREFIXES = {
   paymentCredential: 'pay',
   magicLink: 'mgl',
   buyerSession: 'bss',
+  analyticsPing: 'apg',
 } as const
 
 export type IdKind = keyof typeof ID_PREFIXES

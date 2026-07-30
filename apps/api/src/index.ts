@@ -2,6 +2,7 @@ import { Scalar } from '@scalar/hono-api-reference'
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { openAPIRouteHandler } from 'hono-openapi'
+import { runAnalyticsRollup } from './analytics/rollup'
 import { createDb } from './db'
 import { createEmailNotifier } from './lib/notify'
 import { checkCredentialExpiry } from './reconcile/expiry'
@@ -10,6 +11,7 @@ import artifactsRoutes from './routes/artifacts'
 import authRoutes from './routes/auth'
 import cliAuthRoutes from './routes/cli-auth'
 import credentialsRoutes from './routes/credentials'
+import { analyticsPublicRoutes, analyticsTenantRoutes } from './routes/analytics'
 import extensionsRoutes from './routes/extensions'
 import keysRoutes from './routes/keys'
 import licensesRoutes from './routes/licenses'
@@ -20,6 +22,9 @@ import portalRoutes from './routes/portal'
 import stripeWebhookRoutes from './routes/stripe-webhook'
 import tenantRoutes from './routes/tenant'
 import { requireAuth, withDb, type AppEnv } from './middleware/auth'
+
+// Must match a member of wrangler.jsonc's triggers.crons exactly.
+const ANALYTICS_ROLLUP_CRON = '15 0 * * *'
 
 const app = new Hono<AppEnv>()
 
@@ -67,6 +72,10 @@ api.route('/v1/licensing/webhooks/stripe', stripeWebhookRoutes)
 // Buyer portal (portal.extport.dev): success-page lookup + magic-link
 // sign-in + read-only purchase list. Cookie-authed, same-origin.
 api.route('/v1/portal', portalRoutes)
+// /v1/analytics/ping is public (extension backgrounds, CORS-open); the
+// series/overview reads on the same prefix are tenant-authed.
+api.route('/v1/analytics', analyticsPublicRoutes)
+api.route('/v1/analytics', analyticsTenantRoutes)
 api.route('/v1/plans', plansRoutes)
 api.route('/v1/licenses', licensesRoutes)
 api.route('/v1/payment-credentials', paymentCredentialsRoutes)
@@ -129,8 +138,18 @@ export { app }
 
 export default {
   fetch: app.fetch,
-  async scheduled(_controller, env, ctx) {
+  async scheduled(controller, env, ctx) {
     const db = createDb(env.DB)
+    // The nightly trigger only rolls up analytics; the half-hourly one
+    // only reconciles. Dispatch on the cron expression itself.
+    if (controller.cron === ANALYTICS_ROLLUP_CRON) {
+      ctx.waitUntil(
+        runAnalyticsRollup(db).then(({ day }) => {
+          console.log(JSON.stringify({ level: 'info', message: 'analytics rollup complete', day }))
+        }),
+      )
+      return
+    }
     const notifier = createEmailNotifier(env)
     // waitUntil so the cron invocation doesn't get torn down mid-reconcile —
     // scheduled() itself has no response to return, this is the whole job.
