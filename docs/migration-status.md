@@ -45,6 +45,17 @@ the storefront flip).
 | Twitter Blocker | 0.3.19 (firefox already online; chrome+edge+safari/macos in review, safari/ios queued) | chrome, firefox, edge, safari | pending (71 codes) | $19.99: https://buy.stripe.com/3cI7sLcYi9KF4jUguH0ZW0g |
 | Twitter Exporter | 0.8.52 (chrome+firefox in review, edge queued) | chrome, firefox, edge | pending (402 codes, incl. one 4-device and one 6-device — per-license maxActivations snapshots survive import) | basic $19.99: https://buy.stripe.com/28E8wP8I26ytdUuban0ZW0h · pro $39.99: https://buy.stripe.com/14A9ATe2m7CxaIia6j0ZW0i |
 
+**In-extension direct purchase (bypasses the storefront hop).** All ten
+products now deep-link "Purchase" straight to their Stripe Payment Link
+instead of opening store.rxliuli.com — each shipped alongside its
+`gecko_android` declaration (Firefox-for-Android support) in the same
+release. Because the SDK ships in the same build as the direct link, this
+is a self-contained flip per product — it doesn't wait on the two-week
+saturation window the sales flip below does. Twitter Exporter shows
+Basic/Pro side by side (hidden entirely once already on Pro); Twitter
+Blocker hides the purchase button on Safari (App Store guideline 3.1.1),
+same pattern the extension already used pre-migration.
+
 **At the end of the wait, per product:** flip the storefront buy button
 to the Payment Link → run the import (`scripts/import-license-kit.mjs
 --product "…" --apply`) → one $0 promo-code purchase as end-to-end
