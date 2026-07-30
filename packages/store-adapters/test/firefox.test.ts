@@ -43,6 +43,30 @@ describe('firefox adapter — getState', () => {
 })
 
 describe('firefox adapter — submit', () => {
+  it('treats a 429 on upload as backpressure (waiting), surfacing the AMO message', async () => {
+    const { fetch } = queueFetch([
+      { status: 429, body: { detail: 'Request was throttled. Expected available in 23 seconds.' } },
+    ])
+    const result = await createFirefoxAdapter(fetch).submit(creds, { storeItemId: ADDON }, new ArrayBuffer(8), '1.0.0')
+    expect(result.submitted).toBe(false)
+    expect(result.waiting).toBe(true)
+    expect(result.detail).toMatch(/rate limited during upload/)
+    expect(result.detail).toMatch(/Request was throttled\. Expected available in 23 seconds\./)
+  })
+
+  it('treats a 429 on version creation as backpressure too — the whole submit retries next tick', async () => {
+    const { fetch } = queueFetch([
+      { status: 200, body: { uuid: 'u1' } },
+      { status: 200, body: { processed: true, valid: true } },
+      { status: 429, body: { detail: 'Request was throttled. Expected available in 42 seconds.' } },
+    ])
+    const result = await createFirefoxAdapter(fetch).submit(creds, { storeItemId: ADDON }, new ArrayBuffer(8), '1.0.0')
+    expect(result.submitted).toBe(false)
+    expect(result.waiting).toBe(true)
+    expect(result.detail).toMatch(/rate limited during version creation/)
+    expect(result.detail).toMatch(/42 seconds/)
+  })
+
   it('uploads and attaches a version when validation finishes immediately', async () => {
     const { fetch, calls } = queueFetch([
       { status: 200, body: { uuid: 'u1' } },

@@ -88,6 +88,7 @@ async function submit(
     headers: { authorization: await amoAuthHeader(credentials) },
     body: form,
   })
+  if (uploadRes.status === 429) return rateLimited(uploadRes, 'upload')
   if (!uploadRes.ok) {
     return { submitted: false, detail: `upload rejected (${uploadRes.status}): ${truncate(await uploadRes.text())}` }
   }
@@ -135,10 +136,30 @@ async function submit(
     headers: { authorization: await amoAuthHeader(credentials) },
     body: versionBody,
   })
+  if (versionRes.status === 429) return rateLimited(versionRes, 'version creation')
   if (!versionRes.ok) {
     return { submitted: false, detail: `version creation failed (${versionRes.status}): ${truncate(await versionRes.text())}` }
   }
   return { submitted: true }
+}
+
+/**
+ * AMO throttling is backpressure, not failure — it happens whenever two
+ * submissions land in the same rate-limit window (e.g. a monorepo release
+ * pushing sibling extensions seconds apart). `waiting: true` keeps the row
+ * queued with the store's own human-readable reason on it (no error event,
+ * no email); the next reconcile tick retries, comfortably past the window.
+ */
+async function rateLimited(res: Response, step: string): Promise<{ submitted: false; waiting: true; detail: string }> {
+  const raw = await res.text()
+  let message = raw
+  try {
+    const body = JSON.parse(raw) as { detail?: string }
+    if (typeof body.detail === 'string') message = body.detail
+  } catch {
+    // not JSON — keep the raw body
+  }
+  return { submitted: false, waiting: true, detail: `AMO rate limited during ${step}; retrying on the next reconcile tick. Store said: ${truncate(message)}` }
 }
 
 export function createFirefoxAdapter(

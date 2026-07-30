@@ -60,7 +60,10 @@ export function deriveTargetStatus(rows: DeploymentVersion[], lastErrorDetail: s
     inReviewVersion: inReview?.version ?? null,
     queuedVersion: queued?.version ?? null,
     rejectedVersion,
-    statusDetail: lastErrorDetail ?? (rejectedVersion ? mostRecentTerminal!.statusDetail : null),
+    // Precedence: a target-level error, then a rejection reason, then whatever
+    // the queued row itself is waiting on (AMO rate limit, Safari's
+    // out-of-band binary) — so "queued" is never a mystery in the dashboard.
+    statusDetail: lastErrorDetail ?? (rejectedVersion ? mostRecentTerminal!.statusDetail : (queued?.statusDetail ?? null)),
     submittedAt: inReview?.submittedAt ?? null,
   }
 }

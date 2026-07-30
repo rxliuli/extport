@@ -33,7 +33,10 @@ function LifecycleLine({ lifecycle }: { lifecycle: TargetLifecycle }) {
   }
   if (lifecycle.queuedVersion) {
     return (
-      <span className="text-sm font-semibold text-amber-600/70 dark:text-amber-500/70" title="queued">
+      <span
+        className="text-sm font-semibold text-amber-600/70 dark:text-amber-500/70"
+        title={lifecycle.statusDetail ?? 'queued'}
+      >
         {lifecycle.queuedVersion}
       </span>
     )
