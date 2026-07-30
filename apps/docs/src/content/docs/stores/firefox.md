@@ -32,4 +32,4 @@ For example, [Redirector](https://store.rxliuli.com/extensions/redirector/)'s Fi
 
 AMO requires the original, unminified source alongside a minified/bundled submission. When pushing specifically to
 Firefox (`--store firefox` / a Firefox-targeted push), you can attach a source zip alongside the build —
-see [Getting started](/getting-started/) for the push command shape.
+see [Publishing](/publishing/) for the push command shape.

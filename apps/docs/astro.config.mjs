@@ -23,17 +23,18 @@ export default defineConfig({
           items: [{ label: 'Getting started', slug: 'getting-started' }],
         },
         {
-          label: 'Licensing',
-          items: [{ label: 'Sell activation codes', slug: 'licensing' }],
-        },
-        {
-          label: 'Stores',
+          label: 'Publishing',
           items: [
+            { label: 'Push your first build', slug: 'publishing' },
             { label: 'Chrome', slug: 'stores/chrome' },
             { label: 'Firefox', slug: 'stores/firefox' },
             { label: 'Edge', slug: 'stores/edge' },
             { label: 'Safari', slug: 'stores/safari' },
           ],
+        },
+        {
+          label: 'Licensing',
+          items: [{ label: 'Sell activation codes', slug: 'licensing' }],
         },
       ],
     }),
