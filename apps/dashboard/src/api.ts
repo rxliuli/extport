@@ -133,6 +133,9 @@ export interface LicenseRow {
   status: 'active' | 'locked' | 'refunded'
   maxActivations: number
   source: 'stripe_webhook' | 'manual' | 'imported'
+  /** Smallest currency unit (e.g. cents); null for manual/imported rows not yet backfilled. */
+  amountTotal: number | null
+  currency: string | null
   /** ISO date string (Date -> JSON) */
   createdAt: string
 }

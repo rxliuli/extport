@@ -21,6 +21,12 @@ function errorMessage(err: unknown): string {
   return err instanceof ApiError ? err.message : String(err)
 }
 
+/** amountTotal is Stripe's smallest currency unit; null for manual/imported rows not yet backfilled. */
+function formatAmount(amountTotal: number | null, currency: string | null): string {
+  if (amountTotal === null || currency === null) return '—'
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase() }).format(amountTotal / 100)
+}
+
 export function LicensingSection({ extension }: { extension: Extension }) {
   const queryClient = useQueryClient()
   const toggle = useMutation({
@@ -340,6 +346,7 @@ function LicensesCard({ extension }: { extension: Extension }) {
                 <TableHead>Key</TableHead>
                 <TableHead>Plan</TableHead>
                 <TableHead>Buyer</TableHead>
+                <TableHead>Amount</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Source</TableHead>
                 <TableHead>Issued</TableHead>
@@ -356,6 +363,7 @@ function LicensesCard({ extension }: { extension: Extension }) {
                     <Badge variant="secondary">{planById.get(license.planId)?.tier ?? '?'}</Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{license.buyerEmail}</TableCell>
+                  <TableCell className="text-muted-foreground">{formatAmount(license.amountTotal, license.currency)}</TableCell>
                   <TableCell>
                     {license.status === 'active' ? (
                       <span className="text-muted-foreground">active</span>
