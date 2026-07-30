@@ -99,6 +99,11 @@ async function submit(
   // the create-version step now if it completes in time; if not, don't fail —
   // just retry the whole upload on the next reconcile tick (cheap, and AMO's
   // daily upload quota comfortably covers a 30-minute reconcile cadence).
+  // Critically this must report `waiting`, not `submitted` — the
+  // create-version call below (the only thing that turns an upload into a
+  // real, listed AMO version) never ran, so the queued row has to stay
+  // queued for a real retry, not flip to in_review over a version AMO has
+  // never heard of.
   const processed = await pollUntil(
     async () => {
       const res = await fetchImpl(`${UPLOAD_URL}${uuid}/`, {
@@ -112,7 +117,7 @@ async function submit(
   )
 
   if (!processed) {
-    return { submitted: true, detail: 'upload accepted, still validating — will confirm on the next reconcile' }
+    return { submitted: false, waiting: true, detail: 'upload accepted, still validating — will retry on the next reconcile' }
   }
   if (!processed.valid) {
     return { submitted: false, detail: `validation failed: ${truncate(JSON.stringify(processed.validation ?? ''))}` }

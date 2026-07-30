@@ -345,6 +345,38 @@ describe('runReconciliation — rejection frees the slot for a newer version', (
   })
 })
 
+describe('runReconciliation — phantom in-review row self-heals', () => {
+  it('skips a local in_review row the store has no record of, and submits the queued one behind it', async () => {
+    // Reproduces a real incident: an adapter bug reported `submitted: true`
+    // for a version whose store-side create-version call never actually ran,
+    // leaving a phantom in_review row with nothing on the store's side to
+    // ever match it — and nothing to ever unstick decide() again. The store
+    // authoritatively reporting nothing in review (no submittedItemRevisionStatus
+    // at all, not merely omitted/unknown) is what should recover it.
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      artifacts: [{ version: '1.1.0' }, { version: '1.2.0' }],
+      versions: [
+        { version: '1.1.0', status: 'in_review', submittedAt: new Date().toISOString() },
+        { version: '1.2.0', status: 'queued' },
+      ],
+    })
+    globalThis.fetch = routedFetch(chromeRoutes({ fetchStatus: {} })).fetch
+    const { notifier, sent } = recordingNotifier()
+
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
+    expect(summary.submitted).toBe(1)
+    const rows = await versionsFor(db, extensionId)
+    expect(rows).toMatchObject([
+      { version: '1.1.0', status: 'skipped' },
+      { version: '1.2.0', status: 'in_review' },
+    ])
+    // No email for the phantom row resolving — it was never real to begin
+    // with, so there's nothing to alert the tenant about.
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.subject).toContain('1.2.0')
+  })
+})
+
 describe('runReconciliation — blocked (no auto-withdraw)', () => {
   const scenario = {
     artifacts: [{ version: '1.0.0' }, { version: '1.1.0' }],

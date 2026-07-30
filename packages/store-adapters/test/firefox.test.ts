@@ -124,7 +124,14 @@ describe('firefox adapter — submit', () => {
     ]
     const { fetch, calls } = queueFetch(entries)
     const result = await createFirefoxAdapter(fetch, FAST_POLL).submit(creds, { storeItemId: ADDON }, new ArrayBuffer(8), '1.0.0')
-    expect(result.submitted).toBe(true)
+    // Not submitted — the version-create call below never ran, so AMO has no
+    // record of this version at all. `waiting: true` keeps the row queued
+    // for a real retry instead of the reconciler marking it in_review over a
+    // version that doesn't exist (regression: it used to report `submitted:
+    // true` here, which left a phantom in_review row that could never
+    // resolve since nothing on AMO's side would ever match it).
+    expect(result.submitted).toBe(false)
+    expect(result.waiting).toBe(true)
     expect(result.detail).toMatch(/still validating/)
     // upload + FAST_POLL.attempts polls, no version-create call
     expect(calls).toHaveLength(1 + FAST_POLL.attempts)

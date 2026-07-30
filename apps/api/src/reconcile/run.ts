@@ -260,6 +260,23 @@ async function reconcileLifecycle(
     await notify(notifier, row, 'rejected', { version: inReview.version, reason: actual.rejectionReason }, platform)
     inReview = null
   }
+  // A local row claims something is in review, but the store authoritatively
+  // says nothing is (known: true, no version — never "can't tell", which is
+  // known: false and must be left alone, see VersionKnowledge). Either the
+  // submit() that created this row never actually reached a real version on
+  // the store's side (the shape of a real bug: an adapter reporting
+  // `submitted: true` after only an upload, before the store-side call that
+  // actually creates a listed version) or the tenant withdrew/deleted it
+  // directly with the store. Either way the store is the source of truth —
+  // without this, a wrong row like that would sit at in_review forever, since
+  // nothing else here ever re-examines an inReview row that already exists.
+  if (inReview && actual.inReview.known && !actual.inReview.version) {
+    await db
+      .update(deploymentVersions)
+      .set({ status: 'skipped', statusDetail: 'no longer found on the store — treated as never submitted' })
+      .where(eq(deploymentVersions.id, inReview.id))
+    inReview = null
+  }
   // A submission we don't have an active row for — the first-ever tick for a
   // target that already had something mid-review before extport started
   // tracking it, or a gap where our own submit succeeded at the store but the
