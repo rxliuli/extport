@@ -1,4 +1,4 @@
-import { infiniteQueryOptions, queryOptions } from '@tanstack/react-query'
+import { infiniteQueryOptions, keepPreviousData, queryOptions } from '@tanstack/react-query'
 import {
   api,
   ApiError,
@@ -84,6 +84,9 @@ export const globalLicensesQuery = (search: string) =>
       ),
     initialPageParam: '',
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    // Search-as-you-type: keep the previous page on screen while the next
+    // keystroke's result loads, so the table never flashes empty.
+    placeholderData: keepPreviousData,
   })
 
 export interface LicensesSummary {

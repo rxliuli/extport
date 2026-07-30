@@ -491,7 +491,7 @@ interface EnrichedRow {
 }
 
 describe('GET /v1/licenses global view', () => {
-  it('carries tier + extension on every row and searches by exact code or buyer email', async () => {
+  it('carries tier + extension on every row and searches by code or email substring', async () => {
     const { license, extension, sessionCookie } = await setupLicensedProduct()
 
     const all = (await (
@@ -502,20 +502,28 @@ describe('GET /v1/licenses global view', () => {
     expect(row.extensionId).toBe(extension.id)
     expect(row.extensionName).toBe('My Extension')
 
-    // What the buyer pastes into a support email is normalized server-side:
-    // a lowercased code and a cased email both hit their exact matches.
+    // Search is a case-insensitive substring — support starts from a
+    // fragment of the buyer's address or half a pasted code.
     const byKey = (await (
-      await request(`/api/v1/licenses?search=${license.key.toLowerCase()}`, { headers: { cookie: sessionCookie } })
+      await request(`/api/v1/licenses?search=${license.key.slice(2, 12).toLowerCase()}`, {
+        headers: { cookie: sessionCookie },
+      })
     ).json()) as { licenses: EnrichedRow[] }
     expect(byKey.licenses.map((l) => l.id)).toEqual([license.id])
 
     const byEmail = (await (
-      await request('/api/v1/licenses?search=Buyer@Example.com', { headers: { cookie: sessionCookie } })
+      await request('/api/v1/licenses?search=UYER@example', { headers: { cookie: sessionCookie } })
     ).json()) as { licenses: EnrichedRow[] }
     expect(byEmail.licenses.map((l) => l.id)).toEqual([license.id])
 
+    // LIKE wildcards in the input are literals, not injection.
+    const wildcard = (await (
+      await request('/api/v1/licenses?search=%25', { headers: { cookie: sessionCookie } })
+    ).json()) as { licenses: EnrichedRow[] }
+    expect(wildcard.licenses).toHaveLength(0)
+
     const miss = (await (
-      await request('/api/v1/licenses?search=nobody@example.com', { headers: { cookie: sessionCookie } })
+      await request('/api/v1/licenses?search=nobody', { headers: { cookie: sessionCookie } })
     ).json()) as { licenses: EnrichedRow[]; nextCursor: string | null }
     expect(miss.licenses).toHaveLength(0)
     expect(miss.nextCursor).toBeNull()

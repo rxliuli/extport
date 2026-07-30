@@ -1,15 +1,15 @@
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { DevicesDialog, formatAmount } from '@/LicensingSection'
 import { globalLicensesQuery, licensesSummaryQuery } from '@/queries'
 import { formatDate } from '@/status'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { Search } from 'lucide-react'
-import { useState } from 'react'
+import { Search, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 export const Route = createFileRoute('/licenses')({ component: LicensesPage })
 
@@ -19,9 +19,13 @@ export const Route = createFileRoute('/licenses')({ component: LicensesPage })
 // stays on each extension's Licensing tab, where the plan context lives.
 function LicensesPage() {
   const [input, setInput] = useState('')
-  // Search only fires on submit: the API matches exact key / exact buyer
-  // email, so per-keystroke queries would just churn through misses.
+  // Debounced into the query key — the API matches substrings, so typing
+  // filters live; clearing the input restores the full list the same way.
   const [search, setSearch] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(input.trim()), 300)
+    return () => clearTimeout(t)
+  }, [input])
   const summary = useQuery(licensesSummaryQuery)
   const pages = useInfiniteQuery(globalLicensesQuery(search))
   const licenses = pages.data?.pages.flatMap((p) => p.licenses) ?? []
@@ -46,45 +50,35 @@ function LicensesPage() {
       <Card>
         <CardHeader>
           <CardTitle>All licenses</CardTitle>
-          <CardDescription>
-            Every license across your extensions, newest first. Search matches an exact activation code or buyer
-            email.
-          </CardDescription>
+          <CardDescription>Every license across your extensions, newest first.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <form
-            className="flex max-w-md items-center gap-2"
-            onSubmit={(e) => {
-              e.preventDefault()
-              setSearch(input.trim())
-            }}
-          >
-            <Input
+          <InputGroup className="max-w-md">
+            <InputGroupAddon>
+              <Search />
+            </InputGroupAddon>
+            <InputGroupInput
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="XXXX-XXXX-XXXX-XXXX or buyer@example.com"
+              placeholder="Search by activation code or buyer email"
             />
-            <Button type="submit" variant="outline" size="sm">
-              <Search /> Search
-            </Button>
-            {search && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setInput('')
-                  setSearch('')
-                }}
-              >
-                Clear
-              </Button>
+            {input && (
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton
+                  size="icon-xs"
+                  className="rounded-full"
+                  aria-label="Clear search"
+                  onClick={() => setInput('')}
+                >
+                  <X />
+                </InputGroupButton>
+              </InputGroupAddon>
             )}
-          </form>
+          </InputGroup>
 
           {licenses.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              {pages.isPending ? 'Loading…' : search ? 'No license matches that code or email.' : 'No licenses yet.'}
+              {pages.isPending ? 'Loading…' : search ? 'No license matches your search.' : 'No licenses yet.'}
             </p>
           ) : (
             <Table>

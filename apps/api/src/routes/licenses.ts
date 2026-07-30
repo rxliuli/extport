@@ -22,7 +22,7 @@ route.get(
   describeRoute({
     summary: 'List licenses',
     description:
-      'Newest first, 50 per page, each row carrying its plan tier and extension for cross-product views. Filter with ?plan=, ?extension=, or ?search= (an exact activation code or buyer email); pass the previous response\'s nextCursor as ?cursor= to fetch the next page.',
+      'Newest first, 50 per page, each row carrying its plan tier and extension for cross-product views. Filter with ?plan=, ?extension=, or ?search= (case-insensitive substring of an activation code or buyer email); pass the previous response\'s nextCursor as ?cursor= to fetch the next page.',
     responses: { 200: { description: 'OK' } },
   }),
   async (c) => {
@@ -36,11 +36,15 @@ route.get(
     const filters = [eq(licenses.tenantId, tenant.id)]
     if (planId) filters.push(eq(licenses.planId, planId))
     if (extensionId) filters.push(eq(plans.extensionId, extensionId))
-    // The support workflow starts from what the buyer pasted into an email:
-    // a full activation code or their address. Both are exact, indexed
-    // matches — codes are stored uppercase, emails as given.
+    // Substring match over codes and buyer emails — support starts from a
+    // fragment ("the gmail buyer", half a pasted code). SQLite's LIKE is
+    // case-insensitive for ASCII on its own, and the tenant filter already
+    // bounds the scan to this tenant's rows.
     if (search) {
-      filters.push(or(eq(licenses.key, search.toUpperCase()), eq(licenses.buyerEmail, search.toLowerCase()))!)
+      const pattern = `%${search.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`
+      filters.push(
+        or(sql`${licenses.key} like ${pattern} escape '\\'`, sql`${licenses.buyerEmail} like ${pattern} escape '\\'`)!,
+      )
     }
     // Keyset cursor "createdAt~id": strictly older rows, with the random id
     // as a stable tiebreak for rows created in the same millisecond.
