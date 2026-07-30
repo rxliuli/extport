@@ -42,8 +42,8 @@ the storefront flip).
 | Tumblr Exporter | 0.0.15 (both in review) | chrome, firefox | pending | https://buy.stripe.com/aFa5kD4rM5upaIidiv0ZW0c |
 | Instagram Exporter | 0.0.19 (all three in review) | chrome, firefox, edge | pending | basic tier: https://buy.stripe.com/eVq00jf6qf4Z17Icer0ZW0d |
 | Claude Exporter | 0.0.11 (both in review) | chrome, firefox | pending | https://buy.stripe.com/28EcN5bUe6ytcQqcer0ZW0e |
-| Twitter Blocker | 0.3.19 (firefox already online; chrome+edge+safari/macos in review, safari/ios queued) | chrome, firefox, edge, safari | pending (71 codes) | $19.99: https://buy.stripe.com/3cI7sLcYi9KF4jUguH0ZW0g |
-| Twitter Exporter | 0.8.52 (chrome+firefox in review, edge queued) | chrome, firefox, edge | pending (402 codes, incl. one 4-device and one 6-device — per-license maxActivations snapshots survive import) | basic $19.99: https://buy.stripe.com/28E8wP8I26ytdUuban0ZW0h · pro $39.99: https://buy.stripe.com/14A9ATe2m7CxaIia6j0ZW0i |
+| Twitter Blocker | 0.3.20 (in-extension purchase links to Stripe directly, hidden on Safari) | chrome, firefox, edge, safari | pending (71 codes) | $19.99: https://buy.stripe.com/3cI7sLcYi9KF4jUguH0ZW0g |
+| Twitter Exporter | 0.8.53 (in-extension Basic/Pro comparison cards, hidden once on Pro) | chrome, firefox, edge | pending (402 codes, incl. one 4-device and one 6-device — per-license maxActivations snapshots survive import) | basic $19.99: https://buy.stripe.com/28E8wP8I26ytdUuban0ZW0h · pro $39.99: https://buy.stripe.com/14A9ATe2m7CxaIia6j0ZW0i |
 
 **In-extension direct purchase (bypasses the storefront hop).** All ten
 products now deep-link "Purchase" straight to their Stripe Payment Link
