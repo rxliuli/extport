@@ -2,6 +2,8 @@ import { infiniteQueryOptions, keepPreviousData, queryOptions } from '@tanstack/
 import {
   api,
   ApiError,
+  type AnalyticsOverview,
+  type AnalyticsSeriesRow,
   type ApiKeyRow,
   type CredentialRow,
   type DeploymentVersion,
@@ -99,6 +101,21 @@ export const licensesSummaryQuery = queryOptions({
   queryKey: ['licenses', 'summary'],
   queryFn: () => api<LicensesSummary>('/api/v1/licenses/summary'),
 })
+
+export const analyticsSeriesQuery = (extensionId: string, dim: 'total' | 'version', days = 90) =>
+  queryOptions({
+    queryKey: ['analytics', extensionId, dim, days],
+    queryFn: () =>
+      api<{ rows: AnalyticsSeriesRow[] }>(`/api/v1/analytics/series?extension=${extensionId}&dim=${dim}&days=${days}`).then(
+        (r) => r.rows,
+      ),
+  })
+
+export const analyticsOverviewQuery = (extensionId: string) =>
+  queryOptions({
+    queryKey: ['analytics', extensionId, 'overview'],
+    queryFn: () => api<AnalyticsOverview>(`/api/v1/analytics/overview?extension=${extensionId}`),
+  })
 
 export const credentialsQuery = queryOptions({
   queryKey: ['credentials'],

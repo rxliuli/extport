@@ -166,6 +166,25 @@ export interface PaymentCredentialRow {
   updatedAt: string
 }
 
+/** One analytics_daily row — see the API's /v1/analytics/series. */
+export interface AnalyticsSeriesRow {
+  date: string
+  browser: string
+  dimValue: string
+  dau: number
+  installs: number
+  /** Attributed to the last-seen day, confirmed after 30 days — the trailing month is legitimately zero. */
+  departures: number
+  mau: number
+}
+
+export interface AnalyticsOverview {
+  activeInstalls: number
+  allTimeInstalls: number
+  versions: { version: string; installs: number }[]
+  browsers: { browser: string; installs: number }[]
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,

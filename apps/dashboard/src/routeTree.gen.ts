@@ -18,6 +18,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ExtensionsExtensionIdRouteImport } from './routes/extensions.$extensionId'
 import { Route as PurchaseSuccessRouteImport } from './routes/purchase.success'
 import { Route as ExtensionsExtensionIdIndexRouteImport } from './routes/extensions.$extensionId.index'
+import { Route as ExtensionsExtensionIdAnalyticsRouteImport } from './routes/extensions.$extensionId.analytics'
 import { Route as ExtensionsExtensionIdLicensingRouteImport } from './routes/extensions.$extensionId.licensing'
 import { Route as ExtensionsExtensionIdPublishingRouteImport } from './routes/extensions.$extensionId.publishing'
 
@@ -67,6 +68,12 @@ const ExtensionsExtensionIdIndexRoute =
     path: '/',
     getParentRoute: () => ExtensionsExtensionIdRoute,
   } as any)
+const ExtensionsExtensionIdAnalyticsRoute =
+  ExtensionsExtensionIdAnalyticsRouteImport.update({
+    id: '/analytics',
+    path: '/analytics',
+    getParentRoute: () => ExtensionsExtensionIdRoute,
+  } as any)
 const ExtensionsExtensionIdLicensingRoute =
   ExtensionsExtensionIdLicensingRouteImport.update({
     id: '/licensing',
@@ -89,6 +96,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/extensions/$extensionId': typeof ExtensionsExtensionIdRouteWithChildren
   '/purchase/success': typeof PurchaseSuccessRoute
+  '/extensions/$extensionId/analytics': typeof ExtensionsExtensionIdAnalyticsRoute
   '/extensions/$extensionId/licensing': typeof ExtensionsExtensionIdLicensingRoute
   '/extensions/$extensionId/publishing': typeof ExtensionsExtensionIdPublishingRoute
   '/extensions/$extensionId/': typeof ExtensionsExtensionIdIndexRoute
@@ -101,6 +109,7 @@ export interface FileRoutesByTo {
   '/portal': typeof PortalRoute
   '/settings': typeof SettingsRoute
   '/purchase/success': typeof PurchaseSuccessRoute
+  '/extensions/$extensionId/analytics': typeof ExtensionsExtensionIdAnalyticsRoute
   '/extensions/$extensionId/licensing': typeof ExtensionsExtensionIdLicensingRoute
   '/extensions/$extensionId/publishing': typeof ExtensionsExtensionIdPublishingRoute
   '/extensions/$extensionId': typeof ExtensionsExtensionIdIndexRoute
@@ -115,6 +124,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/extensions/$extensionId': typeof ExtensionsExtensionIdRouteWithChildren
   '/purchase/success': typeof PurchaseSuccessRoute
+  '/extensions/$extensionId/analytics': typeof ExtensionsExtensionIdAnalyticsRoute
   '/extensions/$extensionId/licensing': typeof ExtensionsExtensionIdLicensingRoute
   '/extensions/$extensionId/publishing': typeof ExtensionsExtensionIdPublishingRoute
   '/extensions/$extensionId/': typeof ExtensionsExtensionIdIndexRoute
@@ -130,6 +140,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/extensions/$extensionId'
     | '/purchase/success'
+    | '/extensions/$extensionId/analytics'
     | '/extensions/$extensionId/licensing'
     | '/extensions/$extensionId/publishing'
     | '/extensions/$extensionId/'
@@ -142,6 +153,7 @@ export interface FileRouteTypes {
     | '/portal'
     | '/settings'
     | '/purchase/success'
+    | '/extensions/$extensionId/analytics'
     | '/extensions/$extensionId/licensing'
     | '/extensions/$extensionId/publishing'
     | '/extensions/$extensionId'
@@ -155,6 +167,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/extensions/$extensionId'
     | '/purchase/success'
+    | '/extensions/$extensionId/analytics'
     | '/extensions/$extensionId/licensing'
     | '/extensions/$extensionId/publishing'
     | '/extensions/$extensionId/'
@@ -236,6 +249,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ExtensionsExtensionIdIndexRouteImport
       parentRoute: typeof ExtensionsExtensionIdRoute
     }
+    '/extensions/$extensionId/analytics': {
+      id: '/extensions/$extensionId/analytics'
+      path: '/analytics'
+      fullPath: '/extensions/$extensionId/analytics'
+      preLoaderRoute: typeof ExtensionsExtensionIdAnalyticsRouteImport
+      parentRoute: typeof ExtensionsExtensionIdRoute
+    }
     '/extensions/$extensionId/licensing': {
       id: '/extensions/$extensionId/licensing'
       path: '/licensing'
@@ -254,12 +274,14 @@ declare module '@tanstack/react-router' {
 }
 
 interface ExtensionsExtensionIdRouteChildren {
+  ExtensionsExtensionIdAnalyticsRoute: typeof ExtensionsExtensionIdAnalyticsRoute
   ExtensionsExtensionIdLicensingRoute: typeof ExtensionsExtensionIdLicensingRoute
   ExtensionsExtensionIdPublishingRoute: typeof ExtensionsExtensionIdPublishingRoute
   ExtensionsExtensionIdIndexRoute: typeof ExtensionsExtensionIdIndexRoute
 }
 
 const ExtensionsExtensionIdRouteChildren: ExtensionsExtensionIdRouteChildren = {
+  ExtensionsExtensionIdAnalyticsRoute: ExtensionsExtensionIdAnalyticsRoute,
   ExtensionsExtensionIdLicensingRoute: ExtensionsExtensionIdLicensingRoute,
   ExtensionsExtensionIdPublishingRoute: ExtensionsExtensionIdPublishingRoute,
   ExtensionsExtensionIdIndexRoute: ExtensionsExtensionIdIndexRoute,

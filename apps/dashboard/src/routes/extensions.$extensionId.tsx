@@ -545,7 +545,7 @@ function ExtensionDetailLayout() {
       {/* Real routes rather than tab state so both halves have copyable,
           deep-linkable URLs. */}
       <nav className="flex items-center gap-1 rounded-lg bg-muted p-1 text-sm font-medium w-fit">
-        {(['publishing', 'licensing'] as const).map((section) => (
+        {(['publishing', 'licensing', 'analytics'] as const).map((section) => (
           <Link
             key={section}
             to={`/extensions/$extensionId/${section}`}
@@ -553,7 +553,7 @@ function ExtensionDetailLayout() {
             className="rounded-md px-3 py-1.5 text-muted-foreground transition-colors hover:text-foreground"
             activeProps={{ className: 'bg-background text-foreground shadow-sm' }}
           >
-            {section === 'publishing' ? 'Publishing' : 'Licensing'}
+            {section === 'publishing' ? 'Publishing' : section === 'licensing' ? 'Licensing' : 'Analytics'}
           </Link>
         ))}
       </nav>
