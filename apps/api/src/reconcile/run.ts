@@ -36,6 +36,17 @@ const STALE_REVIEW_DEDUPE_MS = 20 * 60 * 60 * 1000
 // eviction) doesn't strand the target forever.
 const RECONCILE_LOCK_STALE_MS = 2 * 60 * 1000
 
+// getState()'s two calls (addon detail, then /versions/) aren't one atomic
+// read — a store whose review is fast enough (Firefox's is "near-instant"
+// for most submissions) can have a real, freshly-approved version land
+// between them, making a genuinely-successful submission look identical for
+// one tick to a phantom that never existed at all (confirmed against a real
+// incident: a version approved within ~4 minutes of submission got
+// misidentified as phantom and skipped). Only trust "nothing in review" for
+// the phantom-cleanup below once the row has been sitting long enough that a
+// same-tick propagation race can't explain it.
+const PHANTOM_IN_REVIEW_GRACE_MS = 10 * 60 * 1000
+
 interface JoinedRow {
   target: PublishTarget
   extension: Extension
@@ -270,7 +281,12 @@ async function reconcileLifecycle(
   // directly with the store. Either way the store is the source of truth —
   // without this, a wrong row like that would sit at in_review forever, since
   // nothing else here ever re-examines an inReview row that already exists.
-  if (inReview && actual.inReview.known && !actual.inReview.version) {
+  // Gated on age (see PHANTOM_IN_REVIEW_GRACE_MS): a row with no submittedAt,
+  // or one submitted too recently to rule out a same-tick propagation race,
+  // is left alone rather than risk clearing a real, still-propagating
+  // approval.
+  const submittedLongEnoughAgo = !!inReview?.submittedAt && Date.now() - new Date(inReview.submittedAt).getTime() > PHANTOM_IN_REVIEW_GRACE_MS
+  if (inReview && actual.inReview.known && !actual.inReview.version && submittedLongEnoughAgo) {
     await db
       .update(deploymentVersions)
       .set({ status: 'skipped', statusDetail: 'no longer found on the store — treated as never submitted' })

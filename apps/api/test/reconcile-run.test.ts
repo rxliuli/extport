@@ -352,11 +352,13 @@ describe('runReconciliation — phantom in-review row self-heals', () => {
     // leaving a phantom in_review row with nothing on the store's side to
     // ever match it — and nothing to ever unstick decide() again. The store
     // authoritatively reporting nothing in review (no submittedItemRevisionStatus
-    // at all, not merely omitted/unknown) is what should recover it.
+    // at all, not merely omitted/unknown) is what should recover it. Old
+    // enough submittedAt to clear the same-tick propagation race guard below.
+    const oldEnough = new Date(Date.now() - 60 * 60 * 1000).toISOString()
     const { db, tenantId, extensionId } = await setupChromeScenario({
       artifacts: [{ version: '1.1.0' }, { version: '1.2.0' }],
       versions: [
-        { version: '1.1.0', status: 'in_review', submittedAt: new Date().toISOString() },
+        { version: '1.1.0', status: 'in_review', submittedAt: oldEnough },
         { version: '1.2.0', status: 'queued' },
       ],
     })
@@ -374,6 +376,40 @@ describe('runReconciliation — phantom in-review row self-heals', () => {
     // with, so there's nothing to alert the tenant about.
     expect(sent).toHaveLength(1)
     expect(sent[0]!.subject).toContain('1.2.0')
+  })
+
+  it('leaves a freshly-submitted in_review row alone even if the store reports nothing yet', async () => {
+    // Reproduces a real incident: a genuinely successful, fast-reviewed
+    // submission got misidentified as phantom and skipped a few minutes
+    // after submitting, because getState()'s two calls (addon detail, then
+    // /versions/) aren't one atomic read — for a store fast enough to
+    // approve within that gap, "nothing in review" can be a stale snapshot,
+    // not the truth. Recent submittedAt must not trigger the phantom cleanup.
+    const justNow = new Date(Date.now() - 60 * 1000).toISOString()
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      versions: [{ version: '1.1.0', status: 'in_review', submittedAt: justNow }],
+    })
+    globalThis.fetch = routedFetch(chromeRoutes({ fetchStatus: {} })).fetch
+    const { notifier } = recordingNotifier()
+
+    await runReconciliation(env, db, { tenantId }, notifier)
+    const rows = await versionsFor(db, extensionId)
+    expect(rows).toMatchObject([{ version: '1.1.0', status: 'in_review' }])
+  })
+
+  it('leaves an in_review row with no submittedAt alone — age can\'t be judged, so it is not eligible', async () => {
+    // Mirrors maybeEmitStaleReview's existing treatment of a null
+    // submittedAt as "can't judge staleness" — same reasoning applies here:
+    // without an age, err toward leaving a discovered baseline alone.
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      versions: [{ version: '1.1.0', status: 'in_review' }],
+    })
+    globalThis.fetch = routedFetch(chromeRoutes({ fetchStatus: {} })).fetch
+    const { notifier } = recordingNotifier()
+
+    await runReconciliation(env, db, { tenantId }, notifier)
+    const rows = await versionsFor(db, extensionId)
+    expect(rows).toMatchObject([{ version: '1.1.0', status: 'in_review' }])
   })
 })
 
