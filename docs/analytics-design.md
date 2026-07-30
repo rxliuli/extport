@@ -229,6 +229,20 @@ Learned on the imp-translate canary (2026-07-30):
   `permissions.onAdded`/`onRemoved`. imp-translate's background is the
   reference wiring; folding this into the SDK as automatic behavior is
   the natural 0.0.4 improvement.
+- The Firefox install prompt shows the technicalAndInteraction toggle
+  **checked by default** (verified on a real install) — opt-out, not
+  the host_permissions default-deny pattern. Still unverified: whether
+  an *update* that adds the optional declaration grants it for existing
+  installs; the canary's Firefox DAU answers this empirically.
+- **CI e2e runs are an analytics pollution vector**: every Playwright
+  context loading the production build is a fresh "install" pinging
+  production (~20 phantom US/Linux installs per workflow run). Ingest
+  drops `HeadlessChrome` UAs; the fleet convention is e2e launches with
+  `--headless=new` (also the only mode that loads MV3 extensions).
+  Headed-under-xvfb CI would evade the filter.
+- Client aborts can cancel the Worker mid-handler — multi-write ingest
+  paths must be one `db.batch()` or phantom half-written state appears
+  at CI-burst rates.
 
 ## Integration: @wxt-dev/analytics provider
 
