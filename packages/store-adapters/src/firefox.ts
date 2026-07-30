@@ -159,7 +159,27 @@ async function rateLimited(res: Response, step: string): Promise<{ submitted: fa
   } catch {
     // not JSON — keep the raw body
   }
-  return { submitted: false, waiting: true, detail: `AMO rate limited during ${step}; retrying on the next reconcile tick. Store said: ${truncate(message)}` }
+  // AMO phrases the wait as raw seconds ("Expected available in 15013
+  // seconds") — that's the daily quota talking, not the per-minute window,
+  // so translate it into something a human can plan around.
+  const seconds = /in (\d+) seconds?/.exec(message)?.[1]
+  if (seconds) {
+    return {
+      submitted: false,
+      waiting: true,
+      detail: `AMO rate limited during ${step} — expected to clear in about ${humanDuration(Number(seconds))}; retrying automatically.`,
+    }
+  }
+  return { submitted: false, waiting: true, detail: `AMO rate limited during ${step}; retrying automatically. Store said: ${truncate(message)}` }
+}
+
+function humanDuration(seconds: number): string {
+  if (seconds < 90) return `${seconds} seconds`
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 90) return `${minutes} minutes`
+  const hours = Math.round(seconds / 360) / 10
+  if (hours < 36) return `${hours} hours`
+  return `${Math.round(seconds / 8640) / 10} days`
 }
 
 export function createFirefoxAdapter(

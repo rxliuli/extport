@@ -51,20 +51,21 @@ describe('firefox adapter — submit', () => {
     expect(result.submitted).toBe(false)
     expect(result.waiting).toBe(true)
     expect(result.detail).toMatch(/rate limited during upload/)
-    expect(result.detail).toMatch(/Request was throttled\. Expected available in 23 seconds\./)
+    expect(result.detail).toMatch(/about 23 seconds/)
   })
 
   it('treats a 429 on version creation as backpressure too — the whole submit retries next tick', async () => {
     const { fetch } = queueFetch([
       { status: 200, body: { uuid: 'u1' } },
       { status: 200, body: { processed: true, valid: true } },
-      { status: 429, body: { detail: 'Request was throttled. Expected available in 42 seconds.' } },
+      { status: 429, body: { detail: 'Request was throttled. Expected available in 15013 seconds.' } },
     ])
     const result = await createFirefoxAdapter(fetch).submit(creds, { storeItemId: ADDON }, new ArrayBuffer(8), '1.0.0')
     expect(result.submitted).toBe(false)
     expect(result.waiting).toBe(true)
     expect(result.detail).toMatch(/rate limited during version creation/)
-    expect(result.detail).toMatch(/42 seconds/)
+    // 15013 raw seconds is the daily quota talking — translated for humans.
+    expect(result.detail).toMatch(/about 4\.2 hours/)
   })
 
   it('uploads and attaches a version when validation finishes immediately', async () => {
