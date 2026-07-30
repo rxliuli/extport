@@ -1,11 +1,15 @@
 import type { TargetLifecycle } from './api'
 import { TriangleAlert } from 'lucide-react'
 
-// One value per cell, by what deserves attention: error > in review > live,
-// with queued as a last resort so a brand-new target (first review pending,
-// nothing live yet) doesn't render as an empty dash. Amber marks "in the
-// pipeline" — same semantic color the Versions matrix uses; the live version
-// during a review is one click away on the detail page.
+// One value per cell: the head of the pipeline, falling back to live only
+// when the pipeline is empty — error > in review > queued > live. A queued
+// row behind an in_review one is just waiting its turn (the review is the
+// head), but a queued row alone IS the head: something is trying to go out
+// and hasn't. It's usually seconds-long (push → immediate submit → in
+// review); when it lingers there's always a reason (AMO rate limit, Safari
+// waiting for its binary) carried in statusDetail, shown on hover. Amber
+// marks "in the pipeline" — same semantic color the Versions matrix uses;
+// the live version during a review is one click away on the detail page.
 function LifecycleLine({ lifecycle }: { lifecycle: TargetLifecycle }) {
   if (lifecycle.status === 'error') {
     return (
@@ -24,13 +28,6 @@ function LifecycleLine({ lifecycle }: { lifecycle: TargetLifecycle }) {
       </span>
     )
   }
-  if (lifecycle.liveVersion) {
-    return (
-      <span className="text-sm font-semibold text-green-700 dark:text-green-500" title="live">
-        {lifecycle.liveVersion}
-      </span>
-    )
-  }
   if (lifecycle.queuedVersion) {
     return (
       <span
@@ -38,6 +35,13 @@ function LifecycleLine({ lifecycle }: { lifecycle: TargetLifecycle }) {
         title={lifecycle.statusDetail ?? 'queued'}
       >
         {lifecycle.queuedVersion}
+      </span>
+    )
+  }
+  if (lifecycle.liveVersion) {
+    return (
+      <span className="text-sm font-semibold text-green-700 dark:text-green-500" title="live">
+        {lifecycle.liveVersion}
       </span>
     )
   }
