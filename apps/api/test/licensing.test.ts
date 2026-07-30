@@ -482,6 +482,86 @@ describe('GET /v1/licenses pagination', () => {
   })
 })
 
+interface EnrichedRow {
+  id: string
+  key: string
+  tier: string
+  extensionId: string
+  extensionName: string
+}
+
+describe('GET /v1/licenses global view', () => {
+  it('carries tier + extension on every row and searches by exact code or buyer email', async () => {
+    const { license, extension, sessionCookie } = await setupLicensedProduct()
+
+    const all = (await (
+      await request('/api/v1/licenses', { headers: { cookie: sessionCookie } })
+    ).json()) as { licenses: EnrichedRow[] }
+    const row = all.licenses.find((l) => l.id === license.id)!
+    expect(row.tier).toBe('pro')
+    expect(row.extensionId).toBe(extension.id)
+    expect(row.extensionName).toBe('My Extension')
+
+    // What the buyer pastes into a support email is normalized server-side:
+    // a lowercased code and a cased email both hit their exact matches.
+    const byKey = (await (
+      await request(`/api/v1/licenses?search=${license.key.toLowerCase()}`, { headers: { cookie: sessionCookie } })
+    ).json()) as { licenses: EnrichedRow[] }
+    expect(byKey.licenses.map((l) => l.id)).toEqual([license.id])
+
+    const byEmail = (await (
+      await request('/api/v1/licenses?search=Buyer@Example.com', { headers: { cookie: sessionCookie } })
+    ).json()) as { licenses: EnrichedRow[] }
+    expect(byEmail.licenses.map((l) => l.id)).toEqual([license.id])
+
+    const miss = (await (
+      await request('/api/v1/licenses?search=nobody@example.com', { headers: { cookie: sessionCookie } })
+    ).json()) as { licenses: EnrichedRow[]; nextCursor: string | null }
+    expect(miss.licenses).toHaveLength(0)
+    expect(miss.nextCursor).toBeNull()
+  })
+})
+
+describe('GET /v1/licenses/summary', () => {
+  it('counts licenses and groups revenue by currency with a 30-day slice', async () => {
+    const { db, license, plan, sessionCookie } = await setupLicensedProduct()
+    const issue = async () => {
+      const res = await request('/api/v1/licenses', {
+        method: 'POST',
+        headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ planId: plan.id, buyerEmail: 'buyer2@example.com' }),
+      })
+      expect(res.status).toBe(201)
+      return ((await res.json()) as { license: License }).license
+    }
+    const l2 = await issue()
+    const l3 = await issue()
+
+    // Amounts land via the webhook / provider backfill; set them directly.
+    // l2 is an old refunded sale — outside the 30-day window, still revenue.
+    const fortyDaysAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString()
+    await db.update(licenses).set({ amountTotal: 1999, currency: 'usd' }).where(eq(licenses.id, license.id))
+    await db
+      .update(licenses)
+      .set({ amountTotal: 999, currency: 'usd', createdAt: fortyDaysAgo, status: 'refunded' })
+      .where(eq(licenses.id, l2.id))
+    await db.update(licenses).set({ amountTotal: 500, currency: 'eur' }).where(eq(licenses.id, l3.id))
+
+    const summary = (await (
+      await request('/api/v1/licenses/summary', { headers: { cookie: sessionCookie } })
+    ).json()) as { licenses: number; active: number; revenue: { currency: string; total: number; last30d: number }[] }
+    expect(summary.licenses).toBe(3)
+    expect(summary.active).toBe(2)
+    expect(summary.revenue).toEqual(
+      expect.arrayContaining([
+        { currency: 'usd', total: 2998, last30d: 1999 },
+        { currency: 'eur', total: 500, last30d: 500 },
+      ]),
+    )
+    expect(summary.revenue).toHaveLength(2)
+  })
+})
+
 describe('host-based surface isolation', () => {
   it('api.extport.dev serves only /api', async () => {
     const api = await request('https://api.extport.dev/api/healthz')

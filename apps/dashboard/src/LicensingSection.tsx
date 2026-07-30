@@ -22,7 +22,7 @@ function errorMessage(err: unknown): string {
 }
 
 /** amountTotal is Stripe's smallest currency unit; null for manual/imported rows not yet backfilled. */
-function formatAmount(amountTotal: number | null, currency: string | null): string {
+export function formatAmount(amountTotal: number | null, currency: string | null): string {
   if (amountTotal === null || currency === null) return '—'
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase() }).format(amountTotal / 100)
 }
@@ -360,7 +360,7 @@ function LicensesCard({ extension }: { extension: Extension }) {
                     <code className="text-xs">{license.key}</code>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{planById.get(license.planId)?.tier ?? '?'}</Badge>
+                    <Badge variant="secondary">{license.tier}</Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{license.buyerEmail}</TableCell>
                   <TableCell className="text-muted-foreground">{formatAmount(license.amountTotal, license.currency)}</TableCell>
@@ -400,7 +400,7 @@ function LicensesCard({ extension }: { extension: Extension }) {
   )
 }
 
-function DevicesDialog({ license }: { license: LicenseRow }) {
+export function DevicesDialog({ license }: { license: LicenseRow }) {
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const detail = useQuery({

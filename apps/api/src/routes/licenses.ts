@@ -1,9 +1,9 @@
 import { newId } from '@extport/shared'
-import { and, desc, eq, inArray, lt, or } from 'drizzle-orm'
+import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
-import { activations, licenseEvents, licenses, plans } from '../db'
+import { activations, extensions, licenseEvents, licenses, plans } from '../db'
 import { uniqueLicenseKey } from '../lib/license-key'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
@@ -22,7 +22,7 @@ route.get(
   describeRoute({
     summary: 'List licenses',
     description:
-      'Newest first, 50 per page. Filter with ?plan= or ?extension=; pass the previous response\'s nextCursor as ?cursor= to fetch the next page.',
+      'Newest first, 50 per page, each row carrying its plan tier and extension for cross-product views. Filter with ?plan=, ?extension=, or ?search= (an exact activation code or buyer email); pass the previous response\'s nextCursor as ?cursor= to fetch the next page.',
     responses: { 200: { description: 'OK' } },
   }),
   async (c) => {
@@ -31,16 +31,16 @@ route.get(
     const planId = c.req.query('plan')
     const extensionId = c.req.query('extension')
     const cursor = c.req.query('cursor')
+    const search = c.req.query('search')?.trim()
 
     const filters = [eq(licenses.tenantId, tenant.id)]
     if (planId) filters.push(eq(licenses.planId, planId))
-    if (extensionId) {
-      const planRows = await db
-        .select({ id: plans.id })
-        .from(plans)
-        .where(and(eq(plans.tenantId, tenant.id), eq(plans.extensionId, extensionId)))
-      if (planRows.length === 0) return c.json({ licenses: [], nextCursor: null })
-      filters.push(inArray(licenses.planId, planRows.map((p) => p.id)))
+    if (extensionId) filters.push(eq(plans.extensionId, extensionId))
+    // The support workflow starts from what the buyer pasted into an email:
+    // a full activation code or their address. Both are exact, indexed
+    // matches — codes are stored uppercase, emails as given.
+    if (search) {
+      filters.push(or(eq(licenses.key, search.toUpperCase()), eq(licenses.buyerEmail, search.toLowerCase()))!)
     }
     // Keyset cursor "createdAt~id": strictly older rows, with the random id
     // as a stable tiebreak for rows created in the same millisecond.
@@ -55,16 +55,52 @@ route.get(
     }
 
     const rows = await db
-      .select()
+      .select({ license: licenses, tier: plans.tier, extensionId: plans.extensionId, extensionName: extensions.name })
       .from(licenses)
+      .innerJoin(plans, eq(plans.id, licenses.planId))
+      .innerJoin(extensions, eq(extensions.id, plans.extensionId))
       .where(and(...filters))
       .orderBy(desc(licenses.createdAt), desc(licenses.id))
       .limit(PAGE_SIZE + 1)
 
-    const page = rows.slice(0, PAGE_SIZE)
+    const page = rows.slice(0, PAGE_SIZE).map((r) => ({ ...r.license, tier: r.tier, extensionId: r.extensionId, extensionName: r.extensionName }))
     const last = page[page.length - 1]
     const nextCursor = rows.length > PAGE_SIZE ? `${last!.createdAt}~${last!.id}` : null
     return c.json({ licenses: page, nextCursor })
+  },
+)
+
+route.get(
+  '/summary',
+  describeRoute({
+    summary: 'Tenant-wide licensing summary',
+    description: 'License counts and revenue totals (smallest currency unit, grouped by currency) across every extension.',
+    responses: { 200: { description: 'OK' } },
+  }),
+  async (c) => {
+    const db = c.get('db')
+    const tenant = c.get('tenant')
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+    const [counts] = await db
+      .select({
+        total: sql<number>`count(*)`,
+        active: sql<number>`sum(case when ${licenses.status} = 'active' then 1 else 0 end)`,
+      })
+      .from(licenses)
+      .where(eq(licenses.tenantId, tenant.id))
+
+    const revenue = await db
+      .select({
+        currency: licenses.currency,
+        total: sql<number>`coalesce(sum(${licenses.amountTotal}), 0)`,
+        last30d: sql<number>`coalesce(sum(case when ${licenses.createdAt} >= ${thirtyDaysAgo} then ${licenses.amountTotal} else 0 end), 0)`,
+      })
+      .from(licenses)
+      .where(and(eq(licenses.tenantId, tenant.id), sql`${licenses.currency} is not null`))
+      .groupBy(licenses.currency)
+
+    return c.json({ licenses: counts!.total, active: counts!.active ?? 0, revenue })
   },
 )
 

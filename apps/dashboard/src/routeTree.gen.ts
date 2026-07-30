@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CliAuthRouteImport } from './routes/cli-auth'
+import { Route as LicensesRouteImport } from './routes/licenses'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PortalRouteImport } from './routes/portal'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -28,6 +29,11 @@ const IndexRoute = IndexRouteImport.update({
 const CliAuthRoute = CliAuthRouteImport.update({
   id: '/cli-auth',
   path: '/cli-auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LicensesRoute = LicensesRouteImport.update({
+  id: '/licenses',
+  path: '/licenses',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -77,6 +83,7 @@ const ExtensionsExtensionIdPublishingRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/cli-auth': typeof CliAuthRoute
+  '/licenses': typeof LicensesRoute
   '/login': typeof LoginRoute
   '/portal': typeof PortalRoute
   '/settings': typeof SettingsRoute
@@ -89,6 +96,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/cli-auth': typeof CliAuthRoute
+  '/licenses': typeof LicensesRoute
   '/login': typeof LoginRoute
   '/portal': typeof PortalRoute
   '/settings': typeof SettingsRoute
@@ -101,6 +109,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/cli-auth': typeof CliAuthRoute
+  '/licenses': typeof LicensesRoute
   '/login': typeof LoginRoute
   '/portal': typeof PortalRoute
   '/settings': typeof SettingsRoute
@@ -115,6 +124,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/cli-auth'
+    | '/licenses'
     | '/login'
     | '/portal'
     | '/settings'
@@ -127,6 +137,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/cli-auth'
+    | '/licenses'
     | '/login'
     | '/portal'
     | '/settings'
@@ -138,6 +149,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/cli-auth'
+    | '/licenses'
     | '/login'
     | '/portal'
     | '/settings'
@@ -151,6 +163,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CliAuthRoute: typeof CliAuthRoute
+  LicensesRoute: typeof LicensesRoute
   LoginRoute: typeof LoginRoute
   PortalRoute: typeof PortalRoute
   SettingsRoute: typeof SettingsRoute
@@ -172,6 +185,13 @@ declare module '@tanstack/react-router' {
       path: '/cli-auth'
       fullPath: '/cli-auth'
       preLoaderRoute: typeof CliAuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/licenses': {
+      id: '/licenses'
+      path: '/licenses'
+      fullPath: '/licenses'
+      preLoaderRoute: typeof LicensesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -253,6 +273,7 @@ const ExtensionsExtensionIdRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CliAuthRoute: CliAuthRoute,
+  LicensesRoute: LicensesRoute,
   LoginRoute: LoginRoute,
   PortalRoute: PortalRoute,
   SettingsRoute: SettingsRoute,

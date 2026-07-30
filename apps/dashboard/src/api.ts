@@ -136,6 +136,11 @@ export interface LicenseRow {
   /** Smallest currency unit (e.g. cents); null for manual/imported rows not yet backfilled. */
   amountTotal: number | null
   currency: string | null
+  // Joined by the API from the license's plan and extension — makes
+  // cross-product views (the global Licenses page) self-contained.
+  tier: string
+  extensionId: string
+  extensionName: string
   /** ISO date string (Date -> JSON) */
   createdAt: string
 }

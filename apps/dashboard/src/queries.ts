@@ -74,6 +74,29 @@ export const licensesInfiniteQuery = (extensionId: string) =>
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   })
 
+/** The cross-product license list — the support workflow's entry point. */
+export const globalLicensesQuery = (search: string) =>
+  infiniteQueryOptions({
+    queryKey: ['licenses', 'global', search],
+    queryFn: ({ pageParam }) =>
+      api<{ licenses: LicenseRow[]; nextCursor: string | null }>(
+        `/api/v1/licenses?${search ? `search=${encodeURIComponent(search)}&` : ''}${pageParam ? `cursor=${encodeURIComponent(pageParam)}` : ''}`,
+      ),
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  })
+
+export interface LicensesSummary {
+  licenses: number
+  active: number
+  revenue: { currency: string; total: number; last30d: number }[]
+}
+
+export const licensesSummaryQuery = queryOptions({
+  queryKey: ['licenses', 'summary'],
+  queryFn: () => api<LicensesSummary>('/api/v1/licenses/summary'),
+})
+
 export const credentialsQuery = queryOptions({
   queryKey: ['credentials'],
   queryFn: () => api<{ credentials: CredentialRow[] }>('/api/v1/credentials').then((r) => r.credentials),
