@@ -24,6 +24,14 @@
     "./react": {
       "types": "./dist/react.d.mts",
       "import": "./dist/react.mjs"
+    },
+    "./analytics": {
+      "types": "./dist/analytics.d.mts",
+      "import": "./dist/analytics.mjs"
+    },
+    "./wxt-analytics": {
+      "types": "./dist/wxt-analytics.d.mts",
+      "import": "./dist/wxt-analytics.mjs"
     }
   },
   "files": [
