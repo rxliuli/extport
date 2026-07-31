@@ -8,6 +8,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
+import { Skeleton } from '@/components/ui/skeleton'
 import { analyticsOverviewQuery, analyticsSeriesQuery } from '@/queries'
 import { useQuery } from '@tanstack/react-query'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
@@ -127,7 +128,11 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
   const dauByBrowser = browserDauSeries(totalRows, domain)
   const versions = versionSeries(versionRows, domain)
 
-  if (!isPending && totalRows.length === 0) {
+  // While the series loads, the zero-filled domain would render as a
+  // convincing flat month of zeros — skeleton instead of a false signal.
+  if (isPending) return <Skeleton className="h-48 w-full" />
+
+  if (totalRows.length === 0) {
     return (
       <Card>
         <CardHeader>
