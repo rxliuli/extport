@@ -31,18 +31,30 @@ export async function saveProjectConfig(config: ProjectConfig, cwd: string): Pro
   await writeFile(join(cwd, PROJECT_CONFIG_FILE), JSON.stringify(config, null, 2) + '\n')
 }
 
+/** Drop undefined values so an unauthored field can never clobber an existing one. */
+function definedEntries<T extends Record<string, unknown>>(obj: T | undefined): Partial<T> {
+  if (!obj) return {}
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as Partial<T>
+}
+
 /**
- * Merges the Xcode project's known location (and team id, if configured) into
- * the existing extport.config.json without touching unrelated fields
- * (extension, apiUrl, safari.issuerId/keyId) — those stay whatever the tenant
- * already set via `extport init` / `extport safari-build`'s own prompts.
+ * Regenerates extport.config.json from the wxt.config.ts-authored values —
+ * in full, at setup time, so the file reaches its final state on
+ * `pnpm install` instead of accreting fields across lifecycle stages.
+ * Authored values win; fields the module doesn't own (apiUrl, anything the
+ * CLI wrote that isn't re-authored) pass through untouched — non-WXT
+ * projects that hand-write this file are unaffected by definition.
  */
-export function syncSafariConfig(existing: ProjectConfig, update: { projectPath: string; teamId?: string }): { config: ProjectConfig; changed: boolean } {
-  const safari = {
-    ...existing.safari,
-    projectPath: update.projectPath,
-    ...(update.teamId ? { teamId: update.teamId } : {}),
+export function generateProjectConfig(
+  existing: ProjectConfig,
+  authored: { extension?: string; safari?: { projectPath?: string; teamId?: string; issuerId?: string; keyId?: string } },
+): { config: ProjectConfig; changed: boolean } {
+  const safari = { ...existing.safari, ...definedEntries(authored.safari) }
+  const config: ProjectConfig = {
+    ...existing,
+    ...(authored.extension !== undefined ? { extension: authored.extension } : {}),
+    ...(Object.keys(safari).length > 0 ? { safari } : {}),
   }
-  const changed = existing.safari?.projectPath !== safari.projectPath || (update.teamId !== undefined && existing.safari?.teamId !== safari.teamId)
-  return { config: { ...existing, safari }, changed }
+  const changed = JSON.stringify(config) !== JSON.stringify(existing)
+  return { config, changed }
 }

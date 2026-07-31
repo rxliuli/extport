@@ -2,7 +2,7 @@ import 'wxt'
 import fs from 'node:fs/promises'
 import { addViteConfig, addWxtPlugin, defineWxtModule } from 'wxt/modules'
 import { convertToXcodeProject, type SafariProjectType } from './safari-xcode'
-import { loadProjectConfig, saveProjectConfig, syncSafariConfig } from './project-config'
+import { generateProjectConfig, loadProjectConfig, saveProjectConfig } from './project-config'
 
 export interface ExtportSafariOptions {
   /** Safari project name. Defaults to manifest.name, then package.json's name. */
@@ -13,6 +13,10 @@ export interface ExtportSafariOptions {
   bundleIdentifier: string
   /** Apple Developer Team ID. Written to extport.config.json's safari.teamId. */
   developmentTeam?: string
+  /** App Store Connect API key issuer id — used by local `extport safari-build` (CI passes it as a secret). */
+  issuerId?: string
+  /** App Store Connect API key id — used by local `extport safari-build` (CI passes it as a secret). */
+  keyId?: string
   /** Output path for the Xcode project. Defaults to '.output/{projectName}'. */
   outputPath?: string
   /** Defaults to 'both' (macOS and iOS). */
@@ -132,13 +136,30 @@ export default defineWxtModule<ExtportWxtOptions>({
       )
     }
 
-    // --- extension id → extport.config.json (module-owned field; the
-    // CLI-owned ones — apiUrl, safari.issuerId/keyId — pass through).
-    if (extension) {
-      const projectConfig = await loadProjectConfig(wxt.config.root)
-      if (projectConfig.extension !== extension) {
-        await saveProjectConfig({ ...projectConfig, extension }, wxt.config.root)
-        wxt.logger.info('Synced extport.config.json (extension).')
+    // --- extport.config.json: fully generated here, at setup, so a plain
+    // `pnpm install` (wxt prepare) leaves the file in its final state —
+    // no fields appearing later at build time. Authored values win;
+    // everything else (apiUrl, CLI-written history) passes through.
+    const projectName =
+      safari?.projectName ??
+      wxt.config.manifest.name ??
+      (await fs
+        .readFile(`${wxt.config.root}/package.json`, 'utf-8')
+        .then((data) => JSON.parse(data).name as string | undefined)
+        .catch(() => undefined))
+    const outputPath = safari?.outputPath ?? (projectName ? `.output/${projectName}` : undefined)
+
+    if (extension || safari) {
+      const existing = await loadProjectConfig(wxt.config.root)
+      const { config, changed } = generateProjectConfig(existing, {
+        extension,
+        safari: safari
+          ? { projectPath: outputPath, teamId: safari.developmentTeam, issuerId: safari.issuerId, keyId: safari.keyId }
+          : undefined,
+      })
+      if (changed) {
+        await saveProjectConfig(config, wxt.config.root)
+        wxt.logger.info('Regenerated extport.config.json from wxt.config.ts.')
       }
     }
 
@@ -175,11 +196,6 @@ export default defineWxtModule<ExtportWxtOptions>({
     if (!safari) return
 
     const { appCategory, bundleIdentifier, developmentTeam } = safari
-    const projectName =
-      safari.projectName ??
-      wxt.config.manifest.name ??
-      (await fs.readFile(`${wxt.config.root}/package.json`, 'utf-8').then((data) => JSON.parse(data).name))
-
     if (!projectName || !appCategory || !bundleIdentifier) {
       wxt.logger.warn(
         '@extport/wxt is not configured properly. Please provide projectName, appCategory and bundleIdentifier under the "extport.safari" key.',
@@ -194,9 +210,6 @@ export default defineWxtModule<ExtportWxtOptions>({
       )
     }
 
-    // projectPath is derived, never authored — the module is the one
-    // creating the Xcode project, so it knows where it put it.
-    const outputPath = safari.outputPath ?? `.output/${projectName}`
     const projectType = safari.projectType ?? 'both'
     const openProject = safari.openProject ?? true
 
@@ -214,7 +227,7 @@ export default defineWxtModule<ExtportWxtOptions>({
           appCategory,
           bundleIdentifier,
           developmentTeam,
-          outputPath,
+          outputPath: outputPath!,
           projectType,
           openProject,
           rootPath: wxt.config.root,
@@ -224,13 +237,6 @@ export default defineWxtModule<ExtportWxtOptions>({
       } catch (error) {
         wxt.logger.error('Safari Xcode conversion failed:', error)
         throw error
-      }
-
-      const projectConfig = await loadProjectConfig(wxt.config.root)
-      const { config, changed } = syncSafariConfig(projectConfig, { projectPath: outputPath, teamId: developmentTeam })
-      if (changed) {
-        await saveProjectConfig(config, wxt.config.root)
-        wxt.logger.info(`Synced extport.config.json (safari.projectPath${developmentTeam ? '/teamId' : ''}).`)
       }
     })
   },
