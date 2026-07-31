@@ -254,6 +254,66 @@ Learned on the imp-translate canary (2026-07-30):
   paths must be one `db.batch()` or phantom half-written state appears
   at CI-burst rates.
 
+## Store disclosure templates (answers + why)
+
+The raw material for the future tenant guide. The *reasons* are the
+part that decays — they were worked out on the imp-translate canary
+and belong here verbatim.
+
+### CWS "What user data do you plan to collect" form
+
+Check **Location** only. Its examples literally name "region, IP
+address" — we derive and store country from the request IP (IP itself
+not stored). Note the checked category shows publicly on the
+listing's Privacy practices tab.
+
+Every other box unchecked, with the reason on record:
+
+- *PII* — examples are name/address/email/age/ID number; a random
+  install UUID is linked to nothing.
+- *User activity* — examples are "network monitoring, clicks, mouse
+  position, scroll, keystroke logging": behavioral **content**
+  monitoring. The ping carries zero behavioral content; "the
+  extension was alive today" is one bit.
+- *Web history / Website content* — never touched.
+- *Health / Financial / Authentication / Personal communications* —
+  obviously none.
+- Language (`navigator.language`) and extension version fall under no
+  listed category.
+
+Checking anything makes the listing's **privacy policy URL** field
+mandatory. The residual ambiguity is the daily UUID (a strict reviewer
+could stretch "identification number") — accepted after imp-translate
+cleared review with exactly this configuration.
+
+### App Store Connect App Privacy (Safari-shipping extensions)
+
+- Data type: **Identifiers → Device ID** (the anonymous install id
+  lands in this bucket in Apple's taxonomy).
+- Purpose: **Analytics**.
+- "Linked to the user's identity": **No** (no account linkage,
+  generated locally).
+- "Used for tracking": **No** — Apple's "tracking" is a term of art:
+  linking user/device data with *third-party* data for targeted
+  advertising or ad measurement, or selling to data brokers.
+  First-party anonymous statistics are categorically outside it.
+  (Answering Yes would drag iOS into AppTrackingTransparency prompt
+  territory — a world we never need to enter.)
+
+### AMO / Firefox
+
+The manifest declaration (`data_collection_permissions.optional:
+['technicalAndInteraction']`) *is* the disclosure — see the canary
+lessons above for why it cannot be `required`. The listing needs only
+the privacy policy link.
+
+### Privacy policy paragraph
+
+imp-translate's PRIVACY.md "Anonymous Usage Statistics" section is the
+canonical template: exact field list, "IP used only for country lookup
+and not stored", 90-day raw retention, no browsing data. Fleet and
+tenants copy it verbatim.
+
 ## Integration: @wxt-dev/analytics provider
 
 WXT ships a first-party analytics module — a thin message bus
