@@ -264,6 +264,9 @@ importers:
 
   packages/wxt:
     devDependencies:
+      '@extport/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1

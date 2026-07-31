@@ -46,7 +46,8 @@
     "tsdown": "^0.22.12",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
-    "wxt": "^0.20.13"
+    "wxt": "^0.20.13",
+    "@extport/sdk": "workspace:*"
   },
   "peerDependencies": {
     "@extport/sdk": ">=0.0.5"
