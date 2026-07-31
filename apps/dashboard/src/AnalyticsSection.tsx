@@ -17,16 +17,30 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, 
 // written once confirmed (30 days of silence), so that chart's trailing
 // month is legitimately empty. See docs/analytics-design.md.
 
-/** Collapse per-browser rows into one point per day (installs/departures bars). */
-function byDate(rows: AnalyticsSeriesRow[]): { date: string; installs: number; departures: number }[] {
-  const days = new Map<string, { date: string; installs: number; departures: number }>()
+/**
+ * The fixed x-axis domain: the last N days ending *yesterday* — the last
+ * fully-rolled-up day (CWS does the same: "to July 29" on July 30). Days
+ * without data draw as 0 so every series is a continuous line across the
+ * whole window, never a floating point.
+ */
+function lastNDays(n: number): string[] {
+  const days: string[] = []
+  for (let i = n; i >= 1; i--) {
+    days.push(new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10))
+  }
+  return days
+}
+
+/** Collapse per-browser rows into one point per domain day (installs/departures bars). */
+function byDate(rows: AnalyticsSeriesRow[], domain: string[]): { date: string; installs: number; departures: number }[] {
+  const days = new Map(domain.map((date) => [date, { date, installs: 0, departures: 0 }]))
   for (const row of rows) {
-    const day = days.get(row.date) ?? { date: row.date, installs: 0, departures: 0 }
+    const day = days.get(row.date)
+    if (!day) continue
     day.installs += row.installs
     day.departures += row.departures
-    days.set(row.date, day)
   }
-  return [...days.values()].sort((a, b) => a.date.localeCompare(b.date))
+  return [...days.values()]
 }
 
 // One line per store is the chart no single store console can draw — fixed
@@ -40,19 +54,21 @@ const BROWSER_COLORS: Record<string, string> = {
 }
 const BROWSER_ORDER = Object.keys(BROWSER_COLORS)
 
-/** Per-day DAU pivoted to one column per browser (0-filled — absent means zero). */
-function browserDauSeries(rows: AnalyticsSeriesRow[]): {
+/** Per-domain-day DAU pivoted to one column per browser, 0-filled. */
+function browserDauSeries(rows: AnalyticsSeriesRow[], domain: string[]): {
   data: Record<string, string | number>[]
   browsers: string[]
 } {
   const browsers = BROWSER_ORDER.filter((b) => rows.some((r) => r.browser === b))
-  const days = new Map<string, Record<string, string | number>>()
+  const days = new Map<string, Record<string, string | number>>(
+    domain.map((date) => [date, { date, ...Object.fromEntries(browsers.map((b) => [b, 0])) }]),
+  )
   for (const row of rows) {
-    const day = days.get(row.date) ?? { date: row.date, ...Object.fromEntries(browsers.map((b) => [b, 0])) }
+    const day = days.get(row.date)
+    if (!day) continue
     day[row.browser] = ((day[row.browser] as number) ?? 0) + row.dau
-    days.set(row.date, day)
   }
-  return { data: [...days.values()].sort((a, b) => String(a.date).localeCompare(String(b.date))), browsers }
+  return { data: [...days.values()], browsers }
 }
 
 const MAX_VERSION_SERIES = 8
@@ -66,8 +82,8 @@ function safeKey(version: string): string {
   return `v_${version.replace(/[^a-zA-Z0-9]/g, '_')}`
 }
 
-/** Per-day dau per version (top N by latest-day usage, the tail as "other"). */
-function versionSeries(rows: AnalyticsSeriesRow[]): {
+/** Per-domain-day dau per version (top N by latest-day usage, the tail as "other"), 0-filled. */
+function versionSeries(rows: AnalyticsSeriesRow[], domain: string[]): {
   data: Record<string, string | number>[]
   series: { key: string; label: string }[]
 } {
@@ -82,19 +98,21 @@ function versionSeries(rows: AnalyticsSeriesRow[]): {
   )
   const top = ranked.slice(0, MAX_VERSION_SERIES)
   const hasOther = ranked.length > top.length
-
-  const days = new Map<string, Record<string, string | number>>()
-  for (const row of rows) {
-    const day = days.get(row.date) ?? { date: row.date }
-    const series = top.includes(row.dimValue) ? safeKey(row.dimValue) : 'other'
-    day[series] = ((day[series] as number) ?? 0) + row.dau
-    days.set(row.date, day)
-  }
   // Newest version first in the ranking; render oldest at the bottom of the
   // stack so a release visually eats the layers above it.
   const series = [...top].reverse().map((version) => ({ key: safeKey(version), label: version }))
   if (hasOther) series.unshift({ key: 'other', label: 'other' })
-  return { data: [...days.values()].sort((a, b) => String(a.date).localeCompare(String(b.date))), series }
+
+  const days = new Map<string, Record<string, string | number>>(
+    domain.map((date) => [date, { date, ...Object.fromEntries(series.map(({ key }) => [key, 0])) }]),
+  )
+  for (const row of rows) {
+    const day = days.get(row.date)
+    if (!day) continue
+    const key = top.includes(row.dimValue) ? safeKey(row.dimValue) : 'other'
+    day[key] = ((day[key] as number) ?? 0) + row.dau
+  }
+  return { data: [...days.values()], series }
 }
 
 const shortDate = (value: string) => value.slice(5)
@@ -104,11 +122,12 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
   const { data: totalRows = [], isPending } = useQuery(analyticsSeriesQuery(extension.id, 'total'))
   const { data: versionRows = [] } = useQuery(analyticsSeriesQuery(extension.id, 'version'))
 
-  const daily = byDate(totalRows)
-  const dauByBrowser = browserDauSeries(totalRows)
-  const versions = versionSeries(versionRows)
+  const domain = lastNDays(30)
+  const daily = byDate(totalRows, domain)
+  const dauByBrowser = browserDauSeries(totalRows, domain)
+  const versions = versionSeries(versionRows, domain)
 
-  if (!isPending && daily.length === 0) {
+  if (!isPending && totalRows.length === 0) {
     return (
       <Card>
         <CardHeader>
@@ -163,8 +182,7 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
                   dataKey={browser}
                   stroke={`var(--color-${browser})`}
                   strokeWidth={2}
-                  // A one-day series has no segments to draw — show the points.
-                  dot={dauByBrowser.data.length === 1}
+                  dot={false}
                 />
               ))}
             </LineChart>
@@ -229,7 +247,6 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
                   fill={`var(--color-${key})`}
                   fillOpacity={0.35}
                   type="monotone"
-                  dot={versions.data.length === 1}
                 />
               ))}
             </AreaChart>
