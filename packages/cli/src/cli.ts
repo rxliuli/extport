@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-import { cancel, confirm, intro, isCancel, log as clackLog, outro, select } from '@clack/prompts'
+import { cancel, confirm, intro, isCancel, log as clackLog, outro, select, spinner } from '@clack/prompts'
 import { defineCommand, runMain } from 'citty'
 import { readFile } from 'node:fs/promises'
 import process from 'node:process'
 import { buildPushUrl, resolvePushContext, resolvePushOptions, type PushDefaults, type PushOptions, type RawPushArgs } from './args'
-import { clearGlobalConfig, loadGlobalConfig, loadProjectConfig, saveGlobalConfig, saveProjectConfig, type ProjectConfig } from './config'
+import { clearGlobalConfig, loadGlobalConfig, loadProjectConfig, saveGlobalConfig, saveProjectConfig } from './config'
+import { existsSync } from 'node:fs'
+import { createExtension, downloadTemplate, fetchExtensions, patchScaffold, slugify } from './scaffold'
 import { detectShell, extractCompletionSchema, generateCompletion, type Shell } from './completion'
 import { exec } from './exec'
 import { fetchEnabledTargets } from './extensions-api'
@@ -207,7 +209,20 @@ async function runInit(): Promise<void> {
   if (!process.stdin.isTTY) {
     throw new Error('extport init is interactive and needs a terminal (no TTY detected)')
   }
-  intro('extport init')
+
+  // init creates a NEW project in a subdirectory — inside an existing
+  // project, the right move is adoption, which is a one-line config edit.
+  for (const marker of ['wxt.config.ts', 'extport.config.json', 'package.json']) {
+    if (existsSync(marker)) {
+      throw new Error(
+        `${marker} found here — extport init scaffolds a new project into a subdirectory, run it from a parent directory.\n` +
+          "Adopting this existing project instead? Add `extport: { extension: 'ext_…' }` to wxt.config.ts (WXT + @extport/wxt), " +
+          'or write extport.config.json by hand — https://github.com/rxliuli/extport#readme',
+      )
+    }
+  }
+
+  intro('extport init — create a new extension project')
 
   let globalConfig = await loadGlobalConfig()
   const apiUrl = globalConfig.apiUrl ?? 'https://dash.extport.dev'
@@ -226,45 +241,71 @@ async function runInit(): Promise<void> {
   const me = await fetchMe(apiUrl, globalConfig.apiKey!)
   if (me) clackLog.success(`Logged in as ${me.tenant.name} (${me.tenant.plan}).`)
 
-  const existing = await fetch(new URL('/api/v1/extensions', apiUrl), { headers: { authorization: `Bearer ${globalConfig.apiKey}` } })
-    .then((res) => (res.ok ? res.json() : { extensions: [] }))
-    .then((body) => (body as { extensions?: { id: string; name: string }[] }).extensions ?? [])
-    .catch(() => [])
-
-  let extension: string
-  if (existing.length > 0) {
-    const OTHER = '__other__'
-    const choice = await select({
-      message: 'Which extension is this project for?',
-      options: [...existing.map((e) => ({ value: e.id, label: e.name })), { value: OTHER, label: 'Something else (type an ext_… id)' }],
-    })
-    if (isCancel(choice)) {
-      cancel('cancelled')
-      return
-    }
-    extension = choice === OTHER ? await promptText('Extension id (ext_…):', { validate: requiredField('Extension') }) : choice
-  } else {
-    extension = await promptText('Extension id (ext_…):', { validate: requiredField('Extension') })
-  }
-
-  const wantsSafari = await confirm({ message: 'Does this project publish to Safari (App Store Connect)?', initialValue: false })
-  if (isCancel(wantsSafari)) {
+  // One decision: which extension is this? An answer either points at an
+  // existing record (dashboard-first workflows) or carries a new name.
+  const records = await fetchExtensions(apiUrl, globalConfig.apiKey!)
+  const CREATE = '__create__'
+  const choice = await select({
+    message: 'Extension:',
+    options: [
+      { value: CREATE, label: '＋ Create a new extension…' },
+      ...records.map((e) => ({ value: e.id, label: e.name, hint: e.id })),
+    ],
+  })
+  if (isCancel(choice)) {
     cancel('cancelled')
     return
   }
 
-  const config: ProjectConfig = { extension }
-  if (wantsSafari) {
-    config.safari = {
-      projectPath: await promptText('Path to the Xcode project directory:', { placeholder: './ios', validate: requiredField('Project path') }),
-      teamId: await promptText('Apple Developer Team ID:', { validate: requiredField('Team ID') }),
-      issuerId: await promptText('App Store Connect issuer id:', { validate: requiredField('Issuer id') }),
-      keyId: await promptText('App Store Connect key id:', { validate: requiredField('Key id') }),
+  let record: { id: string; name: string }
+  if (choice === CREATE) {
+    const name = (await promptText('Extension name:', { placeholder: 'My Extension', validate: requiredField('Name') })).trim()
+    const s = spinner()
+    s.start('Creating the extension…')
+    try {
+      record = await createExtension(apiUrl, globalConfig.apiKey!, name)
+    } catch (err) {
+      s.stop('Could not create the extension.')
+      throw err
     }
+    s.stop(`Created ${record.name} (${record.id})`)
+  } else {
+    record = records.find((e) => e.id === choice)!
   }
 
-  await saveProjectConfig(config)
-  outro('Wrote extport.config.json — commit it, it has no secrets.')
+  // Directory and package name derive from the extension name by the same
+  // transform the fleet uses for gecko ids; prompt only when inference
+  // degenerates (e.g. a fully non-ASCII name).
+  let dir = slugify(record.name)
+  if (!dir) {
+    dir = await promptText('Directory name:', { validate: requiredField('Directory') })
+  }
+  if (existsSync(dir)) {
+    throw new Error(`./${dir} already exists — move it aside or pick a different extension name`)
+  }
+
+  const s = spinner()
+  s.start('Downloading browser-extension-template…')
+  try {
+    await downloadTemplate(dir, exec)
+    await patchScaffold(dir, { extensionId: record.id, name: record.name, slug: dir })
+  } catch (err) {
+    s.stop('Scaffolding failed.')
+    throw err
+  }
+  s.stop(`Scaffolded ./${dir} (bound to ${record.id})`)
+
+  outro(
+    [
+      'Next:',
+      `  cd ${dir}`,
+      '  pnpm install   # generates extport.config.json from wxt.config.ts',
+      '  pnpm dev',
+      '',
+      'Publishing: create each store listing once, add targets in the dashboard,',
+      'then set the EXTPORT_API_KEY secret for the release workflow.',
+    ].join('\n'),
+  )
 }
 
 async function runCompletionCommand(shellArg: string | undefined): Promise<void> {
@@ -321,7 +362,7 @@ const main = defineCommand({
       run: withCleanErrors((args) => runWhoami(args['api-url'] as string | undefined, args['api-key'] as string | undefined)),
     }),
     init: defineCommand({
-      meta: { name: 'init', description: 'Interactive setup — writes extport.config.json' },
+      meta: { name: 'init', description: 'Create a new extension project — template scaffold bound to an extport extension from birth' },
       run: withCleanErrors(() => runInit()),
     }),
     push: defineCommand({
