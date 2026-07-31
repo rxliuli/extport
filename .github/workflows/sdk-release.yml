@@ -33,7 +33,9 @@ jobs:
 
   publish:
     needs: version
-    if: needs.version.outputs.changed == 'true'
+    # workflow_dispatch force-publishes: the retry path when the bump
+    # commit's run failed for unrelated reasons (npm rejects true republishes).
+    if: needs.version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: npm-publish
     steps:
