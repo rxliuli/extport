@@ -51,9 +51,37 @@ interface AnalyticsRuntime {
   getManifest?(): { version: string }
 }
 
+interface PermissionsApi {
+  getAll?(): Promise<Record<string, unknown>>
+  onAdded?: { addListener(callback: () => void): void }
+}
+
 function getAnalyticsRuntime(): AnalyticsRuntime | undefined {
   const g = globalThis as unknown as Record<string, { runtime?: AnalyticsRuntime } | undefined>
   return g['browser']?.runtime ?? g['chrome']?.runtime
+}
+
+function getPermissionsApi(): PermissionsApi | undefined {
+  const g = globalThis as unknown as Record<string, { permissions?: PermissionsApi } | undefined>
+  return g['browser']?.permissions ?? g['chrome']?.permissions
+}
+
+/**
+ * Firefox 140+ 的内建数据收集同意机制:permissions.getAll() 返回
+ * data_collection 数组时,technicalAndInteraction 必须在其中(安装框
+ * 的开关/about:addons)。键不存在 = 浏览器没有该机制,manifest 层的
+ * 披露即为准绳——放行。ping 时现读,撤销无需监听,下一次 ping 自查。
+ */
+async function browserConsentsToAnalytics(): Promise<boolean> {
+  try {
+    const permissions = getPermissionsApi()
+    if (!permissions?.getAll) return true
+    const all = (await permissions.getAll()) as { data_collection?: string[] }
+    return all.data_collection === undefined || all.data_collection.includes('technicalAndInteraction')
+  } catch {
+    // 只有没有该机制的环境才可能走到这——同"键不存在"处理。
+    return true
+  }
 }
 
 export function createAnalyticsPinger(options: AnalyticsOptions): AnalyticsPinger {
@@ -66,8 +94,12 @@ export function createAnalyticsPinger(options: AnalyticsOptions): AnalyticsPinge
     const record = (await storage.get<AnalyticsRecord>(key)) ?? {}
     const today = new Date().toISOString().slice(0, 10)
     if (record.lastPingDate === today) return
-    // 未同意时不写日期戳:当天晚些时候取得同意仍能补上当日的 ping。
+    // 两道独立的同意闸,都不写日期戳:当天晚些时候取得同意仍能补上
+    // 当日的 ping。①应用层开关(setEnabled/defaultEnabled,给自定义
+    // 同意流程);②浏览器层(Firefox 的 technicalAndInteraction 开关,
+    // 自动尊重,租户零接线)。
     if (!(record.enabled ?? options.defaultEnabled ?? true)) return
+    if (!(await browserConsentsToAnalytics())) return
 
     let installId = record.installId
     if (!installId) {
@@ -125,6 +157,10 @@ export function attachAnalytics(options: AnalyticsOptions): AnalyticsPinger {
     void pinger.maybePing()
   })
   runtime?.onStartup?.addListener(() => {
+    void pinger.maybePing()
+  })
+  // Firefox 用户当天在 about:addons 里打开数据收集开关 → 当天就计数。
+  getPermissionsApi()?.onAdded?.addListener(() => {
     void pinger.maybePing()
   })
   void pinger.maybePing()

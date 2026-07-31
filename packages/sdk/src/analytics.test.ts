@@ -92,6 +92,51 @@ describe('createAnalyticsPinger', () => {
   })
 })
 
+describe('browser data-collection consent (Firefox 140+)', () => {
+  function stubPermissions(dataCollection: string[] | undefined) {
+    const listeners: (() => void)[] = []
+    vi.stubGlobal('browser', {
+      permissions: {
+        getAll: async () => (dataCollection === undefined ? {} : { data_collection: dataCollection }),
+        onAdded: { addListener: (cb: () => void) => listeners.push(cb) },
+      },
+    })
+    return listeners
+  }
+
+  it('does not ping while technicalAndInteraction is off, and never burns the day', async () => {
+    stubPermissions([])
+    const storage = memoryStorage()
+    const pinger = createAnalyticsPinger({ ...OPTIONS, storage })
+    await pinger.maybePing()
+    expect(fetchMock).not.toHaveBeenCalled()
+    const record = storage.data.get('extport-analytics') as { lastPingDate?: string } | undefined
+    expect(record?.lastPingDate).toBeUndefined()
+  })
+
+  it('pings once the toggle is granted — same day', async () => {
+    const listeners = stubPermissions([])
+    const storage = memoryStorage()
+    const pinger = attachAnalytics({ ...OPTIONS, storage })
+    await pinger.maybePing()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    // User flips the toggle in about:addons → onAdded fires → fresh
+    // getAll() now grants.
+    stubPermissions(['technicalAndInteraction'])
+    for (const cb of listeners) cb()
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  })
+
+  it('treats browsers without the mechanism as governed by the manifest disclosure', async () => {
+    stubPermissions(undefined) // getAll() has no data_collection key
+    const storage = memoryStorage()
+    const pinger = createAnalyticsPinger({ ...OPTIONS, storage })
+    await pinger.maybePing()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('attachAnalytics', () => {
   it('pings on attach and registers install/startup listeners', async () => {
     const listeners: Record<string, () => void> = {}
