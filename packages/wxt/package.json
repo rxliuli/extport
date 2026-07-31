@@ -1,6 +1,6 @@
 {
   "name": "@extport/wxt",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "WXT module for extport: converts Safari extensions to Xcode projects and keeps extport.config.json in sync",
   "keywords": [
     "wxt",
@@ -47,5 +47,13 @@
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
     "wxt": "^0.20.13"
+  },
+  "peerDependencies": {
+    "@extport/sdk": ">=0.0.5"
+  },
+  "peerDependenciesMeta": {
+    "@extport/sdk": {
+      "optional": true
+    }
   }
 }

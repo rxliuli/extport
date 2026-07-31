@@ -11,8 +11,12 @@ import { idbStorage, type StorageAdapter } from './index'
  */
 
 export interface AnalyticsOptions {
-  /** extport 扩展 id(ext_…)——分析协议没有 licensing 的历史包袱,直接用它。 */
-  extensionId: string
+  /**
+   * extport 扩展 id(ext_…)。可省略:@extport/wxt 模块经注入的
+   * `globalThis.__EXTPORT__.extensionId` 提供时自动解析;两处都没有则
+   * 静默不上报(分析绝不能影响宿主),dev 下打印一次警告。
+   */
+  extensionId?: string
   /** 本地/自托管调试用,默认生产 extport。 */
   apiBase?: string
   /** 默认从 runtime.getManifest().version 读取。 */
@@ -72,6 +76,13 @@ function getPermissionsApi(): PermissionsApi | undefined {
  * 的开关/about:addons)。键不存在 = 浏览器没有该机制,manifest 层的
  * 披露即为准绳——放行。ping 时现读,撤销无需监听,下一次 ping 自查。
  */
+/** @extport/wxt 的 WXT 插件在每个入口 main 之前注入的全局。 */
+function resolveExtensionId(explicit?: string): string | undefined {
+  if (explicit) return explicit
+  const injected = (globalThis as { __EXTPORT__?: { extensionId?: string } }).__EXTPORT__
+  return injected?.extensionId
+}
+
 async function browserConsentsToAnalytics(): Promise<boolean> {
   try {
     const permissions = getPermissionsApi()
@@ -84,13 +95,22 @@ async function browserConsentsToAnalytics(): Promise<boolean> {
   }
 }
 
-export function createAnalyticsPinger(options: AnalyticsOptions): AnalyticsPinger {
+export function createAnalyticsPinger(options: AnalyticsOptions = {}): AnalyticsPinger {
   const apiBase = options.apiBase ?? 'https://api.extport.dev'
   const storage = options.storage ?? idbStorage
   const key = options.storageKey ?? 'extport-analytics'
   let inflight: Promise<void> | undefined
+  let warnedMissingId = false
 
   async function doPing(): Promise<void> {
+    const extensionId = resolveExtensionId(options.extensionId)
+    if (!extensionId) {
+      if (!warnedMissingId) {
+        warnedMissingId = true
+        console.warn('[@extport/sdk] analytics: no extensionId (neither passed nor injected by @extport/wxt) — pings disabled')
+      }
+      return
+    }
     const record = (await storage.get<AnalyticsRecord>(key)) ?? {}
     const today = new Date().toISOString().slice(0, 10)
     if (record.lastPingDate === today) return
@@ -115,7 +135,7 @@ export function createAnalyticsPinger(options: AnalyticsOptions): AnalyticsPinge
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         installId,
-        extensionId: options.extensionId,
+        extensionId,
         version,
         language: typeof navigator !== 'undefined' ? navigator.language : undefined,
       }),
@@ -150,7 +170,7 @@ export function createAnalyticsPinger(options: AnalyticsOptions): AnalyticsPinge
  * 每日 ping 的驱动时机;onInstalled 让安装当刻立即计数(安装时间
  * 因此精确到天而非等到下次唤醒)。
  */
-export function attachAnalytics(options: AnalyticsOptions): AnalyticsPinger {
+export function attachAnalytics(options: AnalyticsOptions = {}): AnalyticsPinger {
   const pinger = createAnalyticsPinger(options)
   const runtime = getAnalyticsRuntime()
   runtime?.onInstalled?.addListener(() => {

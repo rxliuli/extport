@@ -92,6 +92,40 @@ describe('createAnalyticsPinger', () => {
   })
 })
 
+describe('extensionId resolution', () => {
+  it('falls back to the id injected by @extport/wxt', async () => {
+    vi.stubGlobal('__EXTPORT__', { extensionId: 'ext_injected' })
+    const storage = memoryStorage()
+    const pinger = createAnalyticsPinger({ version: '1.0.0', apiBase: 'https://api.example.test', storage })
+    await pinger.maybePing()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string) as {
+      extensionId: string
+    }
+    expect(body.extensionId).toBe('ext_injected')
+  })
+
+  it('an explicit id wins over the injected one', async () => {
+    vi.stubGlobal('__EXTPORT__', { extensionId: 'ext_injected' })
+    const storage = memoryStorage()
+    const pinger = createAnalyticsPinger({ ...OPTIONS, storage })
+    await pinger.maybePing()
+    const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string) as {
+      extensionId: string
+    }
+    expect(body.extensionId).toBe('ext_test')
+  })
+
+  it('stays silent (never throws) when no id is resolvable', async () => {
+    const storage = memoryStorage()
+    const pinger = createAnalyticsPinger({ apiBase: 'https://api.example.test', storage })
+    await pinger.maybePing()
+    await pinger.maybePing()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(storage.data.size).toBe(0)
+  })
+})
+
 describe('browser data-collection consent (Firefox 140+)', () => {
   function stubPermissions(dataCollection: string[] | undefined) {
     const listeners: (() => void)[] = []
