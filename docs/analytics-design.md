@@ -283,10 +283,14 @@ extport ships a provider as a subpath export
 
 ## Rollout
 
-- Dashboard charts via shadcn/ui charts (Recharts): DAU/MAU lines,
-  installs and confirmed-departures bars (the latter trailing 30
-  days), version-saturation stacked area with release
-  markers.
+- Dashboard charts via shadcn/ui charts (Recharts): **per-store DAU
+  lines** (one line per browser, fixed colors — the view no single
+  store console can draw, and where divergence stories surface; MAU
+  lives in the stat cards), installs and confirmed-departures bars
+  (the latter trailing 30 days), version-saturation stacked area with
+  release markers. Default window 30 days (CWS parity); a range
+  picker (30/90/1y/all) joins once enough history exists to
+  navigate.
 - **No dedicated fleet release wave.** `@extport/sdk/analytics` is a
   separate subpath (zero cost to licensing-only users) and rides the
   next natural SDK wave — likely the license-kit-retirement release

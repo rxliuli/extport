@@ -1,6 +1,13 @@
 import type { AnalyticsSeriesRow, Extension } from '@/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from '@/components/ui/chart'
 import { analyticsOverviewQuery, analyticsSeriesQuery } from '@/queries'
 import { useQuery } from '@tanstack/react-query'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
@@ -10,18 +17,42 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, 
 // written once confirmed (30 days of silence), so that chart's trailing
 // month is legitimately empty. See docs/analytics-design.md.
 
-/** Collapse per-browser rows into one point per day. */
-function byDate(rows: AnalyticsSeriesRow[]): { date: string; dau: number; mau: number; installs: number; departures: number }[] {
-  const days = new Map<string, { date: string; dau: number; mau: number; installs: number; departures: number }>()
+/** Collapse per-browser rows into one point per day (installs/departures bars). */
+function byDate(rows: AnalyticsSeriesRow[]): { date: string; installs: number; departures: number }[] {
+  const days = new Map<string, { date: string; installs: number; departures: number }>()
   for (const row of rows) {
-    const day = days.get(row.date) ?? { date: row.date, dau: 0, mau: 0, installs: 0, departures: 0 }
-    day.dau += row.dau
-    day.mau += row.mau
+    const day = days.get(row.date) ?? { date: row.date, installs: 0, departures: 0 }
     day.installs += row.installs
     day.departures += row.departures
     days.set(row.date, day)
   }
   return [...days.values()].sort((a, b) => a.date.localeCompare(b.date))
+}
+
+// One line per store is the chart no single store console can draw — fixed
+// color per browser so chrome is the same color on every extension's page.
+const BROWSER_COLORS: Record<string, string> = {
+  chrome: 'var(--chart-1)',
+  firefox: 'var(--chart-2)',
+  edge: 'var(--chart-3)',
+  safari: 'var(--chart-4)',
+  other: 'var(--chart-5)',
+}
+const BROWSER_ORDER = Object.keys(BROWSER_COLORS)
+
+/** Per-day DAU pivoted to one column per browser (0-filled — absent means zero). */
+function browserDauSeries(rows: AnalyticsSeriesRow[]): {
+  data: Record<string, string | number>[]
+  browsers: string[]
+} {
+  const browsers = BROWSER_ORDER.filter((b) => rows.some((r) => r.browser === b))
+  const days = new Map<string, Record<string, string | number>>()
+  for (const row of rows) {
+    const day = days.get(row.date) ?? { date: row.date, ...Object.fromEntries(browsers.map((b) => [b, 0])) }
+    day[row.browser] = ((day[row.browser] as number) ?? 0) + row.dau
+    days.set(row.date, day)
+  }
+  return { data: [...days.values()].sort((a, b) => String(a.date).localeCompare(String(b.date))), browsers }
 }
 
 const MAX_VERSION_SERIES = 8
@@ -74,6 +105,7 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
   const { data: versionRows = [] } = useQuery(analyticsSeriesQuery(extension.id, 'version'))
 
   const daily = byDate(totalRows)
+  const dauByBrowser = browserDauSeries(totalRows)
   const versions = versionSeries(versionRows)
 
   if (!isPending && daily.length === 0) {
@@ -93,17 +125,9 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Active installs" hint="seen in the last 30 days" value={overview ? String(overview.activeInstalls) : '—'} />
         <StatCard label="All-time installs" value={overview ? String(overview.allTimeInstalls) : '—'} />
-        <StatCard
-          label="Browsers"
-          value={
-            overview && overview.browsers.length > 0
-              ? overview.browsers.map((b) => `${b.browser} ${b.installs}`).join(' · ')
-              : '—'
-          }
-        />
         <StatCard
           label="Top version"
           hint="among active installs"
@@ -118,23 +142,31 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
       <Card>
         <CardHeader>
           <CardTitle>Active users</CardTitle>
-          <CardDescription>Daily and rolling 30-day actives, all stores combined.</CardDescription>
+          <CardDescription>Daily actives, one line per store — the view no single console can draw.</CardDescription>
         </CardHeader>
         <CardContent>
           <ChartContainer
-            config={{
-              dau: { label: 'DAU', color: 'var(--chart-1)' },
-              mau: { label: 'MAU', color: 'var(--chart-2)' },
-            } satisfies ChartConfig}
+            config={Object.fromEntries(
+              dauByBrowser.browsers.map((b) => [b, { label: b, color: BROWSER_COLORS[b] }]),
+            ) satisfies ChartConfig}
             className="h-64 w-full"
           >
-            <LineChart data={daily} margin={{ left: 4, right: 4 }}>
+            <LineChart data={dauByBrowser.data} margin={{ left: 4, right: 4 }}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={shortDate} minTickGap={32} />
-              <YAxis tickLine={false} axisLine={false} width={40} />
+              <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} />
               <ChartTooltip content={<ChartTooltipContent />} />
-              <Line dataKey="dau" stroke="var(--color-dau)" strokeWidth={2} dot={false} />
-              <Line dataKey="mau" stroke="var(--color-mau)" strokeWidth={2} dot={false} />
+              <ChartLegend content={<ChartLegendContent />} />
+              {dauByBrowser.browsers.map((browser) => (
+                <Line
+                  key={browser}
+                  dataKey={browser}
+                  stroke={`var(--color-${browser})`}
+                  strokeWidth={2}
+                  // A one-day series has no segments to draw — show the points.
+                  dot={dauByBrowser.data.length === 1}
+                />
+              ))}
             </LineChart>
           </ChartContainer>
         </CardContent>
@@ -161,8 +193,8 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
               <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={shortDate} minTickGap={32} />
               <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} />
               <ChartTooltip content={<ChartTooltipContent />} />
-              <Bar dataKey="installs" fill="var(--color-installs)" radius={2} />
-              <Bar dataKey="departures" fill="var(--color-departures)" radius={2} />
+              <Bar dataKey="installs" fill="var(--color-installs)" radius={2} maxBarSize={40} />
+              <Bar dataKey="departures" fill="var(--color-departures)" radius={2} maxBarSize={40} />
             </BarChart>
           </ChartContainer>
         </CardContent>
@@ -197,6 +229,7 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
                   fill={`var(--color-${key})`}
                   fillOpacity={0.35}
                   type="monotone"
+                  dot={versions.data.length === 1}
                 />
               ))}
             </AreaChart>
