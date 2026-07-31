@@ -226,9 +226,19 @@ Learned on the imp-translate canary (2026-07-30):
   about:addons). The extension must then honor the toggle at runtime:
   `permissions.getAll().data_collection` (key absent = browser without
   the mechanism → manifest-level disclosure governs), re-synced on
-  `permissions.onAdded`/`onRemoved`. imp-translate's background is the
-  reference wiring; folding this into the SDK as automatic behavior is
-  the natural 0.0.4 improvement.
+  `permissions.onAdded`/`onRemoved`. **Done in SDK 0.0.4**: the ping
+  gate reads `permissions.getAll().data_collection` fresh on every
+  attempt (revocation needs no listener) and `onAdded` triggers a
+  same-day ping on grant — `attachAnalytics({ extensionId })` is the
+  entire integration.
+- Next step, discussed but not built: `@extport/wxt` can collapse even
+  that to `extport: { analytics: true }` — a WXT plugin injecting
+  `attachAnalytics` with the id from extport.config.json (killing the
+  id duplication) plus a manifest hook merging the Firefox
+  data-collection declaration. Explicit opt-in only (a publishing
+  module must never inject telemetry silently), and it lands *after*
+  Redirector ships on the plain one-liner — the flagship test uses
+  boring machinery.
 - The Firefox install prompt shows the technicalAndInteraction toggle
   **checked by default** (verified on a real install) — opt-out, not
   the host_permissions default-deny pattern. Still unverified: whether
