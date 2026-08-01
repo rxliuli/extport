@@ -201,12 +201,18 @@ describe('analytics rollup', () => {
 
     const overview = (await (
       await request(`/api/v1/analytics/overview?extension=${extension.id}`, { headers: { cookie: sessionCookie } })
-    ).json()) as { activeInstalls: number; allTimeInstalls: number; versions: { version: string; installs: number }[]; browsers: { browser: string; installs: number }[] }
-    // i1, i2, i4 are active (30-day window); departed i3 is not.
+    ).json()) as { activeInstalls: number; allTimeInstalls: number; versions: { version: string; installs: number }[] }
+    // Derived from analytics_daily (the rollup), not live install state —
+    // see the "fleet-wide analytics" describe block below for the case
+    // that actually motivated the switch. activeInstalls sums mau (chrome
+    // 2 + firefox 1) on the one rolled-up day this test produces;
+    // allTimeInstalls sums installs on that same single day (only i1's
+    // first_seen falls on it — a single runAnalyticsRollup() call only
+    // ever processes "yesterday", so i2/i3/i4's first_seen dates were
+    // never rolled up here, unlike a real fleet with many nights behind it).
     expect(overview.activeInstalls).toBe(3)
-    expect(overview.allTimeInstalls).toBe(4)
+    expect(overview.allTimeInstalls).toBe(1)
     expect(overview.versions.find((v) => v.version === '1.0.1')).toMatchObject({ installs: 2 })
-    expect(overview.browsers.find((b) => b.browser === 'firefox')).toMatchObject({ installs: 1 })
 
     // Auth + scoping.
     expect((await request(`/api/v1/analytics/series?extension=${extension.id}`)).status).toBe(401)
@@ -236,37 +242,39 @@ describe('fleet-wide analytics', () => {
     const now = new Date()
     const day = (offset: number) => isoDay(addDays(now, offset))
 
-    // A: two active installs (chrome + firefox). B: one active chrome install.
-    await db.insert(analyticsInstalls).values([
-      { tenantId, extensionId: extA.id, installId: 'a1', browser: 'chrome', firstSeen: day(-10), lastSeen: day(-1), lastVersion: '1.0' },
-      { tenantId, extensionId: extA.id, installId: 'a2', browser: 'firefox', firstSeen: day(-10), lastSeen: day(-1), lastVersion: '1.0' },
-      { tenantId, extensionId: extB.id, installId: 'b1', browser: 'chrome', firstSeen: day(-5), lastSeen: day(-1), lastVersion: '2.0' },
-    ])
+    // Both extensions rolled up through the same latest day here — the
+    // "extension rolled up on a different day than the rest of the fleet"
+    // case gets its own test below.
     await db.insert(analyticsDaily).values([
-      { tenantId, extensionId: extA.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 2, installs: 1, departures: 0, mau: 2 },
-      { tenantId, extensionId: extB.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 3, installs: 1, departures: 0, mau: 3 },
+      { tenantId, extensionId: extA.id, date: day(-2), browser: 'chrome', dim: 'total', dimValue: '', dau: 1, installs: 1, departures: 0, mau: 1 },
+      { tenantId, extensionId: extA.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 2, installs: 0, departures: 0, mau: 2 },
+      { tenantId, extensionId: extA.id, date: day(-1), browser: 'firefox', dim: 'total', dimValue: '', dau: 1, installs: 1, departures: 0, mau: 1 },
+      { tenantId, extensionId: extB.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 5, installs: 1, departures: 0, mau: 5 },
     ])
 
     const overview = (await (
       await request('/api/v1/analytics/fleet/overview', { headers: { cookie: sessionCookie } })
-    ).json()) as { activeInstalls: number; allTimeInstalls: number; extensionsReporting: number; browsers: { browser: string; installs: number }[] }
-    expect(overview).toMatchObject({ activeInstalls: 3, allTimeInstalls: 3, extensionsReporting: 2 })
-    expect(overview.browsers.find((b) => b.browser === 'chrome')).toMatchObject({ installs: 2 })
-    expect(overview.browsers.find((b) => b.browser === 'firefox')).toMatchObject({ installs: 1 })
+    ).json()) as { activeInstalls: number; allTimeInstalls: number; extensionsReporting: number }
+    // activeInstalls: only day(-1) (the latest date) counts — A's chrome
+    // mau(2) + firefox mau(1) + B's chrome mau(5) = 8, ignoring A's day(-2)
+    // row entirely. allTimeInstalls: installs summed across every date —
+    // 1 (day(-2)) + 0 + 1 + 1 = 3.
+    expect(overview).toMatchObject({ activeInstalls: 8, allTimeInstalls: 3, extensionsReporting: 2 })
 
     const series = (await (
       await request('/api/v1/analytics/fleet/series', { headers: { cookie: sessionCookie } })
     ).json()) as { rows: { date: string; browser: string; dau: number; installs: number; mau: number }[] }
     // Both extensions' chrome rows for the same day sum into one row.
-    expect(series.rows.find((r) => r.date === day(-1) && r.browser === 'chrome')).toMatchObject({ dau: 5, installs: 2, mau: 5 })
+    expect(series.rows.find((r) => r.date === day(-1) && r.browser === 'chrome')).toMatchObject({ dau: 7, installs: 1, mau: 7 })
 
     const list = (await (
       await request('/api/v1/analytics/fleet/extensions', { headers: { cookie: sessionCookie } })
     ).json()) as { extensions: { extensionId: string; name: string; activeInstalls: number; allTimeInstalls: number }[] }
-    // Ranked by active installs, not alphabetically or by creation order.
+    // Ranked by active installs, not alphabetically or by creation order —
+    // B(5) ahead of A(3, split chrome+firefox) despite A being created first.
     expect(list.extensions).toEqual([
-      { extensionId: extA.id, name: 'Extension A', activeInstalls: 2, allTimeInstalls: 2 },
-      { extensionId: extB.id, name: 'Extension B', activeInstalls: 1, allTimeInstalls: 1 },
+      { extensionId: extB.id, name: 'Extension B', activeInstalls: 5, allTimeInstalls: 1 },
+      { extensionId: extA.id, name: 'Extension A', activeInstalls: 3, allTimeInstalls: 2 },
     ])
 
     // Auth + tenant scoping — a stranger tenant sees none of this.
@@ -280,6 +288,34 @@ describe('fleet-wide analytics', () => {
       await request('/api/v1/analytics/fleet/extensions', { headers: { cookie: stranger.sessionCookie } })
     ).json()) as { extensions: unknown[] }
     expect(strangerList.extensions).toEqual([])
+  })
+
+  it("uses each extension's own latest rolled-up day, not a shared fleet-wide one", async () => {
+    // Reproduces a real incident: a newly-onboarded extension can have
+    // hundreds of live installs but zero rollup rows on the same day the
+    // rest of the fleet already has one, if it only started reporting
+    // after last night's rollup ran. Its /fleet/extensions row must not
+    // silently read as 0 just because most of the fleet is a day ahead.
+    const { db, tenantId, sessionCookie } = await seedTenantWithUser()
+    const stale = await createExtension(sessionCookie, 'Stale Extension')
+    const fresh = await createExtension(sessionCookie, 'Fresh Extension')
+    const now = new Date()
+    const day = (offset: number) => isoDay(addDays(now, offset))
+
+    await db.insert(analyticsDaily).values([
+      // Only ever rolled up once, several days ago.
+      { tenantId, extensionId: stale.id, date: day(-5), browser: 'chrome', dim: 'total', dimValue: '', dau: 4, installs: 4, departures: 0, mau: 4 },
+      // Rolled up as recently as yesterday.
+      { tenantId, extensionId: fresh.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 2, installs: 2, departures: 0, mau: 2 },
+    ])
+
+    const list = (await (
+      await request('/api/v1/analytics/fleet/extensions', { headers: { cookie: sessionCookie } })
+    ).json()) as { extensions: { extensionId: string; activeInstalls: number; allTimeInstalls: number }[] }
+    expect(list.extensions).toEqual([
+      { extensionId: stale.id, name: 'Stale Extension', activeInstalls: 4, allTimeInstalls: 4 },
+      { extensionId: fresh.id, name: 'Fresh Extension', activeInstalls: 2, allTimeInstalls: 2 },
+    ])
   })
 
   it('omits extensions that have never reported any analytics', async () => {

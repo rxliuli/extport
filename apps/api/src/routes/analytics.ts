@@ -1,5 +1,5 @@
 import { newId } from '@extport/shared'
-import { and, eq, gte, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import { describeRoute, validator } from 'hono-openapi'
@@ -166,9 +166,9 @@ analyticsTenantRoutes.get(
 analyticsTenantRoutes.get(
   '/overview',
   describeRoute({
-    summary: 'Live analytics overview',
+    summary: 'Analytics overview',
     description:
-      'Exact numbers straight from install state (not the rollup): active installs (seen in 30 days), and the current version distribution among them — the saturation gate for sales flips.',
+      'Active installs, all-time installs, and the current version distribution — all derived from the same rollup /series reads, so this can never disagree with the charts. Empty until the first nightly rollup runs for this extension (never live-queried install state, which used to be able to show numbers the charts had no way to display yet).',
     responses: { 200: { description: 'OK' }, 404: { description: 'Extension not found' } },
   }),
   async (c) => {
@@ -176,26 +176,30 @@ analyticsTenantRoutes.get(
     const extension = await ownedExtension(c)
     if (!extension) return c.json({ error: 'extension not found' }, 404)
 
-    const windowStart = isoDay(new Date(Date.now() - 29 * 24 * 60 * 60 * 1000))
-    const active = and(eq(analyticsInstalls.extensionId, extension.id), gte(analyticsInstalls.lastSeen, windowStart))
+    const [latest] = await db
+      .select({ date: analyticsDaily.date })
+      .from(analyticsDaily)
+      .where(and(eq(analyticsDaily.extensionId, extension.id), eq(analyticsDaily.dim, 'total')))
+      .orderBy(desc(analyticsDaily.date))
+      .limit(1)
+    if (!latest) return c.json({ activeInstalls: 0, allTimeInstalls: 0, versions: [] })
 
-    const [totals] = await db
-      .select({ activeInstalls: sql<number>`count(*)`, allTime: sql<number>`(select count(*) from analytics_installs where extension_id = ${extension.id})` })
-      .from(analyticsInstalls)
-      .where(active)
+    const [active] = await db
+      .select({ activeInstalls: sql<number>`sum(${analyticsDaily.mau})` })
+      .from(analyticsDaily)
+      .where(and(eq(analyticsDaily.extensionId, extension.id), eq(analyticsDaily.dim, 'total'), eq(analyticsDaily.date, latest.date)))
+    const [allTime] = await db
+      .select({ allTimeInstalls: sql<number>`sum(${analyticsDaily.installs})` })
+      .from(analyticsDaily)
+      .where(and(eq(analyticsDaily.extensionId, extension.id), eq(analyticsDaily.dim, 'total')))
     const versions = await db
-      .select({ version: analyticsInstalls.lastVersion, installs: sql<number>`count(*)` })
-      .from(analyticsInstalls)
-      .where(active)
-      .groupBy(analyticsInstalls.lastVersion)
-      .orderBy(sql`count(*) desc`)
-    const browsers = await db
-      .select({ browser: analyticsInstalls.browser, installs: sql<number>`count(*)` })
-      .from(analyticsInstalls)
-      .where(active)
-      .groupBy(analyticsInstalls.browser)
+      .select({ version: analyticsDaily.dimValue, installs: sql<number>`sum(${analyticsDaily.dau})` })
+      .from(analyticsDaily)
+      .where(and(eq(analyticsDaily.extensionId, extension.id), eq(analyticsDaily.dim, 'version'), eq(analyticsDaily.date, latest.date)))
+      .groupBy(analyticsDaily.dimValue)
+      .orderBy(sql`sum(${analyticsDaily.dau}) desc`)
 
-    return c.json({ activeInstalls: totals?.activeInstalls ?? 0, allTimeInstalls: totals?.allTime ?? 0, versions, browsers })
+    return c.json({ activeInstalls: active?.activeInstalls ?? 0, allTimeInstalls: allTime?.allTimeInstalls ?? 0, versions })
   },
 )
 
@@ -211,36 +215,40 @@ analyticsTenantRoutes.get(
 analyticsTenantRoutes.get(
   '/fleet/overview',
   describeRoute({
-    summary: 'Fleet-wide live analytics overview',
-    description: 'Same shape as /overview but summed across every extension the tenant owns — no per-extension version breakdown, since versions aren\'t comparable across products.',
+    summary: 'Fleet-wide analytics overview',
+    description:
+      'Same shape as /overview but summed across every extension the tenant owns — derived from the same rollup /fleet/series reads, so this can never disagree with the fleet chart the way a live install-state query could.',
     responses: { 200: { description: 'OK' } },
   }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
 
-    const windowStart = isoDay(new Date(Date.now() - 29 * 24 * 60 * 60 * 1000))
-    const active = and(eq(analyticsInstalls.tenantId, tenant.id), gte(analyticsInstalls.lastSeen, windowStart))
+    const [latest] = await db
+      .select({ date: analyticsDaily.date })
+      .from(analyticsDaily)
+      .where(and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total')))
+      .orderBy(desc(analyticsDaily.date))
+      .limit(1)
+    if (!latest) return c.json({ activeInstalls: 0, allTimeInstalls: 0, extensionsReporting: 0 })
 
-    const [totals] = await db
-      .select({ activeInstalls: sql<number>`count(*)`, allTime: sql<number>`(select count(*) from analytics_installs where tenant_id = ${tenant.id})` })
-      .from(analyticsInstalls)
-      .where(active)
-    const browsers = await db
-      .select({ browser: analyticsInstalls.browser, installs: sql<number>`count(*)` })
-      .from(analyticsInstalls)
-      .where(active)
-      .groupBy(analyticsInstalls.browser)
+    const [active] = await db
+      .select({ activeInstalls: sql<number>`sum(${analyticsDaily.mau})` })
+      .from(analyticsDaily)
+      .where(and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total'), eq(analyticsDaily.date, latest.date)))
+    const [allTime] = await db
+      .select({ allTimeInstalls: sql<number>`sum(${analyticsDaily.installs})` })
+      .from(analyticsDaily)
+      .where(and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total')))
     const [reporting] = await db
-      .select({ extensionsReporting: sql<number>`count(distinct ${analyticsInstalls.extensionId})` })
-      .from(analyticsInstalls)
-      .where(eq(analyticsInstalls.tenantId, tenant.id))
+      .select({ extensionsReporting: sql<number>`count(distinct ${analyticsDaily.extensionId})` })
+      .from(analyticsDaily)
+      .where(and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total')))
 
     return c.json({
-      activeInstalls: totals?.activeInstalls ?? 0,
-      allTimeInstalls: totals?.allTime ?? 0,
+      activeInstalls: active?.activeInstalls ?? 0,
+      allTimeInstalls: allTime?.allTimeInstalls ?? 0,
       extensionsReporting: reporting?.extensionsReporting ?? 0,
-      browsers,
     })
   },
 )
@@ -284,29 +292,38 @@ analyticsTenantRoutes.get(
   '/fleet/extensions',
   describeRoute({
     summary: 'Per-extension analytics ranking',
-    description: 'One row per extension that has ever reported analytics, sorted by active installs — the "list" half of the fleet-wide page, since per-extension detail belongs in a table, not as more chart lines.',
+    description:
+      'One row per extension that has ever reported analytics, sorted by active installs — the "list" half of the fleet-wide page, since per-extension detail belongs in a table, not as more chart lines. Derived from the same rollup every other analytics endpoint reads, so an extension only appears once its own first nightly rollup has run, same as its own Analytics tab would show.',
     responses: { 200: { description: 'OK' } },
   }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
 
-    const windowStart = isoDay(new Date(Date.now() - 29 * 24 * 60 * 60 * 1000))
-
     const extensionRows = await db.select({ id: extensions.id, name: extensions.name }).from(extensions).where(eq(extensions.tenantId, tenant.id))
-    const activeCounts = await db
-      .select({ extensionId: analyticsInstalls.extensionId, activeInstalls: sql<number>`count(*)` })
-      .from(analyticsInstalls)
-      .where(and(eq(analyticsInstalls.tenantId, tenant.id), gte(analyticsInstalls.lastSeen, windowStart)))
-      .groupBy(analyticsInstalls.extensionId)
-    const allTimeCounts = await db
-      .select({ extensionId: analyticsInstalls.extensionId, allTimeInstalls: sql<number>`count(*)` })
-      .from(analyticsInstalls)
-      .where(eq(analyticsInstalls.tenantId, tenant.id))
-      .groupBy(analyticsInstalls.extensionId)
 
-    const activeById = new Map(activeCounts.map((r) => [r.extensionId, r.activeInstalls]))
-    const allTimeById = new Map(allTimeCounts.map((r) => [r.extensionId, r.allTimeInstalls]))
+    // Fetched once and reduced here rather than per-extension SQL: each
+    // extension's "active" figure needs sum(mau) on *its own* latest
+    // rolled-up date specifically (not a shared tenant-wide date — a
+    // newly-onboarded extension can lag behind the rest of the fleet by a
+    // rollup cycle or more), which isn't a single GROUP BY.
+    const totalRows = await db
+      .select({ extensionId: analyticsDaily.extensionId, date: analyticsDaily.date, mau: analyticsDaily.mau, installs: analyticsDaily.installs })
+      .from(analyticsDaily)
+      .where(and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total')))
+
+    const latestDateById = new Map<string, string>()
+    const allTimeById = new Map<string, number>()
+    for (const row of totalRows) {
+      allTimeById.set(row.extensionId, (allTimeById.get(row.extensionId) ?? 0) + row.installs)
+      const currentLatest = latestDateById.get(row.extensionId)
+      if (!currentLatest || row.date > currentLatest) latestDateById.set(row.extensionId, row.date)
+    }
+    const activeById = new Map<string, number>()
+    for (const row of totalRows) {
+      if (row.date !== latestDateById.get(row.extensionId)) continue
+      activeById.set(row.extensionId, (activeById.get(row.extensionId) ?? 0) + row.mau)
+    }
 
     const items = extensionRows
       .map((e) => ({
@@ -315,8 +332,9 @@ analyticsTenantRoutes.get(
         activeInstalls: activeById.get(e.id) ?? 0,
         allTimeInstalls: allTimeById.get(e.id) ?? 0,
       }))
-      // Extensions that have never shipped @extport/sdk/analytics would
-      // otherwise pad the list with rows of zeros.
+      // Extensions that have never shipped @extport/sdk/analytics, or
+      // shipped it but haven't had a first rollup yet, would otherwise pad
+      // the list with rows of zeros.
       .filter((e) => e.allTimeInstalls > 0)
       .sort((a, b) => b.activeInstalls - a.activeInstalls)
 

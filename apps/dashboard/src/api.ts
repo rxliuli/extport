@@ -182,7 +182,6 @@ export interface AnalyticsOverview {
   activeInstalls: number
   allTimeInstalls: number
   versions: { version: string; installs: number }[]
-  browsers: { browser: string; installs: number }[]
 }
 
 /** Same idea as AnalyticsOverview but summed across every extension — no version breakdown, see the API's /v1/analytics/fleet/overview. */
@@ -190,7 +189,6 @@ export interface FleetAnalyticsOverview {
   activeInstalls: number
   allTimeInstalls: number
   extensionsReporting: number
-  browsers: { browser: string; installs: number }[]
 }
 
 /** One row of the fleet-wide per-extension ranking — see the API's /v1/analytics/fleet/extensions. */
