@@ -33,12 +33,9 @@ const FEATURES = [
     title: 'Licensing',
     body: 'Sell activation codes through your own Stripe Payment Links: extport fulfills the purchase, emails the code, verifies activations from your extension via @extport/sdk, revokes on refunds, and gives buyers a self-service portal. Seats free themselves when devices go idle. One page shows every license across every extension, searchable by code or buyer email, with revenue summarized per currency.',
   },
-]
-
-const ROADMAP = [
   {
     title: 'A scaffold that starts you on every platform',
-    body: 'A template that bootstraps a new extension pre-wired to ship to Chrome, Firefox, Edge, and Safari on desktop, Safari on iOS, and Firefox on Android from day one.',
+    body: 'One CLI command bootstraps a new extension pre-wired to ship to Chrome, Firefox, Edge, and Safari from day one — bound to a real extension record before you write a line of code.',
   },
 ]
 ---
@@ -67,9 +64,8 @@ const ROADMAP = [
         Write one extension. Reach every platform's users.
       </h1>
       <p class="max-w-xl text-lg text-muted-foreground">
-        {STORES.join(', ')} — one CLI push or GitHub Action, and extport handles submission to all four, with one
-        dashboard for what's live, in review, rejected, or stuck. Safari's Xcode build runs in your own CI with your
-        own keys, and licensing lets you sell activation codes through your own Stripe. Open source, self-hostable.
+        {STORES.join(', ')} — one push, and extport submits to all four, with one dashboard for what's live, in
+        review, rejected, or stuck. Open source, self-hostable.
       </p>
       <div class="flex flex-wrap items-center gap-3">
         <a
@@ -117,24 +113,6 @@ const ROADMAP = [
             <div>
               <h3 class="font-semibold">{feature.title}</h3>
               <p class="mt-2 text-sm text-muted-foreground">{feature.body}</p>
-            </div>
-          ))
-        }
-      </div>
-    </section>
-
-    <section class="border-t border-border py-16">
-      <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">Where we're headed</h2>
-      <p class="mt-4 max-w-2xl text-sm text-muted-foreground">
-        Publishing and licensing are what extport does today. The direction is one extension reaching every
-        platform's users, not just every store. Below is the roadmap, not a feature list.
-      </p>
-      <div class="mt-8 grid gap-8 sm:grid-cols-2">
-        {
-          ROADMAP.map((item) => (
-            <div>
-              <h3 class="font-semibold">{item.title}</h3>
-              <p class="mt-2 text-sm text-muted-foreground">{item.body}</p>
             </div>
           ))
         }

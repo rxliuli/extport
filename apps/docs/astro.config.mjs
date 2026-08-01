@@ -36,6 +36,10 @@ export default defineConfig({
           label: 'Licensing',
           items: [{ label: 'Sell activation codes', slug: 'licensing' }],
         },
+        {
+          label: 'Analytics',
+          items: [{ label: 'Installs, users, and versions', slug: 'analytics' }],
+        },
       ],
     }),
   ],
