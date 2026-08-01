@@ -10,9 +10,12 @@
  * Mapping (docs/licensing.md): code → licenses.key verbatim; maxDevices →
  * maxActivations; user.email → buyerEmail; payment.providerTransactionId →
  * sourceRef (refund continuity after the storefront webhook retires);
- * device → activations with lastSeenAt → lastHeartbeatAt. Timestamps are
- * preserved, source is 'imported'. Idempotent: codes already present in
- * extport are skipped, so re-runs only pick up what's new.
+ * payment.amount/currency → amountTotal/currency verbatim (license-kit's
+ * own payment row already has the real charged amount from its webhook —
+ * no need to re-query Paddle/Stripe); device → activations with
+ * lastSeenAt → lastHeartbeatAt. Timestamps are preserved, source is
+ * 'imported'. Idempotent: codes already present in extport are skipped,
+ * so re-runs only pick up what's new.
  *
  * The target plan must already exist (created in the dashboard) — this
  * script never invents catalog rows, matching the no-auto-created-plans
@@ -71,7 +74,7 @@ const codes = d1(
   LICENSE_KIT_DIR,
   'store',
   `SELECT ac.id, ac.code, ac.plan_tier, ac.max_devices, ac.status, ac.expires_at, ac.created_at, ac.updated_at,
-          u.email, p.provider, p.provider_transaction_id
+          u.email, p.provider, p.provider_transaction_id, p.amount, p.currency
    FROM activation_code ac
    JOIN user u ON ac.user_id = u.id
    LEFT JOIN payment p ON ac.payment_id = p.id
@@ -148,9 +151,12 @@ for (const code of codes) {
   const sourceRef = code.provider_transaction_id && !existingRefs.has(code.provider_transaction_id)
     ? code.provider_transaction_id
     : null
+  // license-kit stores currency uppercase ('USD'); extport's convention
+  // (and Stripe's own) is lowercase — normalize on the way in.
+  const currency = code.currency ? code.currency.toLowerCase() : null
   statements.push(
-    `INSERT INTO licenses (id, tenant_id, plan_id, key, buyer_email, entitlement_type, max_activations, status, source, source_ref, checkout_session_id, created_at, updated_at)
-     VALUES (${q(licenseId)}, ${q(TENANT_ID)}, ${q(plan.id)}, ${q(code.code)}, ${q(code.email)}, 'perpetual', ${code.max_devices}, ${q(STATUS_MAP[code.status] ?? 'refunded')}, 'imported', ${q(sourceRef)}, NULL, ${q(code.created_at)}, ${q(code.updated_at)});`,
+    `INSERT INTO licenses (id, tenant_id, plan_id, key, buyer_email, entitlement_type, max_activations, status, source, amount_total, currency, source_ref, checkout_session_id, created_at, updated_at)
+     VALUES (${q(licenseId)}, ${q(TENANT_ID)}, ${q(plan.id)}, ${q(code.code)}, ${q(code.email)}, 'perpetual', ${code.max_devices}, ${q(STATUS_MAP[code.status] ?? 'refunded')}, 'imported', ${code.amount ?? 'NULL'}, ${q(currency)}, ${q(sourceRef)}, NULL, ${q(code.created_at)}, ${q(code.updated_at)});`,
   )
   for (const device of devices.filter((d) => d.activation_code_id === code.id)) {
     let uaHint = null
