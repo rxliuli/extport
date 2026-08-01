@@ -15,14 +15,14 @@ const route = new Hono<AppEnv>()
 
 route.use('*', requireAuth, requireActiveTenant)
 
-const PAGE_SIZE = 50
+const PAGE_SIZE = 20
 
 route.get(
   '/',
   describeRoute({
     summary: 'List licenses',
     description:
-      'Newest first, 50 per page, each row carrying its plan tier and extension for cross-product views. Filter with ?plan=, ?extension=, or ?search= (case-insensitive substring of an activation code or buyer email); pass the previous response\'s nextCursor as ?cursor= to fetch the next page.',
+      'Newest first, 20 per page, each row carrying its plan tier and extension for cross-product views. Filter with ?plan=, ?extension=, or ?search= (case-insensitive substring of an activation code or buyer email); pass the previous response\'s nextCursor as ?cursor= to fetch the next page.',
     responses: { 200: { description: 'OK' } },
   }),
   async (c) => {

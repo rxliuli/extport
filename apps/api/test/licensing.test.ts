@@ -481,8 +481,8 @@ describe('scenario: the long-idle device comes back', () => {
 describe('GET /v1/licenses pagination', () => {
   it('pages newest-first with a keyset cursor and filters by extension', async () => {
     const { license, extension, sessionCookie } = await setupLicensedProduct()
-    // 60 more licenses via the issue endpoint → 61 total for this extension.
-    for (let i = 0; i < 60; i++) {
+    // 20 more licenses via the issue endpoint → 21 total for this extension.
+    for (let i = 0; i < 20; i++) {
       const res = await request('/api/v1/licenses', {
         method: 'POST',
         headers: { cookie: sessionCookie, 'content-type': 'application/json' },
@@ -494,7 +494,7 @@ describe('GET /v1/licenses pagination', () => {
     const page1 = (await (
       await request(`/api/v1/licenses?extension=${extension.id}`, { headers: { cookie: sessionCookie } })
     ).json()) as { licenses: { id: string }[]; nextCursor: string | null }
-    expect(page1.licenses).toHaveLength(50)
+    expect(page1.licenses).toHaveLength(20)
     expect(page1.nextCursor).not.toBeNull()
 
     const page2 = (await (
@@ -502,7 +502,7 @@ describe('GET /v1/licenses pagination', () => {
         headers: { cookie: sessionCookie },
       })
     ).json()) as { licenses: { id: string }[]; nextCursor: string | null }
-    expect(page2.licenses).toHaveLength(11)
+    expect(page2.licenses).toHaveLength(1)
     expect(page2.nextCursor).toBeNull()
 
     // No overlap between pages — the (createdAt, id) keyset is strict.
