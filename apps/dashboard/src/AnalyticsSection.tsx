@@ -18,6 +18,15 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, 
 // written once confirmed (30 days of silence), so that chart's trailing
 // month is legitimately empty. See docs/analytics-design.md.
 
+// Every chart below sets isAnimationActive={false}. daily/dauByBrowser/
+// versions are recomputed fresh on every render (not memoized), so any
+// re-render during Recharts' enter animation — a StrictMode double-render,
+// a background refetch — hands it a new data reference and restarts the
+// animation from frame 0. Confirmed the hard way: with animation on, real
+// data rendered as a permanently flat line at 0 (never got to progress past
+// frame 0 before the next reset), even though the underlying data was
+// correct the whole time.
+
 /**
  * The fixed x-axis domain: the last N days ending *yesterday* — the last
  * fully-rolled-up day (CWS does the same: "to July 29" on July 30). Days
@@ -188,6 +197,7 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
                   stroke={`var(--color-${browser})`}
                   strokeWidth={2}
                   dot={false}
+                  isAnimationActive={false}
                 />
               ))}
             </LineChart>
@@ -216,8 +226,8 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
               <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={shortDate} minTickGap={32} />
               <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} />
               <ChartTooltip content={<ChartTooltipContent />} />
-              <Bar dataKey="installs" fill="var(--color-installs)" radius={2} maxBarSize={40} />
-              <Bar dataKey="departures" fill="var(--color-departures)" radius={2} maxBarSize={40} />
+              <Bar dataKey="installs" fill="var(--color-installs)" radius={2} maxBarSize={40} isAnimationActive={false} />
+              <Bar dataKey="departures" fill="var(--color-departures)" radius={2} maxBarSize={40} isAnimationActive={false} />
             </BarChart>
           </ChartContainer>
         </CardContent>
@@ -252,6 +262,7 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
                   fill={`var(--color-${key})`}
                   fillOpacity={0.35}
                   type="monotone"
+                  isAnimationActive={false}
                 />
               ))}
             </AreaChart>

@@ -227,3 +227,66 @@ describe('analytics rollup', () => {
     ).toBe(400)
   })
 })
+
+describe('fleet-wide analytics', () => {
+  it('sums totals across every extension, ranks them as a per-extension list, and stays tenant-scoped', async () => {
+    const { db, tenantId, sessionCookie } = await seedTenantWithUser()
+    const extA = await createExtension(sessionCookie, 'Extension A')
+    const extB = await createExtension(sessionCookie, 'Extension B')
+    const now = new Date()
+    const day = (offset: number) => isoDay(addDays(now, offset))
+
+    // A: two active installs (chrome + firefox). B: one active chrome install.
+    await db.insert(analyticsInstalls).values([
+      { tenantId, extensionId: extA.id, installId: 'a1', browser: 'chrome', firstSeen: day(-10), lastSeen: day(-1), lastVersion: '1.0' },
+      { tenantId, extensionId: extA.id, installId: 'a2', browser: 'firefox', firstSeen: day(-10), lastSeen: day(-1), lastVersion: '1.0' },
+      { tenantId, extensionId: extB.id, installId: 'b1', browser: 'chrome', firstSeen: day(-5), lastSeen: day(-1), lastVersion: '2.0' },
+    ])
+    await db.insert(analyticsDaily).values([
+      { tenantId, extensionId: extA.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 2, installs: 1, departures: 0, mau: 2 },
+      { tenantId, extensionId: extB.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 3, installs: 1, departures: 0, mau: 3 },
+    ])
+
+    const overview = (await (
+      await request('/api/v1/analytics/fleet/overview', { headers: { cookie: sessionCookie } })
+    ).json()) as { activeInstalls: number; allTimeInstalls: number; extensionsReporting: number; browsers: { browser: string; installs: number }[] }
+    expect(overview).toMatchObject({ activeInstalls: 3, allTimeInstalls: 3, extensionsReporting: 2 })
+    expect(overview.browsers.find((b) => b.browser === 'chrome')).toMatchObject({ installs: 2 })
+    expect(overview.browsers.find((b) => b.browser === 'firefox')).toMatchObject({ installs: 1 })
+
+    const series = (await (
+      await request('/api/v1/analytics/fleet/series', { headers: { cookie: sessionCookie } })
+    ).json()) as { rows: { date: string; browser: string; dau: number; installs: number; mau: number }[] }
+    // Both extensions' chrome rows for the same day sum into one row.
+    expect(series.rows.find((r) => r.date === day(-1) && r.browser === 'chrome')).toMatchObject({ dau: 5, installs: 2, mau: 5 })
+
+    const list = (await (
+      await request('/api/v1/analytics/fleet/extensions', { headers: { cookie: sessionCookie } })
+    ).json()) as { extensions: { extensionId: string; name: string; activeInstalls: number; allTimeInstalls: number }[] }
+    // Ranked by active installs, not alphabetically or by creation order.
+    expect(list.extensions).toEqual([
+      { extensionId: extA.id, name: 'Extension A', activeInstalls: 2, allTimeInstalls: 2 },
+      { extensionId: extB.id, name: 'Extension B', activeInstalls: 1, allTimeInstalls: 1 },
+    ])
+
+    // Auth + tenant scoping — a stranger tenant sees none of this.
+    expect((await request('/api/v1/analytics/fleet/overview')).status).toBe(401)
+    const stranger = await seedTenantWithUser()
+    const strangerOverview = (await (
+      await request('/api/v1/analytics/fleet/overview', { headers: { cookie: stranger.sessionCookie } })
+    ).json()) as { activeInstalls: number; extensionsReporting: number }
+    expect(strangerOverview).toMatchObject({ activeInstalls: 0, extensionsReporting: 0 })
+    const strangerList = (await (
+      await request('/api/v1/analytics/fleet/extensions', { headers: { cookie: stranger.sessionCookie } })
+    ).json()) as { extensions: unknown[] }
+    expect(strangerList.extensions).toEqual([])
+  })
+
+  it('omits extensions that have never reported any analytics', async () => {
+    const { sessionCookie } = await setup()
+    const list = (await (
+      await request('/api/v1/analytics/fleet/extensions', { headers: { cookie: sessionCookie } })
+    ).json()) as { extensions: unknown[] }
+    expect(list.extensions).toEqual([])
+  })
+})

@@ -107,6 +107,13 @@ function RootLayout() {
                 Licenses
               </Link>
               <Link
+                to="/analytics"
+                className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                activeProps={{ className: 'bg-accent text-foreground' }}
+              >
+                Analytics
+              </Link>
+              <Link
                 to="/settings"
                 className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 activeProps={{ className: 'bg-accent text-foreground' }}

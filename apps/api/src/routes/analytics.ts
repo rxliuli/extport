@@ -231,12 +231,17 @@ analyticsTenantRoutes.get(
       .from(analyticsInstalls)
       .where(active)
       .groupBy(analyticsInstalls.browser)
-    const [{ extensionsReporting }] = await db
+    const [reporting] = await db
       .select({ extensionsReporting: sql<number>`count(distinct ${analyticsInstalls.extensionId})` })
       .from(analyticsInstalls)
       .where(eq(analyticsInstalls.tenantId, tenant.id))
 
-    return c.json({ activeInstalls: totals?.activeInstalls ?? 0, allTimeInstalls: totals?.allTime ?? 0, extensionsReporting, browsers })
+    return c.json({
+      activeInstalls: totals?.activeInstalls ?? 0,
+      allTimeInstalls: totals?.allTime ?? 0,
+      extensionsReporting: reporting?.extensionsReporting ?? 0,
+      browsers,
+    })
   },
 )
 
@@ -258,10 +263,10 @@ analyticsTenantRoutes.get(
       .select({
         date: analyticsDaily.date,
         browser: analyticsDaily.browser,
-        // Kept for shape-compatibility with /series rows (dim='total' rows
-        // there carry a real dimValue too) so the dashboard can reuse the
-        // exact same chart-building code for both.
-        dimValue: sql<string>`'total'`,
+        // dim='total' rows always carry '' here (never read, just present
+        // for shape-compatibility with /series so the dashboard can reuse
+        // the same chart-building code for both).
+        dimValue: sql<string>`''`,
         dau: sql<number>`sum(${analyticsDaily.dau})`,
         installs: sql<number>`sum(${analyticsDaily.installs})`,
         departures: sql<number>`sum(${analyticsDaily.departures})`,
