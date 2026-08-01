@@ -4,7 +4,7 @@ Write one browser extension, reach every platform's users. Multi-tenant SaaS on
 Cloudflare Workers + D1 + R2; the author is "tenant zero" and uses the exact same
 code paths as external tenants.
 
-Two independent per-extension modules, plus build tooling that feeds into the first:
+Three independent per-extension modules, plus build tooling that feeds into the first:
 
 - **Publishing** (live) — reconciliation-loop based store publishing
   (Chrome / Firefox / Edge / Safari), latest-wins versioning, status matrix, notifications.
@@ -14,9 +14,13 @@ Two independent per-extension modules, plus build tooling that feeds into the fi
   Payment Links, verified online with cached local state (deliberately no client-side
   crypto), lazy seat decay, buyer magic-link portal. Design: `docs/licensing.md`,
   tenant guide: [docs.extport.dev/licensing](https://docs.extport.dev/licensing/).
-- **Scaffold** (planned) — a template that bootstraps a new extension pre-wired to ship
-  to Chrome / Firefox / Edge / Safari on desktop, Safari on iOS, and Firefox on Android
-  from day one.
+- **Analytics** (live) — one anonymous ping per install per day via `@extport/sdk/analytics`
+  (or the `@extport/wxt` flag), nightly rollup into daily/monthly active users, installs,
+  and version adoption combined across all four stores — per-extension and fleet-wide.
+  Tenant guide: [docs.extport.dev/analytics](https://docs.extport.dev/analytics/).
+- **Scaffold** (live) — `extport init` bootstraps a new extension pre-wired to ship to
+  Chrome / Firefox / Edge / Safari from day one, bound to a real extension record before
+  you write a line of code.
 
 ## License
 
@@ -36,8 +40,9 @@ MIT-licensed.
 | `apps/dashboard` | Tenant dashboard (React + Vite) |
 | `packages/shared` | IDs, envelope encryption, API keys, version utils, shared types |
 | `packages/store-adapters` | `StoreAdapter` interface + per-store implementations |
-| `packages/cli` | `extport` CLI (`npx extport push dist.zip …`) |
-| `packages/sdk` | `@extport/sdk` — license activation client for extensions (successor to `@rxliuli/activation-client`) |
+| `packages/cli` | `extport` CLI — `push`, `init` (scaffold a new extension), `safari-build` |
+| `packages/sdk` | `@extport/sdk` — license activation + analytics client for extensions (successor to `@rxliuli/activation-client`) |
+| `packages/wxt` | `@extport/wxt` — WXT module: Safari→Xcode conversion, `extport.config.json` sync, analytics/consent wiring |
 
 ## Development
 
