@@ -12,8 +12,14 @@ import type { AppEnv } from '../middleware/auth'
 // users' browsers rather than tenants. Deliberately unauthenticated: the
 // license key IS the credential (80 bits of entropy, see lib/license-key.ts),
 // and there is no tenant in the URL because a key already resolves
-// license → plan → extension → tenant on its own. `productName` is a
-// cross-check against misconfigured extensions, not a lookup key.
+// license → plan → extension → tenant on its own. `extensionId`/`productName`
+// are a cross-check against misconfigured extensions, not a lookup key.
+//
+// extensionId is the current identity field (@extport/sdk resolves it via
+// @extport/wxt's injected global, or an explicit option); productName is
+// the wire-compat field for builds still on an old SDK version that only
+// ever sends it — accepted for now, dropped once the fleet has moved off
+// it. A request must carry at least one.
 // Wire contract and every design decision here: docs/licensing.md.
 const route = new Hono<AppEnv>()
 
@@ -32,12 +38,14 @@ const HEARTBEAT_WRITE_INTERVAL_MS = 12 * 60 * 60 * 1000
 const SEAT_DECAY_MS = 30 * 24 * 60 * 60 * 1000
 
 const codeField = v.pipe(v.string('code is required'), v.trim(), v.toUpperCase(), v.minLength(1, 'code is required'), v.maxLength(64))
-const productNameField = v.pipe(v.string('productName is required'), v.trim(), v.minLength(1, 'productName is required'), v.maxLength(200))
+const extensionIdField = v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(64))
+const productNameField = v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))
 const fingerprintField = v.pipe(v.string('fingerprint is required'), v.trim(), v.minLength(1, 'fingerprint is required'), v.maxLength(128))
 
 const activateBodySchema = v.object({
   code: codeField,
-  productName: productNameField,
+  extensionId: v.optional(extensionIdField),
+  productName: v.optional(productNameField),
   fingerprint: fingerprintField,
   // Accepted for wire compatibility with license-kit clients; the server
   // records only ipHint/uaHint, taken from headers it can trust more.
@@ -46,9 +54,21 @@ const activateBodySchema = v.object({
 
 const checkBodySchema = v.object({
   code: codeField,
-  productName: productNameField,
+  extensionId: v.optional(extensionIdField),
+  productName: v.optional(productNameField),
   fingerprint: fingerprintField,
 })
+
+/**
+ * extensionId 优先(新版 SDK 直接发它,精确匹配 ext_ id);没有才回落
+ * productName 交叉校验 extension.name(旧版本 SDK 的存量 build 只发这个,
+ * 冻结在已打包代码里,永远不会自己升级——server 端要一直接受)。
+ */
+function identityMatches(extension: { id: string; name: string }, body: { extensionId?: string; productName?: string }): boolean {
+  if (body.extensionId) return body.extensionId === extension.id
+  if (body.productName) return body.productName === extension.name
+  return false
+}
 
 async function lookupByCode(db: Db, code: string) {
   const [row] = await db
@@ -107,13 +127,16 @@ route.post(
   validator('json', activateBodySchema, badRequest),
   async (c) => {
     const db = c.get('db')
-    const { code, productName, fingerprint } = c.req.valid('json')
+    const { code, extensionId, productName, fingerprint } = c.req.valid('json')
+    if (!extensionId && !productName) return c.json({ error: 'extensionId or productName is required' }, 400)
 
     const row = await lookupByCode(db, code)
     if (!row) return c.json({ success: false, message: 'invalid activation code' })
     const { license, plan, extension } = row
     if (!extension.licensingEnabled) return c.json({ error: 'not found' }, 404)
-    if (extension.name !== productName) return c.json({ success: false, message: 'activation code belongs to a different product' })
+    if (!identityMatches(extension, { extensionId, productName })) {
+      return c.json({ success: false, message: 'activation code belongs to a different product' })
+    }
     if (license.status !== 'active') return c.json({ success: false, message: 'activation code is no longer active' })
 
     const ok = { success: true, message: 'activated', data: { tier: plan.tier, expiresAt: null } }
@@ -178,7 +201,8 @@ route.post(
   validator('json', checkBodySchema, badRequest),
   async (c) => {
     const db = c.get('db')
-    const { code, productName, fingerprint } = c.req.valid('json')
+    const { code, extensionId, productName, fingerprint } = c.req.valid('json')
+    if (!extensionId && !productName) return c.json({ error: 'extensionId or productName is required' }, 400)
 
     const row = await lookupByCode(db, code)
     if (!row) return c.json({ success: true, data: { isActive: false, tier: null, expiresAt: null } })
@@ -186,7 +210,7 @@ route.post(
     if (!extension.licensingEnabled) return c.json({ error: 'not found' }, 404)
 
     const inactive = { success: true, data: { isActive: false, tier: plan.tier, expiresAt: null } }
-    if (extension.name !== productName) return c.json(inactive)
+    if (!identityMatches(extension, { extensionId, productName })) return c.json(inactive)
     if (license.status !== 'active') return c.json(inactive)
 
     const [activation] = await db

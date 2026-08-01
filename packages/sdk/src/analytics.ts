@@ -1,4 +1,4 @@
-import { idbStorage, type StorageAdapter } from './index'
+import { idbStorage, resolveExtensionId, type StorageAdapter } from './index'
 
 /**
  * @extport/sdk/analytics — 每日 ping 客户端。线协议只有这一个事件:
@@ -83,13 +83,6 @@ function getPermissionsApi(): PermissionsApi | undefined {
  * 的开关/about:addons)。键不存在 = 浏览器没有该机制,manifest 层的
  * 披露即为准绳——放行。ping 时现读,撤销无需监听,下一次 ping 自查。
  */
-/** @extport/wxt 的 WXT 插件在每个入口 main 之前注入的全局。 */
-function resolveExtensionId(explicit?: string): string | undefined {
-  if (explicit) return explicit
-  const injected = (globalThis as { __EXTPORT__?: { extensionId?: string } }).__EXTPORT__
-  return injected?.extensionId
-}
-
 async function browserConsentsToAnalytics(): Promise<boolean> {
   try {
     const permissions = getPermissionsApi()

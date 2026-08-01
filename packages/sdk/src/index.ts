@@ -69,24 +69,32 @@ function extportBackend(base: string): LicensingBackend {
   }
 }
 
+const PRODUCTION_BACKEND = extportBackend('https://api.extport.dev')
+
 /**
- * 迁移窗口的默认级联:extport 优先,只有码被明确拒绝时才回落 license-kit
- * (车队切换前售出的码只存在于那边)。有效码永远在第一跳成功,所以第二跳
- * 只承接"旧码激活"和"输错码"两种流量。license-kit 退役后在后续版本移除
- * 第二项。
+ * @extport/wxt 的 WXT 插件在每个入口 main 之前注入的全局(与
+ * @extport/sdk/analytics 共用同一份解析——两边永远认同一个 id,
+ * 不会出现"这个上下文用 extensionId、那个上下文用 productName"的分裂)。
+ * 显式传参优先,否则读注入的全局;两者都没有则交给调用方决定失败姿态
+ * (analytics 静默跳过,licensing 在构造时抛错——差异在调用点,不在这里)。
  */
-const DEFAULT_BACKENDS: LicensingBackend[] = [
-  extportBackend('https://api.extport.dev'),
-  {
-    activateUrl: 'https://store.rxliuli.com/api/activation/activate',
-    checkUrl: 'https://store.rxliuli.com/api/activation/check',
-  },
-]
+export function resolveExtensionId(explicit?: string): string | undefined {
+  if (explicit) return explicit
+  const injected = (globalThis as { __EXTPORT__?: { extensionId?: string } }).__EXTPORT__
+  return injected?.extensionId
+}
 
 export interface ActivationClientOptions<TTier extends string, TLimit> {
-  /** 必须与 extport 产品目录里的 product name 一致（跨 tier 共享的应用级名字）。 */
-  productName: string
-  /** 本地/自托管调试用:设置后只请求该 extport 后端,不级联 legacy。省略 = 生产默认级联。 */
+  /**
+   * extport 扩展 id(ext_…)。可省略:@extport/wxt 注入时自动解析。两者都
+   * 没有则构造时抛错——licensing 失效必须是响的,不能悄悄不工作。
+   *
+   * (旧版本的 productName + license-kit 级联已随本版本一起移除。
+   * server 端仍临时接受 productName 以兼容尚未升级 SDK 的存量 build——
+   * 那是已打包冻结的旧代码,不受这次改动影响。)
+   */
+  extensionId?: string
+  /** 本地/自托管调试用:设置后只请求该 extport 部署。省略 = 生产 api.extport.dev。 */
   apiBase?: string
   /** 各档位的能力表,必须包含 'free'。存储中出现未知档位时按 free 处理 */
   plans: Record<TTier, TLimit>
@@ -106,7 +114,8 @@ export interface ActivationClientOptions<TTier extends string, TLimit> {
 
 export class ActivationClient<TTier extends string, TLimit> {
   private readonly options: ActivationClientOptions<TTier, TLimit>
-  private readonly backends: LicensingBackend[]
+  private readonly extensionId: string
+  private readonly backend: LicensingBackend
   private readonly storage: StorageAdapter
   private readonly key: string
   private readonly freePlan: Plan<TTier, TLimit>
@@ -119,8 +128,15 @@ export class ActivationClient<TTier extends string, TLimit> {
     if (freeLimit === undefined) {
       throw new Error('plans must include a "free" tier')
     }
+    const extensionId = resolveExtensionId(options.extensionId)
+    if (!extensionId) {
+      throw new Error(
+        'createActivationClient requires an extensionId — pass it explicitly, or use @extport/wxt (extport: { extension: "ext_…" }) so it can be injected automatically',
+      )
+    }
+    this.extensionId = extensionId
     this.options = options
-    this.backends = options.apiBase ? [extportBackend(options.apiBase)] : DEFAULT_BACKENDS
+    this.backend = options.apiBase ? extportBackend(options.apiBase) : PRODUCTION_BACKEND
     this.storage = options.storage ?? idbStorage
     this.key = options.storageKey ?? 'plan'
     this.freePlan = Object.freeze({ tier: 'free' as TTier, limit: freeLimit })
@@ -177,85 +193,50 @@ export class ActivationClient<TTier extends string, TLimit> {
   async activate(code: string): Promise<ActivateResponse> {
     const existing = await this.storage.get<PlanConfig>(this.key)
     const fingerprint = existing?.fingerprint ?? crypto.randomUUID()
-    const rejections: ActivateResponse[] = []
-    let firstError: unknown
-    for (const backend of this.backends) {
-      let r: ActivateResponse
-      try {
-        r = await this.tryActivate(backend, code, fingerprint)
-      } catch (err) {
-        firstError ??= err
-        continue
-      }
-      if (r.success && r.data) {
-        await this.persist({ code, tier: r.data.tier, expiresAt: r.data.expiresAt ?? null, fingerprint })
-        return r
-      }
-      rejections.push(r)
+    const r = await this.tryActivate(code, fingerprint)
+    if (r.success && r.data) {
+      await this.persist({ code, tier: r.data.tier, expiresAt: r.data.expiresAt ?? null, fingerprint })
     }
-    // 有后端不可达时不能断言码无效——抛出,让调用方按暂时故障处理。
-    if (firstError !== undefined) throw firstError
-    // 全部明确拒绝:优先返回信息量大的那条("no longer active"/"maximum
-    // devices"比另一个后端查无此码的"invalid"更有意义)。
-    return rejections.find((r) => !/invalid/i.test(r.message)) ?? rejections[0]!
+    return r
   }
 
   /**
    * 向服务端校验本设备的激活状态。返回 true=有效,false=已失效
    * （本地状态已清除）,undefined=本地无激活记录。
    *
-   * 每个后端内:说"设备未激活"时先拿存着的 code+fingerprint 自动重新
-   * 激活一次（座位衰减回归/迁移窗口自愈）；被明确拒绝才级联到下一个
-   * 后端。**只有所有后端都给出明确否定才清除本地状态**——网络故障或
-   * 5xx 是预期中的暂时状态,一律抛出,错误永远不触发清除。
+   * 说"设备未激活"时先拿存着的 code+fingerprint 自动重新激活一次（座位
+   * 衰减回归自愈）；**只有明确拒绝(重激活也被拒)才清除本地状态**——网络
+   * 故障或 5xx 是预期中的暂时状态,一律抛出,错误永远不触发清除。
    */
   async checkActivation(): Promise<boolean | undefined> {
     const config = await this.storage.get<PlanConfig>(this.key)
     if (!config) return undefined
-    let sawError = false
-    let firstError: unknown
-    for (const backend of this.backends) {
-      let active: boolean
-      try {
-        const result = await this.postJson<CheckResponse>(backend.checkUrl, {
-          code: config.code,
-          productName: this.options.productName,
-          fingerprint: config.fingerprint,
-        })
-        if (result.kind === 'rejected') {
-          // check 端点的明确拒绝(罕见)——按未激活处理,交给下面的重激活
-          active = false
-        } else {
-          if (!result.body.success || !result.body.data) throw new Error('Check device failed: no data')
-          active = result.body.data.isActive
-        }
-      } catch (err) {
-        sawError = true
-        firstError ??= err
-        continue
-      }
-      if (active) return true
 
-      let reactivate: ActivateResponse
-      try {
-        reactivate = await this.tryActivate(backend, config.code, config.fingerprint)
-      } catch (err) {
-        sawError = true
-        firstError ??= err
-        continue
-      }
-      if (reactivate.success && reactivate.data) {
-        await this.persist({
-          code: config.code,
-          tier: reactivate.data.tier,
-          expiresAt: reactivate.data.expiresAt ?? null,
-          fingerprint: config.fingerprint,
-        })
-        return true
-      }
-      // 该后端明确拒绝了 check 和重激活 → 级联下一个后端
+    let active: boolean
+    const result = await this.postJson<CheckResponse>(this.backend.checkUrl, {
+      code: config.code,
+      extensionId: this.extensionId,
+      fingerprint: config.fingerprint,
+    })
+    if (result.kind === 'rejected') {
+      // check 端点的明确拒绝(罕见)——按未激活处理,交给下面的重激活
+      active = false
+    } else {
+      if (!result.body.success || !result.body.data) throw new Error('Check device failed: no data')
+      active = result.body.data.isActive
     }
-    if (sawError) throw firstError
+    if (active) return true
+
+    const reactivate = await this.tryActivate(config.code, config.fingerprint)
+    if (reactivate.success && reactivate.data) {
+      await this.persist({
+        code: config.code,
+        tier: reactivate.data.tier,
+        expiresAt: reactivate.data.expiresAt ?? null,
+        fingerprint: config.fingerprint,
+      })
+      return true
+    }
 
     await this.storage.del(this.key)
     await this.getPlan()
@@ -263,10 +244,10 @@ export class ActivationClient<TTier extends string, TLimit> {
     return false
   }
 
-  private async tryActivate(backend: LicensingBackend, code: string, fingerprint: string): Promise<ActivateResponse> {
-    const result = await this.postJson<ActivateResponse>(backend.activateUrl, {
+  private async tryActivate(code: string, fingerprint: string): Promise<ActivateResponse> {
+    const result = await this.postJson<ActivateResponse>(this.backend.activateUrl, {
       code,
-      productName: this.options.productName,
+      extensionId: this.extensionId,
       fingerprint,
       deviceInfo: this.options.deviceInfo?.() ?? defaultDeviceInfo(),
     })
@@ -275,9 +256,8 @@ export class ActivationClient<TTier extends string, TLimit> {
   }
 
   /**
-   * 区分三种结果:2xx=ok、4xx 且 body 可解析=后端的明确拒绝(license-kit
-   * 的"无效码"走 HTTP 400 而非 200+success:false)、其余(5xx/网络)=暂时
-   * 故障,抛出。
+   * 区分三种结果:2xx=ok、4xx 且 body 可解析=明确拒绝、其余(5xx/网络)=
+   * 暂时故障,抛出——调用方永远不能把"服务器暂时不可达"当成"码无效"。
    */
   private async postJson<T>(
     url: string,

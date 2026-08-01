@@ -363,6 +363,41 @@ describe('POST /v1/licensing/check', () => {
   })
 })
 
+describe('identity: extensionId vs productName', () => {
+  it('activates and checks via extensionId alone, no productName sent', async () => {
+    const { extension, license } = await setupLicensedProduct()
+
+    const activated = (await (await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })).json()) as WireResult
+    expect(activated.success).toBe(true)
+
+    const checked = (await (await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })).json()) as WireResult
+    expect(checked.data?.isActive).toBe(true)
+  })
+
+  it('extensionId takes precedence — a stale/wrong productName alongside a matching extensionId still succeeds', async () => {
+    const { extension, license } = await setupLicensedProduct()
+    const res = (await (
+      await activate({ code: license.key, extensionId: extension.id, productName: 'Wrong Name', fingerprint: 'fp-1' })
+    ).json()) as WireResult
+    expect(res.success).toBe(true)
+  })
+
+  it('rejects when extensionId does not match the license’s extension', async () => {
+    const { license } = await setupLicensedProduct()
+    const res = (await (await activate({ code: license.key, extensionId: 'ext_wrong', fingerprint: 'fp-1' })).json()) as WireResult
+    expect(res.success).toBe(false)
+
+    const checked = (await (await check({ code: license.key, extensionId: 'ext_wrong', fingerprint: 'fp-1' })).json()) as WireResult
+    expect(checked.data?.isActive).toBe(false)
+  })
+
+  it('400s when neither extensionId nor productName is sent', async () => {
+    const { license } = await setupLicensedProduct()
+    expect((await activate({ code: license.key, fingerprint: 'fp-1' })).status).toBe(400)
+    expect((await check({ code: license.key, fingerprint: 'fp-1' })).status).toBe(400)
+  })
+})
+
 describe('extension deletion vs issued licenses', () => {
   it('blocks deletion while licenses exist, allows it for license-less plans', async () => {
     const { sessionCookie, extension, db, license } = await setupLicensedProduct()
