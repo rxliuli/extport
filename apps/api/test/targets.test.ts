@@ -215,35 +215,53 @@ describe('publish targets', () => {
 })
 
 describe('publish target platforms (Safari macOS/iOS narrowing)', () => {
-  it('accepts a narrower platforms list and exposes it on list', async () => {
-    const { sessionCookie } = await seedTenantWithUser()
-    const extension = await createExtension(sessionCookie)
-    const credential = await createCredential(sessionCookie, 'safari', { keyId: 'K1', issuerId: 'iss-1', privateKeyP8: await makeP8() })
+  // These two do a real Safari credential-verify sign plus a getState() call
+  // per declared platform (1 or 2 here) — each a real WebCrypto ECDSA sign
+  // and a Workers-pool route round trip, not just a DB write like most tests
+  // in this file. Comfortably under a second locally, but this is the specific
+  // shape that has intermittently tripped vitest's 5s default under GitHub CI's
+  // 2-vCPU contention (confirmed: "Test timed out in 5000ms" on this exact
+  // test, once, with everything else in the same file passing normally the
+  // same run) — a wider per-test timeout, not a global one, since the rest of
+  // this file is plain DB CRUD with no real crypto or network round trip and
+  // has never shown this.
+  it(
+    'accepts a narrower platforms list and exposes it on list',
+    async () => {
+      const { sessionCookie } = await seedTenantWithUser()
+      const extension = await createExtension(sessionCookie)
+      const credential = await createCredential(sessionCookie, 'safari', { keyId: 'K1', issuerId: 'iss-1', privateKeyP8: await makeP8() })
 
-    const createRes = await addTarget(extension.id, sessionCookie, {
-      store: 'safari',
-      storeItemId: 'app-1',
-      platforms: ['macos'],
-      credentialId: credential.id,
-    })
-    expect(createRes.status).toBe(201)
+      const createRes = await addTarget(extension.id, sessionCookie, {
+        store: 'safari',
+        storeItemId: 'app-1',
+        platforms: ['macos'],
+        credentialId: credential.id,
+      })
+      expect(createRes.status).toBe(201)
 
-    const listRes = await request(`/api/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
-    const list = (await listRes.json()) as { targets: Array<{ platforms: string[] | null }> }
-    expect(list.targets[0]!.platforms).toEqual(['macos'])
-  })
+      const listRes = await request(`/api/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
+      const list = (await listRes.json()) as { targets: Array<{ platforms: string[] | null }> }
+      expect(list.targets[0]!.platforms).toEqual(['macos'])
+    },
+    20_000,
+  )
 
-  it('defaults to null (every adapter platform) when omitted', async () => {
-    const { sessionCookie } = await seedTenantWithUser()
-    const extension = await createExtension(sessionCookie)
-    const credential = await createCredential(sessionCookie, 'safari', { keyId: 'K1', issuerId: 'iss-1', privateKeyP8: await makeP8() })
+  it(
+    'defaults to null (every adapter platform) when omitted',
+    async () => {
+      const { sessionCookie } = await seedTenantWithUser()
+      const extension = await createExtension(sessionCookie)
+      const credential = await createCredential(sessionCookie, 'safari', { keyId: 'K1', issuerId: 'iss-1', privateKeyP8: await makeP8() })
 
-    await addTarget(extension.id, sessionCookie, { store: 'safari', storeItemId: 'app-1', credentialId: credential.id })
+      await addTarget(extension.id, sessionCookie, { store: 'safari', storeItemId: 'app-1', credentialId: credential.id })
 
-    const listRes = await request(`/api/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
-    const list = (await listRes.json()) as { targets: Array<{ platforms: string[] | null }> }
-    expect(list.targets[0]!.platforms).toBeNull()
-  })
+      const listRes = await request(`/api/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
+      const list = (await listRes.json()) as { targets: Array<{ platforms: string[] | null }> }
+      expect(list.targets[0]!.platforms).toBeNull()
+    },
+    20_000,
+  )
 
   it('rejects a platform the adapter does not declare', async () => {
     const { sessionCookie } = await seedTenantWithUser()
@@ -273,29 +291,33 @@ describe('publish target platforms (Safari macOS/iOS narrowing)', () => {
     expect(res.status).toBe(400)
   })
 
-  it('updates platforms via PATCH, and clears it back to the default with null', async () => {
-    const { sessionCookie } = await seedTenantWithUser()
-    const extension = await createExtension(sessionCookie)
-    const credential = await createCredential(sessionCookie, 'safari', { keyId: 'K1', issuerId: 'iss-1', privateKeyP8: await makeP8() })
-    const createRes = await addTarget(extension.id, sessionCookie, { store: 'safari', storeItemId: 'app-1', credentialId: credential.id })
-    const { target } = (await createRes.json()) as { target: { id: string } }
+  it(
+    'updates platforms via PATCH, and clears it back to the default with null',
+    async () => {
+      const { sessionCookie } = await seedTenantWithUser()
+      const extension = await createExtension(sessionCookie)
+      const credential = await createCredential(sessionCookie, 'safari', { keyId: 'K1', issuerId: 'iss-1', privateKeyP8: await makeP8() })
+      const createRes = await addTarget(extension.id, sessionCookie, { store: 'safari', storeItemId: 'app-1', credentialId: credential.id })
+      const { target } = (await createRes.json()) as { target: { id: string } }
 
-    const patchRes = await request(`/api/v1/extensions/${extension.id}/targets/${target.id}`, {
-      method: 'PATCH',
-      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ platforms: ['macos'] }),
-    })
-    expect(patchRes.status).toBe(200)
-    expect(((await patchRes.json()) as { target: { platforms: string[] | null } }).target.platforms).toEqual(['macos'])
+      const patchRes = await request(`/api/v1/extensions/${extension.id}/targets/${target.id}`, {
+        method: 'PATCH',
+        headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ platforms: ['macos'] }),
+      })
+      expect(patchRes.status).toBe(200)
+      expect(((await patchRes.json()) as { target: { platforms: string[] | null } }).target.platforms).toEqual(['macos'])
 
-    const clearRes = await request(`/api/v1/extensions/${extension.id}/targets/${target.id}`, {
-      method: 'PATCH',
-      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ platforms: null }),
-    })
-    expect(clearRes.status).toBe(200)
-    expect(((await clearRes.json()) as { target: { platforms: string[] | null } }).target.platforms).toBeNull()
-  })
+      const clearRes = await request(`/api/v1/extensions/${extension.id}/targets/${target.id}`, {
+        method: 'PATCH',
+        headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ platforms: null }),
+      })
+      expect(clearRes.status).toBe(200)
+      expect(((await clearRes.json()) as { target: { platforms: string[] | null } }).target.platforms).toBeNull()
+    },
+    20_000,
+  )
 })
 
 describe('GET /v1/extensions/matrix', () => {
