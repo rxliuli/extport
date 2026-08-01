@@ -87,7 +87,13 @@ export function resolveExtensionId(explicit?: string): string | undefined {
 export interface ActivationClientOptions<TTier extends string, TLimit> {
   /**
    * extport 扩展 id(ext_…)。可省略:@extport/wxt 注入时自动解析。两者都
-   * 没有则构造时抛错——licensing 失效必须是响的,不能悄悄不工作。
+   * 没有则在第一次真正联网(activate/checkActivation)时抛错——licensing
+   * 失效必须是响的,不能悄悄不工作。**不在构造时解析/抛错**:WXT 把插件
+   * 注入(设置 globalThis.__EXTPORT__)放在用户入口模块的顶层代码求值
+   * *之后*(main() 调用前),而 createActivationClient 通常在入口模块顶层
+   * 就被立即构造——构造时抛错会先于注入发生,把整个 service worker 的
+   * 启动直接干挂(不只是 licensing 失败)。getPlan() 只读本地存储,不需要
+   * extensionId,构造后可以放心立即调用。
    *
    * (旧版本的 productName + license-kit 级联已随本版本一起移除。
    * server 端仍临时接受 productName 以兼容尚未升级 SDK 的存量 build——
@@ -114,7 +120,6 @@ export interface ActivationClientOptions<TTier extends string, TLimit> {
 
 export class ActivationClient<TTier extends string, TLimit> {
   private readonly options: ActivationClientOptions<TTier, TLimit>
-  private readonly extensionId: string
   private readonly backend: LicensingBackend
   private readonly storage: StorageAdapter
   private readonly key: string
@@ -128,13 +133,6 @@ export class ActivationClient<TTier extends string, TLimit> {
     if (freeLimit === undefined) {
       throw new Error('plans must include a "free" tier')
     }
-    const extensionId = resolveExtensionId(options.extensionId)
-    if (!extensionId) {
-      throw new Error(
-        'createActivationClient requires an extensionId — pass it explicitly, or use @extport/wxt (extport: { extension: "ext_…" }) so it can be injected automatically',
-      )
-    }
-    this.extensionId = extensionId
     this.options = options
     this.backend = options.apiBase ? extportBackend(options.apiBase) : PRODUCTION_BACKEND
     this.storage = options.storage ?? idbStorage
@@ -215,7 +213,7 @@ export class ActivationClient<TTier extends string, TLimit> {
     let active: boolean
     const result = await this.postJson<CheckResponse>(this.backend.checkUrl, {
       code: config.code,
-      extensionId: this.extensionId,
+      extensionId: this.resolveExtensionIdOrThrow(),
       fingerprint: config.fingerprint,
     })
     if (result.kind === 'rejected') {
@@ -247,12 +245,26 @@ export class ActivationClient<TTier extends string, TLimit> {
   private async tryActivate(code: string, fingerprint: string): Promise<ActivateResponse> {
     const result = await this.postJson<ActivateResponse>(this.backend.activateUrl, {
       code,
-      extensionId: this.extensionId,
+      extensionId: this.resolveExtensionIdOrThrow(),
       fingerprint,
       deviceInfo: this.options.deviceInfo?.() ?? defaultDeviceInfo(),
     })
     if (result.kind === 'rejected') return { success: false, message: result.message }
     return result.body
+  }
+
+  /**
+   * 故意在每次联网前现读,不在构造时缓存/抛错——见 ActivationClientOptions.extensionId
+   * 的注释:构造时机早于 @extport/wxt 的插件注入,那时抛错会连累整个入口模块求值失败。
+   */
+  private resolveExtensionIdOrThrow(): string {
+    const extensionId = resolveExtensionId(this.options.extensionId)
+    if (!extensionId) {
+      throw new Error(
+        'createActivationClient requires an extensionId — pass it explicitly, or use @extport/wxt (extport: { extension: "ext_…" }) so it can be injected automatically',
+      )
+    }
+    return extensionId
   }
 
   /**

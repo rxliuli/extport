@@ -227,10 +227,26 @@ describe('身份解析（extensionId）', () => {
     vi.unstubAllGlobals()
   })
 
-  it('构造时抛错——没有 extensionId(显式传参或注入的全局都没有)时,licensing 必须响亮失败', () => {
+  it('构造本身不抛错——extensionId 解析延后到真正联网时(见下一条),避免赶在 WXT 插件注入前跑', () => {
     expect(() =>
       createActivationClient<Tier, Limit>({ apiBase: 'https://dash.example.com', plans: { free: FREE_LIMIT, pro: PRO_LIMIT } }),
-    ).toThrow(/extensionId/)
+    ).not.toThrow()
+  })
+
+  it('activate() 抛错——没有 extensionId(显式传参或注入的全局都没有)时,licensing 必须响亮失败', async () => {
+    const client = createActivationClient<Tier, Limit>({ apiBase: 'https://dash.example.com', plans: { free: FREE_LIMIT, pro: PRO_LIMIT } })
+    await expect(client.activate('AAAA-BBBB-CCCC-DDDD')).rejects.toThrow(/extensionId/)
+  })
+
+  it('checkActivation() 同样抛错——即使本地已有激活记录', async () => {
+    await idbSet('plan', storedConfig())
+    const client = createActivationClient<Tier, Limit>({ apiBase: 'https://dash.example.com', plans: { free: FREE_LIMIT, pro: PRO_LIMIT } })
+    await expect(client.checkActivation()).rejects.toThrow(/extensionId/)
+  })
+
+  it('getPlan() 不需要 extensionId,没有也能读本地存储', async () => {
+    const client = createActivationClient<Tier, Limit>({ apiBase: 'https://dash.example.com', plans: { free: FREE_LIMIT, pro: PRO_LIMIT } })
+    expect((await client.getPlan()).tier).toBe('free')
   })
 
   it('未显式传参时回落 @extport/wxt 注入的全局', async () => {
