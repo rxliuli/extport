@@ -67,13 +67,12 @@ storefront itself flipped, which is why the 2026-08-01 storefront flip
 was judged safe ahead of the originally-planned ~2026-08-12 saturation
 date — see the note at the top of this file.
 
-**Still open, per product:** one $0 promo-code purchase through the now-live
-storefront button as end-to-end verification (runbook §5) — not yet done
-for this batch. Re-run `scripts/import-license-kit.mjs --product "…"
---apply` periodically until Paddle retires, to catch codes license-kit
-still sells (Paddle checkout is still live — only the storefront button
-was flipped, see the top-of-file note); it's idempotent, re-check Paddle
-adjustments/refunds each time too.
+**Still open, per product:** the $0 promo-code purchase verification
+(runbook §5) has been done post-flip for this batch. Re-run
+`scripts/import-license-kit.mjs --product "…" --apply` periodically until
+Paddle retires, to catch codes license-kit still sells (Paddle checkout is
+still live — only the storefront button was flipped, see the top-of-file
+note); it's idempotent, re-check Paddle adjustments/refunds each time too.
 
 ## After the last product flips
 
@@ -113,3 +112,10 @@ after flipping, releases never wait on propagation again.
   filter Status=Active.
 - Product icons are URL references to store.rxliuli.com/icon/*.png — if
   that domain ever retires, re-upload images in the Stripe dashboard.
+- None of the Payment Links have Stripe Tax enabled (`automatic_tax:
+  false` on all 12, checked 2026-08-01) — Paddle was merchant-of-record
+  and handled VAT/sales tax globally; Stripe here doesn't. At $9.6k
+  lifetime revenue spread across many countries the realistic exposure is
+  low and this is a common posture at this scale, but it's a deliberate
+  accepted risk, not a non-issue — revisit (flip on Stripe Tax, ~0.5%/txn)
+  once revenue is meaningfully higher.
