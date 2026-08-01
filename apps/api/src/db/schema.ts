@@ -336,6 +336,11 @@ export const licenses = sqliteTable(
     // rows until backfilled from the provider.
     amountTotal: integer('amount_total'),
     currency: text('currency'),
+    // Billing address country (ISO 3166-1 alpha-2), from the Checkout
+    // Session's customer_details — only populated when the tenant's
+    // Payment Link collects a billing address. Null for manual/imported
+    // rows and for sessions that didn't collect one.
+    country: text('country'),
     sourceRef: text('source_ref'),
     // Stripe Checkout Session id (cs_…), stored at fulfillment for the
     // success page's time-boxed lookup — extport holds no tenant API key

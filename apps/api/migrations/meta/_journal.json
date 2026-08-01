@@ -169,6 +169,13 @@
       "when": 1785404923819,
       "tag": "0023_analytics",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1785583520008,
+      "tag": "0024_giant_jean_grey",
+      "breakpoints": true
     }
   ]
 }

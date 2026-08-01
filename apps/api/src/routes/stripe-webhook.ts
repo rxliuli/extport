@@ -28,7 +28,10 @@ interface StripeCheckoutSession {
   id: string
   payment_status?: string
   payment_intent?: string | { id: string } | null
-  customer_details?: { email?: string | null } | null
+  // address is only populated when the Payment Link's billing_address_collection
+  // is 'required' — 'auto' (the default) mostly skips it for card payments
+  // once automatic_tax is off, since nothing else needs it.
+  customer_details?: { email?: string | null; address?: { country?: string | null } | null } | null
   metadata?: Record<string, string> | null
   /** Smallest currency unit; 0 for 100%-promo sessions. */
   amount_total?: number | null
@@ -142,6 +145,7 @@ async function handleCheckoutCompleted(c: Context<AppEnv>, tenant: Tenant, sessi
     // licensing billing. Zero (100%-off promo) is a real, meaningful value.
     amountTotal: session.amount_total ?? null,
     currency: session.currency ?? null,
+    country: session.customer_details?.address?.country ?? null,
   })
   await db.insert(licenseEvents).values({
     id: newId('licenseEvent'),

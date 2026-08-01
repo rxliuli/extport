@@ -160,6 +160,9 @@ describe('checkout.session.completed fulfillment', () => {
     // The sale amount snapshot — the basis for future percentage billing.
     expect(license.amountTotal).toBe(1999)
     expect(license.currency).toBe('usd')
+    // No address on this session (the common case under billing_address_collection:
+    // 'auto') — country stays null, not an error.
+    expect(license.country).toBeNull()
 
     const events = await db.select().from(licenseEvents).where(eq(licenseEvents.licenseId, license.id))
     expect(events.map((e) => e.type)).toEqual(['issued'])
@@ -190,6 +193,14 @@ describe('checkout.session.completed fulfillment', () => {
     await deliver(tenantId, event)
     const [license] = await tenantLicenses(db, tenantId)
     expect(license!.sourceRef).toBe((event.data.object as { id: string }).id)
+  })
+
+  it('stores the billing country when the session collected one', async () => {
+    const { db, tenantId, plan } = await setupStripeTenant()
+    const event = checkoutEvent(plan.id, { customer_details: { email: 'buyer@example.com', address: { country: 'TH' } } })
+    await deliver(tenantId, event)
+    const [license] = await tenantLicenses(db, tenantId)
+    expect(license!.country).toBe('TH')
   })
 
   it('ignores sessions that are not extport sales or not paid', async () => {
