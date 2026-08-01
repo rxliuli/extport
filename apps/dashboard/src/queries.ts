@@ -8,6 +8,8 @@ import {
   type CredentialRow,
   type DeploymentVersion,
   type Extension,
+  type FleetAnalyticsOverview,
+  type FleetExtensionAnalytics,
   type LicenseRow,
   type MatrixExtension,
   type Me,
@@ -118,6 +120,22 @@ export const analyticsOverviewQuery = (extensionId: string) =>
     queryKey: ['analytics', extensionId, 'overview'],
     queryFn: () => api<AnalyticsOverview>(`/api/v1/analytics/overview?extension=${extensionId}`),
   })
+
+export const fleetAnalyticsOverviewQuery = queryOptions({
+  queryKey: ['analytics', 'fleet', 'overview'],
+  queryFn: () => api<FleetAnalyticsOverview>('/api/v1/analytics/fleet/overview'),
+})
+
+export const fleetAnalyticsSeriesQuery = (days = 30) =>
+  queryOptions({
+    queryKey: ['analytics', 'fleet', 'series', days],
+    queryFn: () => api<{ rows: AnalyticsSeriesRow[] }>(`/api/v1/analytics/fleet/series?days=${days}`).then((r) => r.rows),
+  })
+
+export const fleetAnalyticsExtensionsQuery = queryOptions({
+  queryKey: ['analytics', 'fleet', 'extensions'],
+  queryFn: () => api<{ extensions: FleetExtensionAnalytics[] }>('/api/v1/analytics/fleet/extensions').then((r) => r.extensions),
+})
 
 export const credentialsQuery = queryOptions({
   queryKey: ['credentials'],

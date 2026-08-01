@@ -47,6 +47,13 @@ export interface AnalyticsPinger {
   maybePing(): Promise<void>
   /** 持久化开关;开启时立刻补一次当日 ping(同意即生效,不等明天)。 */
   setEnabled(enabled: boolean): Promise<void>
+  /**
+   * 当前应用层开关状态,供 options 页画一个退出开关用。未显式设置过时
+   * 回落 defaultEnabled(默认 true)。只反映应用层意愿——不读取
+   * Firefox 的 technicalAndInteraction 浏览器层许可(那是独立的第二道
+   * 闸,ping 时才现读,这里读了也没法在跨上下文场景保持同步)。
+   */
+  getEnabled(): Promise<boolean>
 }
 
 interface AnalyticsRuntime {
@@ -161,6 +168,10 @@ export function createAnalyticsPinger(options: AnalyticsOptions = {}): Analytics
       const record = (await storage.get<AnalyticsRecord>(key)) ?? {}
       await storage.set(key, { ...record, enabled })
       if (enabled) await maybePing()
+    },
+    async getEnabled(): Promise<boolean> {
+      const record = await storage.get<AnalyticsRecord>(key)
+      return record?.enabled ?? options.defaultEnabled ?? true
     },
   }
 }

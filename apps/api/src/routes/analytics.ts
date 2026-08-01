@@ -198,3 +198,123 @@ analyticsTenantRoutes.get(
     return c.json({ activeInstalls: totals?.activeInstalls ?? 0, allTimeInstalls: totals?.allTime ?? 0, versions, browsers })
   },
 )
+
+// ---- Fleet-wide (cross-extension) views — the /analytics dashboard page ----
+//
+// version/country/language/os breakdowns don't generalize across extensions
+// (a version string means nothing outside the product it belongs to), so
+// only the two things that stay meaningful fleet-wide are exposed here:
+// totals over time, and a per-extension breakdown as a ranked list rather
+// than more chart series (see docs discussion — one line per extension
+// stops being readable well before a real fleet's extension count).
+
+analyticsTenantRoutes.get(
+  '/fleet/overview',
+  describeRoute({
+    summary: 'Fleet-wide live analytics overview',
+    description: 'Same shape as /overview but summed across every extension the tenant owns — no per-extension version breakdown, since versions aren\'t comparable across products.',
+    responses: { 200: { description: 'OK' } },
+  }),
+  async (c) => {
+    const db = c.get('db')
+    const tenant = c.get('tenant')
+
+    const windowStart = isoDay(new Date(Date.now() - 29 * 24 * 60 * 60 * 1000))
+    const active = and(eq(analyticsInstalls.tenantId, tenant.id), gte(analyticsInstalls.lastSeen, windowStart))
+
+    const [totals] = await db
+      .select({ activeInstalls: sql<number>`count(*)`, allTime: sql<number>`(select count(*) from analytics_installs where tenant_id = ${tenant.id})` })
+      .from(analyticsInstalls)
+      .where(active)
+    const browsers = await db
+      .select({ browser: analyticsInstalls.browser, installs: sql<number>`count(*)` })
+      .from(analyticsInstalls)
+      .where(active)
+      .groupBy(analyticsInstalls.browser)
+    const [{ extensionsReporting }] = await db
+      .select({ extensionsReporting: sql<number>`count(distinct ${analyticsInstalls.extensionId})` })
+      .from(analyticsInstalls)
+      .where(eq(analyticsInstalls.tenantId, tenant.id))
+
+    return c.json({ activeInstalls: totals?.activeInstalls ?? 0, allTimeInstalls: totals?.allTime ?? 0, extensionsReporting, browsers })
+  },
+)
+
+analyticsTenantRoutes.get(
+  '/fleet/series',
+  describeRoute({
+    summary: 'Fleet-wide daily analytics series',
+    description: 'Same row shape as /series?dim=total, summed across every extension the tenant owns instead of one. ?days= bounds the window (default 90, max 1830).',
+    responses: { 200: { description: 'OK' } },
+  }),
+  async (c) => {
+    const db = c.get('db')
+    const tenant = c.get('tenant')
+
+    const days = Math.min(Number.parseInt(c.req.query('days') ?? '90', 10) || 90, 1830)
+    const from = isoDay(new Date(Date.now() - days * 24 * 60 * 60 * 1000))
+
+    const rows = await db
+      .select({
+        date: analyticsDaily.date,
+        browser: analyticsDaily.browser,
+        // Kept for shape-compatibility with /series rows (dim='total' rows
+        // there carry a real dimValue too) so the dashboard can reuse the
+        // exact same chart-building code for both.
+        dimValue: sql<string>`'total'`,
+        dau: sql<number>`sum(${analyticsDaily.dau})`,
+        installs: sql<number>`sum(${analyticsDaily.installs})`,
+        departures: sql<number>`sum(${analyticsDaily.departures})`,
+        mau: sql<number>`sum(${analyticsDaily.mau})`,
+      })
+      .from(analyticsDaily)
+      .where(and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total'), gte(analyticsDaily.date, from)))
+      .groupBy(analyticsDaily.date, analyticsDaily.browser)
+      .orderBy(analyticsDaily.date)
+    return c.json({ rows })
+  },
+)
+
+analyticsTenantRoutes.get(
+  '/fleet/extensions',
+  describeRoute({
+    summary: 'Per-extension analytics ranking',
+    description: 'One row per extension that has ever reported analytics, sorted by active installs — the "list" half of the fleet-wide page, since per-extension detail belongs in a table, not as more chart lines.',
+    responses: { 200: { description: 'OK' } },
+  }),
+  async (c) => {
+    const db = c.get('db')
+    const tenant = c.get('tenant')
+
+    const windowStart = isoDay(new Date(Date.now() - 29 * 24 * 60 * 60 * 1000))
+
+    const extensionRows = await db.select({ id: extensions.id, name: extensions.name }).from(extensions).where(eq(extensions.tenantId, tenant.id))
+    const activeCounts = await db
+      .select({ extensionId: analyticsInstalls.extensionId, activeInstalls: sql<number>`count(*)` })
+      .from(analyticsInstalls)
+      .where(and(eq(analyticsInstalls.tenantId, tenant.id), gte(analyticsInstalls.lastSeen, windowStart)))
+      .groupBy(analyticsInstalls.extensionId)
+    const allTimeCounts = await db
+      .select({ extensionId: analyticsInstalls.extensionId, allTimeInstalls: sql<number>`count(*)` })
+      .from(analyticsInstalls)
+      .where(eq(analyticsInstalls.tenantId, tenant.id))
+      .groupBy(analyticsInstalls.extensionId)
+
+    const activeById = new Map(activeCounts.map((r) => [r.extensionId, r.activeInstalls]))
+    const allTimeById = new Map(allTimeCounts.map((r) => [r.extensionId, r.allTimeInstalls]))
+
+    const items = extensionRows
+      .map((e) => ({
+        extensionId: e.id,
+        name: e.name,
+        activeInstalls: activeById.get(e.id) ?? 0,
+        allTimeInstalls: allTimeById.get(e.id) ?? 0,
+      }))
+      // Extensions that have never shipped @extport/sdk/analytics would
+      // otherwise pad the list with rows of zeros.
+      .filter((e) => e.allTimeInstalls > 0)
+      .sort((a, b) => b.activeInstalls - a.activeInstalls)
+
+    return c.json({ extensions: items })
+  },
+)

@@ -24,7 +24,7 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, 
  * without data draw as 0 so every series is a continuous line across the
  * whole window, never a floating point.
  */
-function lastNDays(n: number): string[] {
+export function lastNDays(n: number): string[] {
   const days: string[] = []
   for (let i = n; i >= 1; i--) {
     days.push(new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10))
@@ -33,7 +33,7 @@ function lastNDays(n: number): string[] {
 }
 
 /** Collapse per-browser rows into one point per domain day (installs/departures bars). */
-function byDate(rows: AnalyticsSeriesRow[], domain: string[]): { date: string; installs: number; departures: number }[] {
+export function byDate(rows: AnalyticsSeriesRow[], domain: string[]): { date: string; installs: number; departures: number }[] {
   const days = new Map(domain.map((date) => [date, { date, installs: 0, departures: 0 }]))
   for (const row of rows) {
     const day = days.get(row.date)
@@ -46,7 +46,7 @@ function byDate(rows: AnalyticsSeriesRow[], domain: string[]): { date: string; i
 
 // One line per store is the chart no single store console can draw — fixed
 // color per browser so chrome is the same color on every extension's page.
-const BROWSER_COLORS: Record<string, string> = {
+export const BROWSER_COLORS: Record<string, string> = {
   chrome: 'var(--chart-1)',
   firefox: 'var(--chart-2)',
   edge: 'var(--chart-3)',
@@ -56,7 +56,7 @@ const BROWSER_COLORS: Record<string, string> = {
 const BROWSER_ORDER = Object.keys(BROWSER_COLORS)
 
 /** Per-domain-day DAU pivoted to one column per browser, 0-filled. */
-function browserDauSeries(rows: AnalyticsSeriesRow[], domain: string[]): {
+export function browserDauSeries(rows: AnalyticsSeriesRow[], domain: string[]): {
   data: Record<string, string | number>[]
   browsers: string[]
 } {
@@ -116,7 +116,7 @@ function versionSeries(rows: AnalyticsSeriesRow[], domain: string[]): {
   return { data: [...days.values()], series }
 }
 
-const shortDate = (value: string) => value.slice(5)
+export const shortDate = (value: string) => value.slice(5)
 
 export function AnalyticsSection({ extension }: { extension: Extension }) {
   const { data: overview } = useQuery(analyticsOverviewQuery(extension.id))

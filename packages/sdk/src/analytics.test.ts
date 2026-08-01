@@ -67,6 +67,21 @@ describe('createAnalyticsPinger', () => {
     expect(secondBody.installId).toBe(afterFailure.installId)
   })
 
+  it('getEnabled reflects the persisted flag, defaulting true / defaultEnabled', async () => {
+    const storage = memoryStorage()
+    const pinger = createAnalyticsPinger({ ...OPTIONS, storage })
+    expect(await pinger.getEnabled()).toBe(true)
+
+    await pinger.setEnabled(false)
+    expect(await pinger.getEnabled()).toBe(false)
+
+    await pinger.setEnabled(true)
+    expect(await pinger.getEnabled()).toBe(true)
+
+    const opted = createAnalyticsPinger({ ...OPTIONS, storage: memoryStorage(), defaultEnabled: false })
+    expect(await opted.getEnabled()).toBe(false)
+  })
+
   it('respects the consent flag without burning the day, and pings immediately on enable', async () => {
     const storage = memoryStorage()
     const pinger = createAnalyticsPinger({ ...OPTIONS, storage, defaultEnabled: false })

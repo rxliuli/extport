@@ -1,6 +1,6 @@
 {
   "name": "@extport/sdk",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "License activation client for browser extensions publishing through extport",
   "type": "module",
   "license": "MIT",
