@@ -65,10 +65,8 @@ export const BROWSER_COLORS: Record<string, string> = {
 const BROWSER_ORDER = Object.keys(BROWSER_COLORS)
 
 /**
- * Per-domain-day activity pivoted to one rolling-7-day-WAU column per
- * browser (the headline series — CWS's weekly users, plotted daily), plus a
- * `daily` column with total DAU across stores as the secondary diagnostic
- * line (still the most sensitive signal for "did today break").
+ * Per-domain-day rolling-7-day WAU pivoted to one column per browser —
+ * CWS's weekly users, plotted daily.
  */
 export function activitySeries(rows: AnalyticsSeriesRow[], domain: string[]): {
   data: Record<string, string | number>[]
@@ -76,13 +74,12 @@ export function activitySeries(rows: AnalyticsSeriesRow[], domain: string[]): {
 } {
   const browsers = BROWSER_ORDER.filter((b) => rows.some((r) => r.browser === b))
   const days = new Map<string, Record<string, string | number>>(
-    domain.map((date) => [date, { date, daily: 0, ...Object.fromEntries(browsers.map((b) => [b, 0])) }]),
+    domain.map((date) => [date, { date, ...Object.fromEntries(browsers.map((b) => [b, 0])) }]),
   )
   for (const row of rows) {
     const day = days.get(row.date)
     if (!day) continue
     day[row.browser] = ((day[row.browser] as number) ?? 0) + row.wau
-    day['daily'] = (day['daily'] as number) + row.dau
   }
   return { data: [...days.values()], browsers }
 }
@@ -231,15 +228,14 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
           <CardTitle>Active users</CardTitle>
           <CardDescription>
             Weekly actives (rolling 7 days, same as the CWS console), one line per store — the view no single console
-            can draw. The dashed line is daily actives across all stores, the sharpest signal for day-level breakage.
+            can draw.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <ChartContainer
-            config={{
-              ...Object.fromEntries(activity.browsers.map((b) => [b, { label: b, color: BROWSER_COLORS[b] }])),
-              daily: { label: 'daily (all stores)', color: 'var(--muted-foreground)' },
-            } satisfies ChartConfig}
+            config={Object.fromEntries(
+              activity.browsers.map((b) => [b, { label: b, color: BROWSER_COLORS[b] }]),
+            ) satisfies ChartConfig}
             className="h-64 w-full"
           >
             <LineChart data={activity.data} margin={{ left: 4, right: 4 }}>
@@ -258,14 +254,6 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
                   isAnimationActive={false}
                 />
               ))}
-              <Line
-                dataKey="daily"
-                stroke="var(--color-daily)"
-                strokeWidth={1.5}
-                strokeDasharray="4 4"
-                dot={false}
-                isAnimationActive={false}
-              />
             </LineChart>
           </ChartContainer>
         </CardContent>

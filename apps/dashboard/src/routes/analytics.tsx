@@ -57,17 +57,13 @@ function AnalyticsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Active users</CardTitle>
-              <CardDescription>
-                Weekly actives (rolling 7 days) across every extension, one line per store. The dashed line is daily
-                actives across all stores.
-              </CardDescription>
+              <CardDescription>Weekly actives (rolling 7 days) across every extension, one line per store.</CardDescription>
             </CardHeader>
             <CardContent>
               <ChartContainer
-                config={{
-                  ...Object.fromEntries(activity.browsers.map((b) => [b, { label: b, color: BROWSER_COLORS[b] }])),
-                  daily: { label: 'daily (all stores)', color: 'var(--muted-foreground)' },
-                } satisfies ChartConfig}
+                config={Object.fromEntries(
+                  activity.browsers.map((b) => [b, { label: b, color: BROWSER_COLORS[b] }]),
+                ) satisfies ChartConfig}
                 className="h-64 w-full"
               >
                 <LineChart data={activity.data} margin={{ left: 4, right: 4 }}>
@@ -86,14 +82,6 @@ function AnalyticsPage() {
                       isAnimationActive={false}
                     />
                   ))}
-                  <Line
-                    dataKey="daily"
-                    stroke="var(--color-daily)"
-                    strokeWidth={1.5}
-                    strokeDasharray="4 4"
-                    dot={false}
-                    isAnimationActive={false}
-                  />
                 </LineChart>
               </ChartContainer>
             </CardContent>

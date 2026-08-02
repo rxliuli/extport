@@ -52,6 +52,10 @@ analyticsPublicRoutes.post(
     // with --headless=new, which is also the only mode that loads MV3
     // extensions — headed-under-xvfb CI would evade this filter.)
     if (ua && /HeadlessChrome/i.test(ua)) return c.body(null, 204)
+    // Same spirit: a browser fetch always carries a User-Agent, so a UA-less
+    // ping is curl or a script — the one 'other'-browser install ever
+    // recorded was exactly that (a manual endpoint test). Drop silently.
+    if (!ua) return c.body(null, 204)
     const browser = parseBrowser(ua)
 
     // Server-side idempotency gate: the SDK already dedups per UTC day, but

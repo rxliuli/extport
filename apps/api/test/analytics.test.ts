@@ -90,6 +90,17 @@ describe('POST /v1/analytics/ping', () => {
     expect(await db.select().from(analyticsInstalls).where(eq(analyticsInstalls.extensionId, extension.id))).toHaveLength(0)
   })
 
+  it('silently drops UA-less pings — curl tests must not mint installs either', async () => {
+    const { db, extension } = await setup()
+    const res = await request('/api/v1/analytics/ping', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ installId: 'eeeeeeee-1111-2222-3333-444444444444', extensionId: extension.id, version: '1.0.0' }),
+    })
+    expect(res.status).toBe(204)
+    expect(await db.select().from(analyticsInstalls).where(eq(analyticsInstalls.extensionId, extension.id))).toHaveLength(0)
+  })
+
   it('answers 204 for unknown extensions without writing anything, 400 for bad bodies, and is CORS-open', async () => {
     const { db } = await setup()
     const unknown = await ping({ installId: 'cccccccc-1111-2222-3333-444444444444', extensionId: 'ext_nope', version: '1' })
