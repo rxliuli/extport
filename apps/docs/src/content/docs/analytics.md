@@ -3,9 +3,9 @@ title: Analytics
 description: Install counts, active users, and version adoption across every store — one anonymous ping a day, nothing else.
 ---
 
-Analytics gives you the view no single store console can: daily and monthly active users, installs, and version
-adoption **combined across Chrome, Firefox, Edge, and Safari** in one dashboard, instead of checking four consoles by
-hand. It's the same idea as [Publishing](/publishing/)'s one-dashboard-for-review-status, applied to usage.
+Analytics gives you the view no single store console can: weekly active users, installs, and version adoption
+**combined across Chrome, Firefox, Edge, and Safari** in one dashboard, instead of checking four consoles by hand.
+It's the same idea as [Publishing](/publishing/)'s one-dashboard-for-review-status, applied to usage.
 
 The model in one sentence: your extension sends **one anonymous ping per install per day** — a random id, its
 version, and the browser's UI language — and extport derives everything else (browser, OS, country) from the
@@ -72,12 +72,15 @@ if you're wiring the SDK directly) — Firefox shows it in the install prompt an
 
 ## 3. Read the dashboard
 
-Open your extension's **Analytics** tab. Three charts, each reading straight from the daily rollup:
+Open your extension's **Analytics** tab. Every chart reads straight from the daily rollup:
 
 ![The Analytics tab for Imp Translate, showing active-installs/all-time-installs/top-version stat cards and a per-store daily-actives line chart](../../assets/screenshots/dashboard-analytics.jpg)
 
-- **Active users** — one line per store, so a review going sideways on one store or a release adopting slowly shows
-  up as that store's line diverging from the others.
+- **Active users** — weekly actives (rolling 7 days, the same metric the Chrome Web Store console headlines), one
+  line per store, so a review going sideways on one store or a release adopting slowly shows up as that store's line
+  diverging from the others. A weekly window also absorbs the natural day-to-day jitter of extension usage — a
+  browser that stays closed for a day isn't a lost user.
+- **Weekly users by country / language / OS** — top 5 + Other for each, over the same rolling week.
 - **Installs & departures** — same-day-exact installs; departures are covered below.
 - **Version saturation** — daily actives stacked by version, so a release's adoption curve visibly eats the layer
   below it. This is the number to watch before assuming an old version's users are gone.

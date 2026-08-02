@@ -65,16 +65,28 @@ cannot inflate anything.
 |---|---|---|
 | `pings_raw` | one row per accepted ping, all dimensions resolved | **90 days, pruned by our own cron** |
 | `installs` | one row per install: `first_seen, last_seen, last_version` | permanent (prunable after long idle) |
-| `analytics_daily` | single-dimension time series: headline (dau/mau/installs/departures) plus per-version, per-country, per-language, per-OS daily actives | **permanent** |
+| `analytics_daily` | single-dimension time series: headline (dau/wau/mau/installs/departures) plus per-version, per-country, per-language, per-OS daily+weekly actives | **permanent** |
 
 Ingest is insert-only: one `pings_raw` insert plus one `installs`
 upsert. A nightly cron aggregates yesterday's raw rows into
-`analytics_daily` (one GROUP BY per dimension), snapshots the rolling
-30-day MAU from `installs` (cross-day uniques can't be recomputed
-after raw data ages out — history is those snapshots), counts
-newly confirmed departures — written into the row of the day the
-install was last seen, 30 days back (see below) — and prunes raw rows
-past 90 days.
+`analytics_daily` (one GROUP BY per dimension), computes rolling 7-day
+WAU and 30-day MAU — both `count(DISTINCT install_id)` over raw pings,
+exact, since both windows sit inside the 90-day raw window; the nightly
+write is what makes them permanent, because cross-day uniques can't be
+recomputed after raw data ages out — counts newly confirmed departures
+(written into the row of the day the install was last seen, 30 days
+back; see below), and prunes raw rows past 90 days. An earlier
+iteration snapshotted MAU from `installs.last_seen`; the pointer's
+forward drift between midnight and the cron silently dropped same-day
+actives (day-one extensions showed MAU < DAU), which is why everything
+now derives from raw pings.
+
+**WAU is the headline activity metric** — every displayed figure and
+the Active users chart read it; dau stays in the rollup (and drives
+version saturation), mau accrues unread as the permanent 30-day record.
+Two reasons beyond smoothing: it's what the CWS console headlines
+(weekly users), and the event-driven ping undercounts single days by
+design — a running-but-idle browser can miss a day, rarely a week.
 
 The boundary rule: **single dimension × time → permanent.** Store
 consoles themselves offer 5-year single-dimension views (CWS "Last 5
@@ -353,14 +365,17 @@ extport ships a provider as a subpath export
 
 ## Rollout
 
-- Dashboard charts via shadcn/ui charts (Recharts): **per-store DAU
-  lines** (one line per browser, fixed colors — the view no single
-  store console can draw, and where divergence stories surface; MAU
-  lives in the stat cards), installs and confirmed-departures bars
-  (the latter trailing 30 days), version-saturation stacked area with
-  release markers. Default window 30 days (CWS parity); a range
-  picker (30/90/1y/all) joins once enough history exists to
-  navigate.
+- Dashboard charts via shadcn/ui charts (Recharts): **per-store
+  rolling-7-day WAU lines** (one line per browser, fixed colors — the
+  view no single store console can draw, and where divergence stories
+  surface; the stat cards read the same WAU, so a card can never
+  disagree with the chart beside it), "Weekly users by
+  country/language/OS" breakdown cards (top 5 + Other, labels via
+  Intl.DisplayNames — raw codes stay in the rollup), installs and
+  confirmed-departures bars (the latter trailing 30 days),
+  version-saturation stacked area with release markers. Default window
+  30 days (CWS parity); a range picker (30/90/1y/all) joins once
+  enough history exists to navigate.
 - **No dedicated fleet release wave.** `@extport/sdk/analytics` is a
   separate subpath (zero cost to licensing-only users) and rides the
   next natural SDK wave — likely the license-kit-retirement release
