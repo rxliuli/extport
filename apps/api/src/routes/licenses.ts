@@ -1,5 +1,5 @@
 import { newId } from '@extport/shared'
-import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lt, ne, or, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
@@ -74,37 +74,74 @@ route.get(
   },
 )
 
+const OVERVIEW_DAYS = 30
+
 route.get(
-  '/summary',
+  '/overview',
   describeRoute({
-    summary: 'Tenant-wide licensing summary',
-    description: 'License counts and revenue totals (smallest currency unit, grouped by currency) across every extension.',
+    summary: 'Purchase trend — last 30 days vs the 30 before',
+    description:
+      'Daily revenue and licenses-sold buckets for the trailing 30 days (today included, partial), index-aligned with the previous 30-day period for the dashed comparison line. Manual issuances are excluded — this charts purchases. Revenue is gross by sale date (a later refund does not remove the sale from its day, matching how the license list shows amounts) and covers the dominant currency only; counts span all currencies.',
     responses: { 200: { description: 'OK' } },
   }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const dayIso = (back: number) => new Date(Date.now() - back * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const windowStart = dayIso(2 * OVERVIEW_DAYS - 1)
 
-    const [counts] = await db
+    // Imported rows keep their original license-kit timestamps and (both
+    // ISO and SQLite datetime formats start YYYY-MM-DD) bucket correctly,
+    // so the comparison line has real history from day one.
+    const rows = await db
       .select({
-        total: sql<number>`count(*)`,
-        active: sql<number>`sum(case when ${licenses.status} = 'active' then 1 else 0 end)`,
-      })
-      .from(licenses)
-      .where(eq(licenses.tenantId, tenant.id))
-
-    const revenue = await db
-      .select({
+        day: sql<string>`substr(${licenses.createdAt}, 1, 10)`,
         currency: licenses.currency,
-        total: sql<number>`coalesce(sum(${licenses.amountTotal}), 0)`,
-        last30d: sql<number>`coalesce(sum(case when ${licenses.createdAt} >= ${thirtyDaysAgo} then ${licenses.amountTotal} else 0 end), 0)`,
+        revenue: sql<number>`coalesce(sum(${licenses.amountTotal}), 0)`,
+        count: sql<number>`count(*)`,
       })
       .from(licenses)
-      .where(and(eq(licenses.tenantId, tenant.id), sql`${licenses.currency} is not null`))
-      .groupBy(licenses.currency)
+      .where(and(eq(licenses.tenantId, tenant.id), ne(licenses.source, 'manual'), gte(licenses.createdAt, windowStart)))
+      .groupBy(sql`substr(${licenses.createdAt}, 1, 10)`, licenses.currency)
 
-    return c.json({ licenses: counts!.total, active: counts!.active ?? 0, revenue })
+    // One currency per chart — mixed-currency sums are meaningless and FX
+    // conversion is out of scope. The dominant currency (by revenue in the
+    // window) is charted; counts still include every sale.
+    const revenueByCurrency = new Map<string, number>()
+    for (const row of rows) {
+      if (row.currency) revenueByCurrency.set(row.currency, (revenueByCurrency.get(row.currency) ?? 0) + row.revenue)
+    }
+    const currency = [...revenueByCurrency.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'usd'
+
+    const bucket = (day: string) => {
+      let revenue = 0
+      let count = 0
+      for (const row of rows) {
+        if (row.day !== day) continue
+        count += row.count
+        if (row.currency === currency) revenue += row.revenue
+      }
+      return { revenue, count }
+    }
+
+    const days = Array.from({ length: OVERVIEW_DAYS }, (_, i) => {
+      const date = dayIso(OVERVIEW_DAYS - 1 - i)
+      const prevDate = dayIso(2 * OVERVIEW_DAYS - 1 - i)
+      const current = bucket(date)
+      const previous = bucket(prevDate)
+      return { date, revenue: current.revenue, count: current.count, prevDate, prevRevenue: previous.revenue, prevCount: previous.count }
+    })
+    const totals = days.reduce(
+      (acc, d) => ({
+        revenue: acc.revenue + d.revenue,
+        count: acc.count + d.count,
+        prevRevenue: acc.prevRevenue + d.prevRevenue,
+        prevCount: acc.prevCount + d.prevCount,
+      }),
+      { revenue: 0, count: 0, prevRevenue: 0, prevCount: 0 },
+    )
+
+    return c.json({ currency, days, totals })
   },
 )
 

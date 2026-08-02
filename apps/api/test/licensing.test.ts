@@ -565,8 +565,8 @@ describe('GET /v1/licenses global view', () => {
   })
 })
 
-describe('GET /v1/licenses/summary', () => {
-  it('counts licenses and groups revenue by currency with a 30-day slice', async () => {
+describe('GET /v1/licenses/overview', () => {
+  it('buckets purchases by day, index-aligned with the previous period, excluding manual issuances', async () => {
     const { db, license, plan, sessionCookie } = await setupLicensedProduct()
     const issue = async () => {
       const res = await request('/api/v1/licenses', {
@@ -579,29 +579,47 @@ describe('GET /v1/licenses/summary', () => {
     }
     const l2 = await issue()
     const l3 = await issue()
+    const l4 = await issue()
 
-    // Amounts land via the webhook / provider backfill; set them directly.
-    // l2 is an old refunded sale — outside the 30-day window, still revenue.
-    const fortyDaysAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString()
-    await db.update(licenses).set({ amountTotal: 1999, currency: 'usd' }).where(eq(licenses.id, license.id))
+    const dayIso = (back: number) => new Date(Date.now() - back * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const at = (back: number) => new Date(Date.now() - back * 24 * 60 * 60 * 1000).toISOString()
+    // Two sales in the current window (one later refunded — still revenue,
+    // gross by sale date), one in the previous window, and the original
+    // manual license untouched (excluded from the chart entirely).
     await db
       .update(licenses)
-      .set({ amountTotal: 999, currency: 'usd', createdAt: fortyDaysAgo, status: 'refunded' })
+      .set({ source: 'stripe_webhook', amountTotal: 1999, currency: 'usd', createdAt: at(5) })
       .where(eq(licenses.id, l2.id))
-    await db.update(licenses).set({ amountTotal: 500, currency: 'eur' }).where(eq(licenses.id, l3.id))
+    await db
+      .update(licenses)
+      .set({ source: 'stripe_webhook', amountTotal: 999, currency: 'usd', createdAt: at(5), status: 'refunded' })
+      .where(eq(licenses.id, l3.id))
+    await db
+      .update(licenses)
+      .set({ source: 'stripe_webhook', amountTotal: 3999, currency: 'usd', createdAt: at(35) })
+      .where(eq(licenses.id, l4.id))
 
-    const summary = (await (
-      await request('/api/v1/licenses/summary', { headers: { cookie: sessionCookie } })
-    ).json()) as { licenses: number; active: number; revenue: { currency: string; total: number; last30d: number }[] }
-    expect(summary.licenses).toBe(3)
-    expect(summary.active).toBe(2)
-    expect(summary.revenue).toEqual(
-      expect.arrayContaining([
-        { currency: 'usd', total: 2998, last30d: 1999 },
-        { currency: 'eur', total: 500, last30d: 500 },
-      ]),
-    )
-    expect(summary.revenue).toHaveLength(2)
+    const overview = (await (
+      await request('/api/v1/licenses/overview', { headers: { cookie: sessionCookie } })
+    ).json()) as {
+      currency: string
+      days: { date: string; revenue: number; count: number; prevDate: string; prevRevenue: number; prevCount: number }[]
+      totals: { revenue: number; count: number; prevRevenue: number; prevCount: number }
+    }
+    expect(overview.currency).toBe('usd')
+    expect(overview.days).toHaveLength(30)
+    // Consecutive days, ending today, each aligned with its day 30 back.
+    expect(overview.days[29]!.date).toBe(dayIso(0))
+    expect(overview.days[29]!.prevDate).toBe(dayIso(30))
+
+    const saleDay = overview.days.find((d) => d.date === dayIso(5))!
+    expect(saleDay).toMatchObject({ revenue: 2998, count: 2 })
+    const prevSaleDay = overview.days.find((d) => d.prevDate === dayIso(35))!
+    expect(prevSaleDay).toMatchObject({ prevRevenue: 3999, prevCount: 1 })
+
+    // Totals: the manual license (no amount, source manual) never appears.
+    expect(overview.totals).toEqual({ revenue: 2998, count: 2, prevRevenue: 3999, prevCount: 1 })
+    expect(license.source).toBe('manual')
   })
 })
 

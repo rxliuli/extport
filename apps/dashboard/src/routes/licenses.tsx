@@ -1,15 +1,18 @@
+import { shortDate } from '@/AnalyticsSection'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { DevicesDialog, formatAmount } from '@/LicensingSection'
-import { globalLicensesQuery, licensesSummaryQuery } from '@/queries'
+import { globalLicensesQuery, licensesOverviewQuery, type LicensesOverview } from '@/queries'
 import { formatDate } from '@/status'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { Search, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
 
 export const Route = createFileRoute('/licenses')({ component: LicensesPage })
 
@@ -26,7 +29,7 @@ function LicensesPage() {
     const t = setTimeout(() => setSearch(input.trim()), 300)
     return () => clearTimeout(t)
   }, [input])
-  const summary = useQuery(licensesSummaryQuery)
+  const overview = useQuery(licensesOverviewQuery)
   const pages = useInfiniteQuery(globalLicensesQuery(search))
   const licenses = pages.data?.pages.flatMap((p) => p.licenses) ?? []
 
@@ -34,18 +37,17 @@ function LicensesPage() {
     <div className="space-y-6">
       <h2 className="text-2xl font-bold tracking-tight">Licenses</h2>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Licenses" value={summary.data ? String(summary.data.licenses) : '—'} />
-        <StatCard label="Active" value={summary.data ? String(summary.data.active) : '—'} />
-        {(summary.data?.revenue ?? []).map((r) => (
-          <StatCard
-            key={r.currency}
-            label={`Revenue (${r.currency.toUpperCase()})`}
-            value={formatAmount(r.total, r.currency)}
-            hint={`${formatAmount(r.last30d, r.currency)} in the last 30 days`}
+      {overview.data && (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <TrendCard
+            title="Revenue"
+            overview={overview.data}
+            metric="revenue"
+            format={(v) => formatAmount(v, overview.data.currency)}
           />
-        ))}
-      </div>
+          <TrendCard title="Licenses sold" overview={overview.data} metric="count" format={String} />
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -152,15 +154,94 @@ function LicensesPage() {
   )
 }
 
-function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+/**
+ * Paddle-style period comparison: this-period solid line over a
+ * previous-period dashed line, index-aligned (each day drawn on top of the
+ * day 30 back), headline total + delta% in the header.
+ */
+function TrendCard({
+  title,
+  overview,
+  metric,
+  format,
+}: {
+  title: string
+  overview: LicensesOverview
+  metric: 'revenue' | 'count'
+  format: (value: number) => string
+}) {
+  const data = overview.days.map((d) => ({
+    date: d.date,
+    current: metric === 'revenue' ? d.revenue : d.count,
+    previous: metric === 'revenue' ? d.prevRevenue : d.prevCount,
+  }))
+  const total = metric === 'revenue' ? overview.totals.revenue : overview.totals.count
+  const prevTotal = metric === 'revenue' ? overview.totals.prevRevenue : overview.totals.prevCount
+  const delta = prevTotal > 0 ? ((total - prevTotal) / prevTotal) * 100 : null
   return (
-    <Card className="gap-1 py-4">
-      <CardHeader className="px-4">
-        <CardDescription>{label}</CardDescription>
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{title}</CardTitle>
+        <p className="text-2xl font-semibold tracking-tight">{format(total)}</p>
+        <CardDescription>
+          {delta !== null ? (
+            <>
+              <span className={delta < 0 ? 'text-destructive' : 'text-primary'}>
+                {delta >= 0 ? '+' : ''}
+                {delta.toFixed(1)}%
+              </span>{' '}
+              vs. {format(prevTotal)} previous 30 days
+            </>
+          ) : (
+            'Last 30 days — no sales in the 30 days before'
+          )}
+        </CardDescription>
       </CardHeader>
-      <CardContent className="px-4">
-        <p className="text-2xl font-semibold tracking-tight">{value}</p>
-        {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
+      <CardContent>
+        <ChartContainer
+          config={{
+            current: { label: 'Last 30 days', color: 'var(--chart-1)' },
+            previous: { label: 'Previous 30 days', color: 'var(--muted-foreground)' },
+          } satisfies ChartConfig}
+          className="h-48 w-full"
+        >
+          <LineChart data={data} margin={{ left: 4, right: 4 }}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={shortDate} minTickGap={32} />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              width={metric === 'revenue' ? 56 : 32}
+              allowDecimals={false}
+              tickFormatter={metric === 'revenue' ? (v: number) => format(v) : undefined}
+            />
+            <ChartTooltip
+              content={
+                <ChartTooltipContent
+                  // Values are smallest-currency-unit integers; the default
+                  // renderer would print raw cents.
+                  formatter={(value, name) => (
+                    <div className="flex flex-1 items-center justify-between gap-4 leading-none">
+                      <span className="text-muted-foreground">
+                        {name === 'current' ? 'Last 30 days' : 'Previous 30 days'}
+                      </span>
+                      <span className="font-mono font-medium tabular-nums">{format(Number(value))}</span>
+                    </div>
+                  )}
+                />
+              }
+            />
+            <Line dataKey="current" stroke="var(--color-current)" strokeWidth={2} dot={false} isAnimationActive={false} />
+            <Line
+              dataKey="previous"
+              stroke="var(--color-previous)"
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
+              dot={false}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ChartContainer>
       </CardContent>
     </Card>
   )

@@ -93,15 +93,16 @@ export const globalLicensesQuery = (search: string) =>
     placeholderData: keepPreviousData,
   })
 
-export interface LicensesSummary {
-  licenses: number
-  active: number
-  revenue: { currency: string; total: number; last30d: number }[]
+export interface LicensesOverview {
+  /** The dominant sale currency — the only one the revenue series covers; counts span all. */
+  currency: string
+  days: { date: string; revenue: number; count: number; prevDate: string; prevRevenue: number; prevCount: number }[]
+  totals: { revenue: number; count: number; prevRevenue: number; prevCount: number }
 }
 
-export const licensesSummaryQuery = queryOptions({
-  queryKey: ['licenses', 'summary'],
-  queryFn: () => api<LicensesSummary>('/api/v1/licenses/summary'),
+export const licensesOverviewQuery = queryOptions({
+  queryKey: ['licenses', 'overview'],
+  queryFn: () => api<LicensesOverview>('/api/v1/licenses/overview'),
 })
 
 // 30 days is the CWS default too; a range picker joins once there is
