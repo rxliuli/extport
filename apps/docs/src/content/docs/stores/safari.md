@@ -62,15 +62,46 @@ Or from CI:
 This builds and uploads every platform your Xcode project ships (macOS and/or iOS) — Safari's macOS and iOS
 listings run fully independent review timelines under the same App Store Connect app.
 
-### Always pass a signing certificate on CI
+## The signing certificate
 
 `certificate-base64`/`certificate-password` are technically optional, but skipping them on CI will eventually break
 your builds. A GitHub-hosted runner's keychain starts empty every run, so without a certificate already sitting in
 it, cloud signing asks Apple to mint a brand new one each time — and since that certificate's private key is
 destroyed with the runner at the end of the job, it's unusable ever again. Every run silently burns one certificate
 for good until your Apple Developer account hits its cap on how many it'll allow, at which point every build starts
-failing with "Your account has reached the maximum number of certificates." Generate one certificate yourself,
-export it as a `.p12`, base64-encode it, and store it (and its export password) as repo secrets — the same
-certificate works across every extension you build, since it's tied to your Apple Developer account rather than any
-one app. See [`extport-dev/actions`](https://github.com/extport-dev/actions#signing-certificate) for the exact
-steps.
+failing with "Your account has reached the maximum number of certificates."
+
+The fix is to create **one** certificate yourself and reuse it everywhere: it's tied to your Apple Developer
+account, not any one app, so the same `.p12` signs every extension you build.
+
+### Where the certificate comes from
+
+This is a different credential from the App Store Connect API key above — it lives on the
+[Apple Developer → Certificates](https://developer.apple.com/account/resources/certificates/list) page, and
+creating one is a three-step dance between that page and the Keychain Access app on your Mac:
+
+![The Apple Developer Certificates page, showing the certificate list with its Type column ("Distribution", platform "All") and the + button for creating a new one](../../../assets/screenshots/safari-developer-certificates.jpg)
+
+1. **Generate a signing request (CSR) on your Mac.** Open **Keychain Access** (in `/Applications/Utilities`), then
+   menu bar → **Keychain Access → Certificate Assistant → Request a Certificate From a Certificate Authority…**
+   Fill in your email, leave "CA Email Address" empty, choose **Saved to disk**, and save the
+   `CertificateSigningRequest.certSigningRequest` file.
+2. **Create the certificate on Apple's site.** On
+   [the Certificates page](https://developer.apple.com/account/resources/certificates/list), click **+**, choose
+   **Apple Distribution** (one certificate covers both the Mac App Store and iOS App Store), upload the CSR file,
+   and download the resulting `.cer`.
+3. **Install and export as `.p12`.** Double-click the downloaded `.cer` to add it to your keychain, then in
+   Keychain Access under **My Certificates**, right-click the new "Apple Distribution: …" entry →
+   **Export…** → file format **Personal Information Exchange (.p12)** — it will ask you to set an export
+   password. (The `.p12` bundles the certificate *with its private key*, which only exists in the keychain that
+   generated the CSR — that's why the export has to happen on the same Mac.)
+
+Then encode it and store both halves as repo secrets:
+
+```sh
+base64 -i Certificates.p12 | pbcopy   # → APPLE_CERTIFICATE_BASE64
+# the export password you chose      # → APPLE_CERTIFICATE_PASSWORD
+```
+
+Treat the `.p12` and its password like a production key: anyone holding both can sign software as you. Delete the
+local file once the secrets are stored.
