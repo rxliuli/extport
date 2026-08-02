@@ -11,7 +11,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { analyticsOverviewQuery, analyticsSeriesQuery } from '@/queries'
 import { useQuery } from '@tanstack/react-query'
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, Line, LineChart, XAxis, YAxis } from 'recharts'
 
 // The cross-store usage view — daily pings from @extport/sdk/analytics,
 // rolled up server-side. Departures live on the last-seen day and are only
@@ -342,37 +342,41 @@ function BreakdownCard({
   rows: AnalyticsSeriesRow[]
   format: (value: string) => string
 }) {
-  const shares = dimensionShares(rows)
-  // Widths scale to the largest ROW, which can be the Other tail — long-tail
-  // dimensions (country) routinely have Other outweigh every single value.
-  const max = Math.max(...shares.map((s) => s.wau), 1)
+  const data = dimensionShares(rows).map((s) => ({
+    name: s.value === null ? 'Other' : format(s.value),
+    wau: s.wau,
+    share: `${Math.round(s.share * 100)}%`,
+  }))
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">{title}</CardTitle>
         <CardDescription>Rolling 7 days, latest rolled-up day</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-2">
-        {shares.length === 0 ? (
+      <CardContent>
+        {data.length === 0 ? (
           <p className="text-sm text-muted-foreground">No data yet.</p>
         ) : (
-          shares.map((s) => {
-            const label = s.value === null ? 'Other' : format(s.value)
-            return (
-              <div key={s.value ?? '__other__'} className="flex items-center gap-2">
-                <span className="w-28 shrink-0 truncate text-sm text-muted-foreground" title={label}>
-                  {label}
-                </span>
-                <div className="flex-1">
-                  <div
-                    className="h-4 min-w-1 rounded-sm bg-primary/80"
-                    style={{ width: `${(s.wau / max) * 100}%` }}
-                  />
-                </div>
-                <span className="w-10 shrink-0 text-right text-sm tabular-nums">{Math.round(s.share * 100)}%</span>
-              </div>
-            )
-          })
+          <ChartContainer
+            config={{ wau: { label: 'Weekly users', color: 'var(--chart-1)' } } satisfies ChartConfig}
+            className="h-52 w-full"
+          >
+            <BarChart data={data} layout="vertical" margin={{ left: 0, right: 32 }}>
+              <XAxis type="number" hide />
+              <YAxis
+                dataKey="name"
+                type="category"
+                tickLine={false}
+                axisLine={false}
+                width={104}
+                tickFormatter={(value: string) => (value.length > 15 ? `${value.slice(0, 14)}…` : value)}
+              />
+              <ChartTooltip content={<ChartTooltipContent />} cursor={false} />
+              <Bar dataKey="wau" fill="var(--color-wau)" radius={4} maxBarSize={20} isAnimationActive={false}>
+                <LabelList dataKey="share" position="right" className="fill-foreground text-xs" />
+              </Bar>
+            </BarChart>
+          </ChartContainer>
         )}
       </CardContent>
     </Card>
