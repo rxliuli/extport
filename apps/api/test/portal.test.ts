@@ -58,6 +58,20 @@ describe('GET /v1/portal/purchase/:sessionId', () => {
     await db.update(licenses).set({ createdAt: old }).where(eq(licenses.id, license.id))
     expect((await request('/api/v1/portal/purchase/cs_portal_1')).status).toBe(410)
   })
+
+  it('backfills country from the request once, from the buyer landing here right after paying', async () => {
+    const { db, license } = await setupLicensed()
+    await db.update(licenses).set({ checkoutSessionId: 'cs_portal_country' }).where(eq(licenses.id, license.id))
+
+    await request('/api/v1/portal/purchase/cs_portal_country', { cf: { country: 'TH' } } as RequestInit)
+    const [after] = await db.select().from(licenses).where(eq(licenses.id, license.id))
+    expect(after!.country).toBe('TH')
+
+    // A later poll from a different apparent location doesn't clobber it.
+    await request('/api/v1/portal/purchase/cs_portal_country', { cf: { country: 'US' } } as RequestInit)
+    const [again] = await db.select().from(licenses).where(eq(licenses.id, license.id))
+    expect(again!.country).toBe('TH')
+  })
 })
 
 describe('magic-link sign-in', () => {

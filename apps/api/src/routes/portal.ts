@@ -51,6 +51,16 @@ route.get(
     if (Date.now() - new Date(row.license.createdAt).getTime() > PURCHASE_LOOKUP_WINDOW_MS) {
       return c.json({ error: 'expired' }, 410)
     }
+    // Cheapest reliable country signal available: every Payment Link's
+    // after_completion redirect lands the buyer's own browser here right
+    // after paying, regardless of payment method (card, wallet, Alipay —
+    // unlike Stripe's own billing-address collection, which both adds
+    // checkout friction and only exists for card payments). Backfill once;
+    // this endpoint is polled, so don't rewrite on every hit.
+    if (!row.license.country) {
+      const country = (c.req.raw as Request & { cf?: { country?: string } }).cf?.country
+      if (country) await db.update(licenses).set({ country }).where(eq(licenses.id, row.license.id))
+    }
     return c.json({
       purchase: {
         key: row.license.key,
