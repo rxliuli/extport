@@ -172,6 +172,8 @@ export interface AnalyticsSeriesRow {
   browser: string
   dimValue: string
   dau: number
+  /** Rolling 7-day actives ending on `date` — the headline activity metric. Only on dim=total rows. */
+  wau: number
   installs: number
   /** Attributed to the last-seen day, confirmed after 30 days — the trailing month is legitimately zero. */
   departures: number

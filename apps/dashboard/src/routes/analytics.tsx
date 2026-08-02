@@ -1,4 +1,4 @@
-import { BROWSER_COLORS, browserDauSeries, byDate, lastNDays, shortDate } from '@/AnalyticsSection'
+import { activitySeries, BROWSER_COLORS, byDate, lastNDays, shortDate } from '@/AnalyticsSection'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -28,7 +28,7 @@ function AnalyticsPage() {
 
   const domain = lastNDays(30)
   const daily = byDate(totalRows, domain)
-  const dauByBrowser = browserDauSeries(totalRows, domain)
+  const activity = activitySeries(totalRows, domain)
 
   return (
     <div className="space-y-6">
@@ -57,20 +57,26 @@ function AnalyticsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Active users</CardTitle>
-              <CardDescription>Daily actives across every extension, one line per store.</CardDescription>
+              <CardDescription>
+                Weekly actives (rolling 7 days) across every extension, one line per store. The dashed line is daily
+                actives across all stores.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <ChartContainer
-                config={Object.fromEntries(dauByBrowser.browsers.map((b) => [b, { label: b, color: BROWSER_COLORS[b] }])) satisfies ChartConfig}
+                config={{
+                  ...Object.fromEntries(activity.browsers.map((b) => [b, { label: b, color: BROWSER_COLORS[b] }])),
+                  daily: { label: 'daily (all stores)', color: 'var(--muted-foreground)' },
+                } satisfies ChartConfig}
                 className="h-64 w-full"
               >
-                <LineChart data={dauByBrowser.data} margin={{ left: 4, right: 4 }}>
+                <LineChart data={activity.data} margin={{ left: 4, right: 4 }}>
                   <CartesianGrid vertical={false} />
                   <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={shortDate} minTickGap={32} />
                   <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <ChartLegend content={<ChartLegendContent />} />
-                  {dauByBrowser.browsers.map((browser) => (
+                  {activity.browsers.map((browser) => (
                     <Line
                       key={browser}
                       dataKey={browser}
@@ -80,6 +86,14 @@ function AnalyticsPage() {
                       isAnimationActive={false}
                     />
                   ))}
+                  <Line
+                    dataKey="daily"
+                    stroke="var(--color-daily)"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 4"
+                    dot={false}
+                    isAnimationActive={false}
+                  />
                 </LineChart>
               </ChartContainer>
             </CardContent>

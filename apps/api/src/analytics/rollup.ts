@@ -13,6 +13,7 @@ import { addDays, isoDay } from '../lib/dates'
 // the documented cost of snapshots).
 export async function runAnalyticsRollup(db: Db, now: Date = new Date()): Promise<{ day: string }> {
   const yesterday = isoDay(addDays(now, -1))
+  const wauStart = isoDay(addDays(now, -7)) // 7-day window ending yesterday
   const mauStart = isoDay(addDays(now, -30)) // 30-day window ending yesterday
   const departedDay = isoDay(addDays(now, -31)) // last-seen day now 30 full days silent
   const pruneBefore = isoDay(addDays(now, -90))
@@ -35,6 +36,19 @@ export async function runAnalyticsRollup(db: Db, now: Date = new Date()): Promis
       GROUP BY tenant_id, extension_id, browser, coalesce(${column}, 'unknown')
     `)
   }
+
+  // Rolling 7-day WAU ending yesterday — from raw pings, not the mutable
+  // last_seen pointer, so it's exact and immune to the same-day snapshot
+  // undercount MAU carries. The window always sits inside the 90-day raw
+  // window, and the permanent row is written while raw is still here.
+  await db.run(sql`
+    INSERT INTO analytics_daily (tenant_id, extension_id, date, browser, dim, dim_value, wau)
+    SELECT tenant_id, extension_id, ${yesterday}, browser, 'total', '', count(DISTINCT install_id)
+    FROM analytics_pings WHERE date >= ${wauStart} AND date <= ${yesterday}
+    GROUP BY tenant_id, extension_id, browser
+    ON CONFLICT (extension_id, date, browser, dim, dim_value)
+    DO UPDATE SET wau = excluded.wau
+  `)
 
   // Installs: first_seen is immutable, so this recomputes exactly.
   await db.run(sql`

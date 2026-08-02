@@ -522,6 +522,12 @@ export const analyticsDaily = sqliteTable(
     dim: text('dim', { enum: ['total', 'version', 'country', 'language', 'os'] }).notNull(),
     dimValue: text('dim_value').notNull(),
     dau: integer('dau').notNull().default(0),
+    // Rolling 7-day distinct actives ending on `date`, computed from raw
+    // pings (immutable, so exact — no snapshot drift). The headline
+    // activity metric: matches the CWS console's weekly users, and a 7-day
+    // window absorbs the day-level undercount inherent to event-driven
+    // pings (a running-but-idle browser can miss a day, rarely a week).
+    wau: integer('wau').notNull().default(0),
     installs: integer('installs').notNull().default(0),
     // Attributed to the last-seen day and only written once confirmed
     // (30 days of silence) — the chart's trailing month stays blank.

@@ -176,6 +176,13 @@
       "when": 1785583520008,
       "tag": "0024_giant_jean_grey",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1785633918701,
+      "tag": "0025_cheerful_marvel_zombies",
+      "breakpoints": true
     }
   ]
 }

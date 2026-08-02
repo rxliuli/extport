@@ -1,0 +1,1 @@
+ALTER TABLE `analytics_daily` ADD `wau` integer DEFAULT 0 NOT NULL;

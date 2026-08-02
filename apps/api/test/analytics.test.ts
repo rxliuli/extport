@@ -133,6 +133,9 @@ describe('analytics rollup', () => {
       // Duplicate raced row for i1 — must not inflate dau.
       { installId: 'i1', date: day(-1), browser: 'chrome', version: '1.0.1', country: 'us', language: 'en-us', os: 'macos' },
       { installId: 'i2', date: day(-1), browser: 'chrome', version: '1.0.1', country: 'de', language: 'de', os: 'windows' },
+      // i4's only ping this week — inside the 7-day WAU window but not
+      // yesterday, so it counts for wau and not dau.
+      { installId: 'i4', date: day(-5), browser: 'firefox', version: '1.0.0', country: 'fr', language: 'fr', os: 'linux' },
       // Ancient ping past the 90-day window — pruned by the rollup.
       { installId: 'i3', date: day(-120), browser: 'chrome', version: '1.0.0', country: null, language: null, os: null },
     ]
@@ -152,10 +155,11 @@ describe('analytics rollup', () => {
 
     // Headline, chrome: dau counts distinct installs (raced duplicate
     // ignored), installs from first_seen, MAU covers i1+i2 but not the
-    // departed i3.
-    expect(find(day(-1), 'chrome', 'total', '')).toMatchObject({ dau: 2, installs: 1, mau: 2, departures: 0 })
-    // Firefox had no pings yesterday but one install in the MAU window.
-    expect(find(day(-1), 'firefox', 'total', '')).toMatchObject({ dau: 0, installs: 0, mau: 1 })
+    // departed i3. WAU equals dau here — both actives pinged yesterday.
+    expect(find(day(-1), 'chrome', 'total', '')).toMatchObject({ dau: 2, wau: 2, installs: 1, mau: 2, departures: 0 })
+    // Firefox had no pings yesterday but pinged within the week — exactly
+    // the running-but-idle install WAU exists to keep counting.
+    expect(find(day(-1), 'firefox', 'total', '')).toMatchObject({ dau: 0, wau: 1, installs: 0, mau: 1 })
     // Departure confirmed today, written into the historical last-seen row.
     expect(find(day(-31), 'chrome', 'total', '')).toMatchObject({ departures: 1, dau: 0 })
 
@@ -166,9 +170,9 @@ describe('analytics rollup', () => {
     expect(find(day(-1), 'chrome', 'language', 'en-us')).toMatchObject({ dau: 1 })
     expect(find(day(-1), 'chrome', 'os', 'windows')).toMatchObject({ dau: 1 })
 
-    // The 90-day prune removed the ancient raw row, kept yesterday's.
+    // The 90-day prune removed the ancient raw row, kept this week's.
     const raw = await db.select().from(analyticsPings).where(eq(analyticsPings.extensionId, extension.id))
-    expect(raw.map((r) => r.date).sort()).toEqual([day(-1), day(-1), day(-1)])
+    expect(raw.map((r) => r.date).sort()).toEqual([day(-5), day(-1), day(-1), day(-1)])
   })
 
   it('is idempotent — re-running produces identical rows', async () => {
