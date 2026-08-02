@@ -118,6 +118,42 @@ tenant would not be. The escape hatch when a whale arrives: move the
 raw buffer to a queue (or WAE), keep everything else — the read model
 never changes.
 
+### Cost model and the bundled-not-metered decision (2026-08-02)
+
+Revisited when the fleet's first full-volume day (~16k pings) made
+analytics dominate the D1 query metrics and raised the SaaS question:
+should analytics be a gated/paid toggle, or can plans simply absorb it?
+The unit economics, worked out against Workers Paid quotas:
+
+- One daily-active install costs ~7.5 rows written/day (1 ping insert
+  ≈ 3 rows with indexes, 1 installs upsert ≈ 4.5 — index writes count
+  as rows written) ≈ **225 rows written per DAU-month**.
+- The plan includes 50M rows written/month → the write meter is the
+  binding one and covers **~220k fleet-wide DAU before the first
+  overage dollar**. Overage is linear ($1/M rows): ~**$0.23 per 1,000
+  DAU per month**, so a 100k-DAU tenant costs ~$23/month — and that
+  tenant is exactly whose licensing revenue is worth the most. Reads
+  are three orders of magnitude from mattering (25B/month included vs
+  ~2M/day used, rollup scans included).
+
+Decision: **analytics ships bundled in plans, never metered or gated
+server-side.** It is already opt-in at the integration level
+(`extport: { analytics: true }` per extension; no flag → zero pings →
+zero cost), and a paid toggle would spend pricing complexity and a new
+config surface to save cents. WAE migration was re-examined and
+re-rejected on the same grounds as above, now stronger: the exactness
+guarantees added since (WAU/MAU/version shares all
+`count(DISTINCT install_id)` over raw) are incompatible with WAE's
+sampling, and `installs` (point lookups + mutations, the *larger* write
+item) can't move to an append-only store anyway.
+
+Re-evaluation trigger: **monthly rows written crossing 50% of the
+included quota** (~110k fleet DAU). First lever at that point is index
+audit on `analytics_installs` (indexes are most of its 4.5× write
+multiplier), then the raw-buffer escape hatch — paired, if it's a
+single whale tenant, with a DAU-tiered pricing plan introduced at the
+same moment. Engineering and pricing move together; neither moves now.
+
 ## What the four consoles offer (surveyed 2026-07-30)
 
 | | Metrics | Dimensions | Ranges | Export/API |
