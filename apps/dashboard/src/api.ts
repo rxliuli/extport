@@ -181,8 +181,7 @@ export interface AnalyticsSeriesRow {
 }
 
 export interface AnalyticsOverview {
-  activeInstalls: number
-  /** Latest-day rolling 7-day actives — the denominator for version shares. */
+  /** Latest-day rolling 7-day actives — the one activity figure every surface shows. */
   weeklyActives: number
   allTimeInstalls: number
   versions: { version: string; weeklyUsers: number }[]
@@ -190,7 +189,7 @@ export interface AnalyticsOverview {
 
 /** Same idea as AnalyticsOverview but summed across every extension — no version breakdown, see the API's /v1/analytics/fleet/overview. */
 export interface FleetAnalyticsOverview {
-  activeInstalls: number
+  weeklyActives: number
   allTimeInstalls: number
   extensionsReporting: number
 }
@@ -199,7 +198,7 @@ export interface FleetAnalyticsOverview {
 export interface FleetExtensionAnalytics {
   extensionId: string
   name: string
-  activeInstalls: number
+  weeklyActives: number
   allTimeInstalls: number
 }
 

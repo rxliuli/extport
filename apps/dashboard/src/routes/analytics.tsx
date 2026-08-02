@@ -35,7 +35,7 @@ function AnalyticsPage() {
       <h2 className="text-2xl font-bold tracking-tight">Analytics</h2>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Active installs" hint="seen in the last 30 days" value={overview ? String(overview.activeInstalls) : '—'} />
+        <StatCard label="Weekly active users" hint="rolling 7 days, same as the chart" value={overview ? String(overview.weeklyActives) : '—'} />
         <StatCard label="All-time installs" value={overview ? String(overview.allTimeInstalls) : '—'} />
         <StatCard label="Extensions reporting" value={overview ? String(overview.extensionsReporting) : '—'} />
       </div>
@@ -120,7 +120,7 @@ function AnalyticsPage() {
       <Card>
         <CardHeader>
           <CardTitle>By extension</CardTitle>
-          <CardDescription>Every extension reporting analytics, ranked by active installs.</CardDescription>
+          <CardDescription>Every extension reporting analytics, ranked by weekly actives.</CardDescription>
         </CardHeader>
         <CardContent>
           {extensionsPending ? (
@@ -132,7 +132,7 @@ function AnalyticsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Extension</TableHead>
-                  <TableHead>Active installs</TableHead>
+                  <TableHead>Weekly actives</TableHead>
                   <TableHead>All-time installs</TableHead>
                 </TableRow>
               </TableHeader>
@@ -148,7 +148,7 @@ function AnalyticsPage() {
                         {e.name}
                       </Link>
                     </TableCell>
-                    <TableCell>{e.activeInstalls}</TableCell>
+                    <TableCell>{e.weeklyActives}</TableCell>
                     <TableCell className="text-muted-foreground">{e.allTimeInstalls}</TableCell>
                   </TableRow>
                 ))}

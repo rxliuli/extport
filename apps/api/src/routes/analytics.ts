@@ -173,7 +173,7 @@ analyticsTenantRoutes.get(
   describeRoute({
     summary: 'Analytics overview',
     description:
-      'Active installs, all-time installs, and the current version distribution — all derived from the same rollup /series reads, so this can never disagree with the charts. Empty until the first nightly rollup runs for this extension (never live-queried install state, which used to be able to show numbers the charts had no way to display yet).',
+      'Weekly actives, all-time installs, and the current version distribution — all derived from the same rollup /series reads, so this can never disagree with the charts. Empty until the first nightly rollup runs for this extension (never live-queried install state, which used to be able to show numbers the charts had no way to display yet).',
     responses: { 200: { description: 'OK' }, 404: { description: 'Extension not found' } },
   }),
   async (c) => {
@@ -187,13 +187,13 @@ analyticsTenantRoutes.get(
       .where(and(eq(analyticsDaily.extensionId, extension.id), eq(analyticsDaily.dim, 'total')))
       .orderBy(desc(analyticsDaily.date))
       .limit(1)
-    if (!latest) return c.json({ activeInstalls: 0, weeklyActives: 0, allTimeInstalls: 0, versions: [] })
+    if (!latest) return c.json({ weeklyActives: 0, allTimeInstalls: 0, versions: [] })
 
+    // WAU is the only activity figure any surface shows — one metric, the
+    // same one the chart plots, exact from raw pings. (mau is still rolled
+    // up nightly as a permanent record, just not displayed.)
     const [active] = await db
-      .select({
-        activeInstalls: sql<number>`sum(${analyticsDaily.mau})`,
-        weeklyActives: sql<number>`sum(${analyticsDaily.wau})`,
-      })
+      .select({ weeklyActives: sql<number>`sum(${analyticsDaily.wau})` })
       .from(analyticsDaily)
       .where(and(eq(analyticsDaily.extensionId, extension.id), eq(analyticsDaily.dim, 'total'), eq(analyticsDaily.date, latest.date)))
     const [allTime] = await db
@@ -213,7 +213,6 @@ analyticsTenantRoutes.get(
       .orderBy(sql`sum(${analyticsDaily.wau}) desc`)
 
     return c.json({
-      activeInstalls: active?.activeInstalls ?? 0,
       weeklyActives: active?.weeklyActives ?? 0,
       allTimeInstalls: allTime?.allTimeInstalls ?? 0,
       versions,
@@ -248,10 +247,10 @@ analyticsTenantRoutes.get(
       .where(and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total')))
       .orderBy(desc(analyticsDaily.date))
       .limit(1)
-    if (!latest) return c.json({ activeInstalls: 0, allTimeInstalls: 0, extensionsReporting: 0 })
+    if (!latest) return c.json({ weeklyActives: 0, allTimeInstalls: 0, extensionsReporting: 0 })
 
     const [active] = await db
-      .select({ activeInstalls: sql<number>`sum(${analyticsDaily.mau})` })
+      .select({ weeklyActives: sql<number>`sum(${analyticsDaily.wau})` })
       .from(analyticsDaily)
       .where(and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total'), eq(analyticsDaily.date, latest.date)))
     const [allTime] = await db
@@ -264,7 +263,7 @@ analyticsTenantRoutes.get(
       .where(and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total')))
 
     return c.json({
-      activeInstalls: active?.activeInstalls ?? 0,
+      weeklyActives: active?.weeklyActives ?? 0,
       allTimeInstalls: allTime?.allTimeInstalls ?? 0,
       extensionsReporting: reporting?.extensionsReporting ?? 0,
     })
@@ -312,7 +311,7 @@ analyticsTenantRoutes.get(
   describeRoute({
     summary: 'Per-extension analytics ranking',
     description:
-      'One row per extension that has ever reported analytics, sorted by active installs — the "list" half of the fleet-wide page, since per-extension detail belongs in a table, not as more chart lines. Derived from the same rollup every other analytics endpoint reads, so an extension only appears once its own first nightly rollup has run, same as its own Analytics tab would show.',
+      'One row per extension that has ever reported analytics, sorted by weekly actives — the "list" half of the fleet-wide page, since per-extension detail belongs in a table, not as more chart lines. Derived from the same rollup every other analytics endpoint reads, so an extension only appears once its own first nightly rollup has run, same as its own Analytics tab would show.',
     responses: { 200: { description: 'OK' } },
   }),
   async (c) => {
@@ -322,12 +321,12 @@ analyticsTenantRoutes.get(
     const extensionRows = await db.select({ id: extensions.id, name: extensions.name }).from(extensions).where(eq(extensions.tenantId, tenant.id))
 
     // Fetched once and reduced here rather than per-extension SQL: each
-    // extension's "active" figure needs sum(mau) on *its own* latest
+    // extension's weekly-actives figure needs sum(wau) on *its own* latest
     // rolled-up date specifically (not a shared tenant-wide date — a
     // newly-onboarded extension can lag behind the rest of the fleet by a
     // rollup cycle or more), which isn't a single GROUP BY.
     const totalRows = await db
-      .select({ extensionId: analyticsDaily.extensionId, date: analyticsDaily.date, mau: analyticsDaily.mau, installs: analyticsDaily.installs })
+      .select({ extensionId: analyticsDaily.extensionId, date: analyticsDaily.date, wau: analyticsDaily.wau, installs: analyticsDaily.installs })
       .from(analyticsDaily)
       .where(and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total')))
 
@@ -341,21 +340,21 @@ analyticsTenantRoutes.get(
     const activeById = new Map<string, number>()
     for (const row of totalRows) {
       if (row.date !== latestDateById.get(row.extensionId)) continue
-      activeById.set(row.extensionId, (activeById.get(row.extensionId) ?? 0) + row.mau)
+      activeById.set(row.extensionId, (activeById.get(row.extensionId) ?? 0) + row.wau)
     }
 
     const items = extensionRows
       .map((e) => ({
         extensionId: e.id,
         name: e.name,
-        activeInstalls: activeById.get(e.id) ?? 0,
+        weeklyActives: activeById.get(e.id) ?? 0,
         allTimeInstalls: allTimeById.get(e.id) ?? 0,
       }))
       // Extensions that have never shipped @extport/sdk/analytics, or
       // shipped it but haven't had a first rollup yet, would otherwise pad
       // the list with rows of zeros.
       .filter((e) => e.allTimeInstalls > 0)
-      .sort((a, b) => b.activeInstalls - a.activeInstalls)
+      .sort((a, b) => b.weeklyActives - a.weeklyActives)
 
     return c.json({ extensions: items })
   },

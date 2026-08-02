@@ -8,9 +8,9 @@ import { addDays, isoDay } from '../lib/dates'
 //
 // Processes yesterday only. A missed night leaves a hole that can be
 // repaired manually by calling this with `now` set to the day after the
-// hole while the raw window still covers it (dau/installs recompute
-// exactly; the mau/departure snapshots drift with install state, which is
-// the documented cost of snapshots).
+// hole while the raw window still covers it (dau/wau/mau/installs
+// recompute exactly; only the departure snapshot drifts with install
+// state, the documented cost of deriving it from last_seen).
 export async function runAnalyticsRollup(db: Db, now: Date = new Date()): Promise<{ day: string }> {
   const yesterday = isoDay(addDays(now, -1))
   const wauStart = isoDay(addDays(now, -7)) // 7-day window ending yesterday
@@ -74,12 +74,17 @@ export async function runAnalyticsRollup(db: Db, now: Date = new Date()): Promis
     DO UPDATE SET installs = excluded.installs
   `)
 
-  // Rolling 30-day MAU as of yesterday — a snapshot, because cross-day
-  // uniques can't be rebuilt after the raw window closes.
+  // Rolling 30-day MAU as of yesterday — from raw pings, exactly like WAU
+  // (the 30-day window always sits inside the 90-day raw window). It used
+  // to count analytics_installs.last_seen, whose forward drift between
+  // midnight and this cron silently dropped same-day actives from the
+  // snapshot. Nothing displays mau today (every surface reads wau), but
+  // cross-day uniques can't be rebuilt after the raw window closes, so
+  // the permanent record keeps accruing.
   await db.run(sql`
     INSERT INTO analytics_daily (tenant_id, extension_id, date, browser, dim, dim_value, mau)
-    SELECT tenant_id, extension_id, ${yesterday}, browser, 'total', '', count(*)
-    FROM analytics_installs WHERE last_seen >= ${mauStart} AND last_seen <= ${yesterday}
+    SELECT tenant_id, extension_id, ${yesterday}, browser, 'total', '', count(DISTINCT install_id)
+    FROM analytics_pings WHERE date >= ${mauStart} AND date <= ${yesterday}
     GROUP BY tenant_id, extension_id, browser
     ON CONFLICT (extension_id, date, browser, dim, dim_value)
     DO UPDATE SET mau = excluded.mau
