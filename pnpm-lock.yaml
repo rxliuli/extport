@@ -279,7 +279,6 @@ importers:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@26.1.1)(vite@8.1.5(@types/node@26.1.1)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))
-    optionalDependencies:
       wxt:
         specifier: ^0.20.13
         version: 0.20.27(@types/node@26.1.1)(jiti@2.7.0)(rolldown@1.2.0)(supports-color@10.2.2)(tsx@4.23.1)(yaml@2.9.0)
@@ -6504,7 +6503,6 @@ snapshots:
     dependencies:
       defu: 6.1.7
       many-keys-map: 3.0.3
-    optional: true
 
   '@aklinker1/rollup-plugin-visualizer@5.12.0':
     dependencies:
@@ -6512,7 +6510,6 @@ snapshots:
       picomatch: 2.3.2
       source-map: 0.7.6
       yargs: 17.7.3
-    optional: true
 
   '@astrojs/check@0.9.9(prettier@3.9.5)(typescript@6.0.3)':
     dependencies:
@@ -6805,8 +6802,7 @@ snapshots:
     dependencies:
       '@babel/types': 7.29.7
 
-  '@babel/runtime@7.28.2':
-    optional: true
+  '@babel/runtime@7.28.2': {}
 
   '@babel/template@7.29.7':
     dependencies:
@@ -6924,11 +6920,9 @@ snapshots:
 
   '@date-fns/tz@1.5.0': {}
 
-  '@devicefarmer/adbkit-logcat@2.1.3':
-    optional: true
+  '@devicefarmer/adbkit-logcat@2.1.3': {}
 
-  '@devicefarmer/adbkit-monkey@1.2.1':
-    optional: true
+  '@devicefarmer/adbkit-monkey@1.2.1': {}
 
   '@devicefarmer/adbkit@3.3.8(supports-color@10.2.2)':
     dependencies:
@@ -6941,7 +6935,6 @@ snapshots:
       split: 1.0.1
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   '@drizzle-team/brocli@0.10.2': {}
 
@@ -7649,20 +7642,17 @@ snapshots:
   '@pagefind/windows-x64@1.5.2':
     optional: true
 
-  '@pnpm/config.env-replace@1.1.0':
-    optional: true
+  '@pnpm/config.env-replace@1.1.0': {}
 
   '@pnpm/network.ca-file@1.0.2':
     dependencies:
       graceful-fs: 4.2.10
-    optional: true
 
   '@pnpm/npm-conf@3.0.3':
     dependencies:
       '@pnpm/config.env-replace': 1.1.0
       '@pnpm/network.ca-file': 1.0.2
       config-chain: 1.1.13
-    optional: true
 
   '@poppinss/colors@4.1.6':
     dependencies:
@@ -8842,13 +8832,10 @@ snapshots:
   '@types/filesystem@0.0.36':
     dependencies:
       '@types/filewriter': 0.0.33
-    optional: true
 
-  '@types/filewriter@0.0.33':
-    optional: true
+  '@types/filewriter@0.0.33': {}
 
-  '@types/har-format@1.2.16':
-    optional: true
+  '@types/har-format@1.2.16': {}
 
   '@types/hast@3.0.5':
     dependencies:
@@ -8864,8 +8851,7 @@ snapshots:
 
   '@types/mdx@2.0.14': {}
 
-  '@types/minimatch@3.0.5':
-    optional: true
+  '@types/minimatch@3.0.5': {}
 
   '@types/ms@2.1.0': {}
 
@@ -8899,8 +8885,7 @@ snapshots:
 
   '@types/use-sync-external-store@0.0.6': {}
 
-  '@types/webextension-polyfill@0.12.5':
-    optional: true
+  '@types/webextension-polyfill@0.12.5': {}
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     optional: true
@@ -9076,34 +9061,28 @@ snapshots:
     dependencies:
       '@types/webextension-polyfill': 0.12.5
       lodash.merge: 4.6.2
-    optional: true
 
   '@webext-core/isolated-element@1.1.5':
     dependencies:
       is-potential-custom-element-name: 1.0.1
-    optional: true
 
-  '@webext-core/match-patterns@1.1.0':
-    optional: true
+  '@webext-core/match-patterns@1.1.0': {}
 
   '@wxt-dev/browser@0.1.43':
     dependencies:
       '@types/filesystem': 0.0.36
       '@types/har-format': 1.2.16
-    optional: true
 
   '@wxt-dev/browser@0.2.2':
     dependencies:
       '@types/filesystem': 0.0.36
       '@types/har-format': 1.2.16
-    optional: true
 
   '@wxt-dev/storage@1.2.8':
     dependencies:
       '@wxt-dev/browser': 0.1.43
       async-mutex: 0.5.0
       dequal: 2.0.3
-    optional: true
 
   '@yuku-codegen/binding-darwin-arm64@0.7.1':
     optional: true
@@ -9179,8 +9158,7 @@ snapshots:
 
   acorn@8.17.0: {}
 
-  adm-zip@0.5.18:
-    optional: true
+  adm-zip@0.5.18: {}
 
   ajv-draft-04@1.0.0(ajv@8.20.0):
     optionalDependencies:
@@ -9204,24 +9182,20 @@ snapshots:
   ansi-align@3.0.1:
     dependencies:
       string-width: 4.2.3
-    optional: true
 
   ansi-escapes@7.3.0:
     dependencies:
       environment: 1.1.0
-    optional: true
 
   ansi-regex@5.0.1: {}
 
-  ansi-regex@6.2.2:
-    optional: true
+  ansi-regex@6.2.2: {}
 
   ansi-styles@4.3.0:
     dependencies:
       color-convert: 2.0.1
 
-  ansi-styles@6.2.3:
-    optional: true
+  ansi-styles@6.2.3: {}
 
   ansis@4.3.1: {}
 
@@ -9240,13 +9214,11 @@ snapshots:
 
   aria-query@5.3.2: {}
 
-  array-differ@4.0.0:
-    optional: true
+  array-differ@4.0.0: {}
 
   array-iterate@2.0.1: {}
 
-  array-union@3.0.1:
-    optional: true
+  array-union@3.0.1: {}
 
   assertion-error@2.0.1: {}
 
@@ -9354,19 +9326,15 @@ snapshots:
   async-mutex@0.5.0:
     dependencies:
       tslib: 2.8.1
-    optional: true
 
-  async@3.2.6:
-    optional: true
+  async@3.2.6: {}
 
-  atomic-sleep@1.0.0:
-    optional: true
+  atomic-sleep@1.0.0: {}
 
   atomically@2.1.1:
     dependencies:
       stubborn-fs: 2.0.0
       when-exit: 2.1.5
-    optional: true
 
   axobject-query@4.1.0: {}
 
@@ -9381,8 +9349,7 @@ snapshots:
 
   bail@2.0.2: {}
 
-  balanced-match@1.0.2:
-    optional: true
+  balanced-match@1.0.2: {}
 
   baseline-browser-mapping@2.10.43: {}
 
@@ -9396,13 +9363,11 @@ snapshots:
 
   blake3-wasm@2.1.5: {}
 
-  bluebird@3.7.2:
-    optional: true
+  bluebird@3.7.2: {}
 
   boolbase@1.0.0: {}
 
-  boolbase@2.0.0:
-    optional: true
+  boolbase@2.0.0: {}
 
   boxen@8.0.1:
     dependencies:
@@ -9414,13 +9379,11 @@ snapshots:
       type-fest: 4.41.0
       widest-line: 5.0.0
       wrap-ansi: 9.0.2
-    optional: true
 
   brace-expansion@1.1.16:
     dependencies:
       balanced-match: 1.0.2
       concat-map: 0.0.1
-    optional: true
 
   browserslist@4.28.6:
     dependencies:
@@ -9430,15 +9393,13 @@ snapshots:
       node-releases: 2.0.51
       update-browserslist-db: 1.2.3(browserslist@4.28.6)
 
-  buffer-equal-constant-time@1.0.1:
-    optional: true
+  buffer-equal-constant-time@1.0.1: {}
 
   buffer-from@1.1.2: {}
 
   bundle-name@4.1.0:
     dependencies:
       run-applescript: 7.1.0
-    optional: true
 
   c12@3.3.4(magicast@0.5.3):
     dependencies:
@@ -9456,15 +9417,12 @@ snapshots:
       rc9: 3.0.1
     optionalDependencies:
       magicast: 0.5.3
-    optional: true
 
-  cac@6.7.14:
-    optional: true
+  cac@6.7.14: {}
 
   cac@7.0.0: {}
 
-  camelcase@8.0.0:
-    optional: true
+  camelcase@8.0.0: {}
 
   caniuse-lite@1.0.30001806: {}
 
@@ -9472,8 +9430,7 @@ snapshots:
 
   chai@6.2.2: {}
 
-  chalk@5.6.2:
-    optional: true
+  chalk@5.6.2: {}
 
   character-entities-html4@2.1.0: {}
 
@@ -9499,7 +9456,6 @@ snapshots:
       lighthouse-logger: 2.0.2(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   ci-info@4.4.0: {}
 
@@ -9511,19 +9467,16 @@ snapshots:
     dependencies:
       clsx: 2.1.1
 
-  cli-boxes@3.0.0:
-    optional: true
+  cli-boxes@3.0.0: {}
 
   cli-cursor@5.0.0:
     dependencies:
       restore-cursor: 5.1.0
-    optional: true
 
   cli-truncate@5.2.0:
     dependencies:
       slice-ansi: 8.0.0
       string-width: 8.2.2
-    optional: true
 
   cliui@8.0.1:
     dependencies:
@@ -9548,15 +9501,12 @@ snapshots:
   commander@2.9.0:
     dependencies:
       graceful-readlink: 1.0.1
-    optional: true
 
-  commander@9.5.0:
-    optional: true
+  commander@9.5.0: {}
 
   common-ancestor-path@2.0.0: {}
 
-  concat-map@0.0.1:
-    optional: true
+  concat-map@0.0.1: {}
 
   concat-stream@1.6.2:
     dependencies:
@@ -9564,19 +9514,15 @@ snapshots:
       inherits: 2.0.4
       readable-stream: 2.3.8
       typedarray: 0.0.6
-    optional: true
 
-  confbox@0.1.8:
-    optional: true
+  confbox@0.1.8: {}
 
-  confbox@0.2.4:
-    optional: true
+  confbox@0.2.4: {}
 
   config-chain@1.1.13:
     dependencies:
       ini: 1.3.8
       proto-list: 1.2.4
-    optional: true
 
   configstore@7.1.0:
     dependencies:
@@ -9584,10 +9530,8 @@ snapshots:
       dot-prop: 9.0.0
       graceful-fs: 4.2.11
       xdg-basedir: 5.1.0
-    optional: true
 
-  consola@3.4.2:
-    optional: true
+  consola@3.4.2: {}
 
   convert-source-map@2.0.0: {}
 
@@ -9599,8 +9543,7 @@ snapshots:
 
   cookie@2.0.1: {}
 
-  core-util-is@1.0.3:
-    optional: true
+  core-util-is@1.0.3: {}
 
   crossws@0.3.5:
     dependencies:
@@ -9621,7 +9564,6 @@ snapshots:
       domhandler: 6.0.1
       domutils: 4.0.2
       nth-check: 3.0.1
-    optional: true
 
   css-selector-parser@3.3.0: {}
 
@@ -9637,8 +9579,7 @@ snapshots:
 
   css-what@6.2.2: {}
 
-  css-what@8.0.0:
-    optional: true
+  css-what@8.0.0: {}
 
   cssesc@3.0.0: {}
 
@@ -9646,8 +9587,7 @@ snapshots:
     dependencies:
       css-tree: 2.2.1
 
-  cssom@0.5.0:
-    optional: true
+  cssom@0.5.0: {}
 
   csstype@3.2.3: {}
 
@@ -9691,15 +9631,13 @@ snapshots:
 
   date-fns@4.4.0: {}
 
-  debounce@1.2.1:
-    optional: true
+  debounce@1.2.1: {}
 
   debug@4.3.7(supports-color@10.2.2):
     dependencies:
       ms: 2.1.3
     optionalDependencies:
       supports-color: 10.2.2
-    optional: true
 
   debug@4.4.3(supports-color@10.2.2):
     dependencies:
@@ -9713,23 +9651,18 @@ snapshots:
     dependencies:
       character-entities: 2.0.2
 
-  deep-extend@0.6.0:
-    optional: true
+  deep-extend@0.6.0: {}
 
-  default-browser-id@5.0.1:
-    optional: true
+  default-browser-id@5.0.1: {}
 
   default-browser@5.5.0:
     dependencies:
       bundle-name: 4.1.0
       default-browser-id: 5.0.1
-    optional: true
 
-  define-lazy-prop@2.0.0:
-    optional: true
+  define-lazy-prop@2.0.0: {}
 
-  define-lazy-prop@3.0.0:
-    optional: true
+  define-lazy-prop@3.0.0: {}
 
   defu@6.1.7: {}
 
@@ -9762,12 +9695,10 @@ snapshots:
       domelementtype: 3.0.0
       domhandler: 6.0.1
       entities: 8.0.0
-    optional: true
 
   domelementtype@2.3.0: {}
 
-  domelementtype@3.0.0:
-    optional: true
+  domelementtype@3.0.0: {}
 
   domhandler@5.0.3:
     dependencies:
@@ -9776,7 +9707,6 @@ snapshots:
   domhandler@6.0.1:
     dependencies:
       domelementtype: 3.0.0
-    optional: true
 
   domutils@3.2.2:
     dependencies:
@@ -9789,23 +9719,18 @@ snapshots:
       dom-serializer: 3.1.1
       domelementtype: 3.0.0
       domhandler: 6.0.1
-    optional: true
 
   dot-prop@9.0.0:
     dependencies:
       type-fest: 4.41.0
-    optional: true
 
   dotenv-expand@12.0.3:
     dependencies:
       dotenv: 16.6.1
-    optional: true
 
-  dotenv@16.6.1:
-    optional: true
+  dotenv@16.6.1: {}
 
-  dotenv@17.4.2:
-    optional: true
+  dotenv@17.4.2: {}
 
   drizzle-kit@0.31.10:
     dependencies:
@@ -9823,7 +9748,6 @@ snapshots:
   ecdsa-sig-formatter@1.0.11:
     dependencies:
       safe-buffer: 5.2.1
-    optional: true
 
   electron-to-chromium@1.5.393: {}
 
@@ -9832,8 +9756,7 @@ snapshots:
       '@emmetio/abbreviation': 2.3.3
       '@emmetio/css-abbreviation': 2.1.8
 
-  emoji-regex@10.6.0:
-    optional: true
+  emoji-regex@10.6.0: {}
 
   emoji-regex@8.0.0: {}
 
@@ -9848,19 +9771,15 @@ snapshots:
 
   entities@6.0.1: {}
 
-  entities@7.0.1:
-    optional: true
+  entities@7.0.1: {}
 
-  entities@8.0.0:
-    optional: true
+  entities@8.0.0: {}
 
-  environment@1.1.0:
-    optional: true
+  environment@1.1.0: {}
 
   error-ex@1.3.4:
     dependencies:
       is-arrayish: 0.2.1
-    optional: true
 
   error-stack-parser-es@1.0.5: {}
 
@@ -9868,8 +9787,7 @@ snapshots:
 
   es-toolkit@1.50.0: {}
 
-  es6-error@4.1.1:
-    optional: true
+  es6-error@4.1.1: {}
 
   esast-util-from-estree@2.0.0:
     dependencies:
@@ -9967,7 +9885,6 @@ snapshots:
       '@esbuild/win32-arm64': 0.27.7
       '@esbuild/win32-ia32': 0.27.7
       '@esbuild/win32-x64': 0.27.7
-    optional: true
 
   esbuild@0.28.1:
     optionalDependencies:
@@ -10000,11 +9917,9 @@ snapshots:
 
   escalade@3.2.0: {}
 
-  escape-goat@4.0.0:
-    optional: true
+  escape-goat@4.0.0: {}
 
-  escape-string-regexp@4.0.0:
-    optional: true
+  escape-string-regexp@4.0.0: {}
 
   escape-string-regexp@5.0.0: {}
 
@@ -10054,8 +9969,7 @@ snapshots:
       '@expressive-code/plugin-shiki': 0.44.1
       '@expressive-code/plugin-text-markers': 0.44.1
 
-  exsolve@1.1.0:
-    optional: true
+  exsolve@1.1.0: {}
 
   extend@3.0.2: {}
 
@@ -10063,8 +9977,7 @@ snapshots:
 
   fast-deep-equal@3.1.3: {}
 
-  fast-redact@3.5.0:
-    optional: true
+  fast-redact@3.5.0: {}
 
   fast-string-truncated-width@3.0.3: {}
 
@@ -10084,8 +9997,7 @@ snapshots:
 
   fflate@0.8.3: {}
 
-  filesize@11.0.22:
-    optional: true
+  filesize@11.0.22: {}
 
   firefox-profile@4.7.0:
     dependencies:
@@ -10094,7 +10006,6 @@ snapshots:
       ini: 4.1.3
       minimist: 1.2.8
       xml2js: 0.6.2
-    optional: true
 
   flattie@1.1.1: {}
 
@@ -10106,18 +10017,15 @@ snapshots:
     dependencies:
       tiny-inflate: 1.0.3
 
-  form-data-encoder@4.1.0:
-    optional: true
+  form-data-encoder@4.1.0: {}
 
-  formdata-node@6.0.3:
-    optional: true
+  formdata-node@6.0.3: {}
 
   fs-extra@11.4.0:
     dependencies:
       graceful-fs: 4.2.11
       jsonfile: 6.2.1
       universalify: 2.0.1
-    optional: true
 
   fsevents@2.3.3:
     optional: true
@@ -10130,19 +10038,16 @@ snapshots:
       when: 3.7.7
       which: 1.2.4
       winreg: 0.0.12
-    optional: true
 
   gensync@1.0.0-beta.2: {}
 
   get-caller-file@2.0.5: {}
 
-  get-east-asian-width@1.6.0:
-    optional: true
+  get-east-asian-width@1.6.0: {}
 
   get-nonce@1.0.1: {}
 
-  get-port-please@3.2.0:
-    optional: true
+  get-port-please@3.2.0: {}
 
   get-tsconfig@4.14.0:
     dependencies:
@@ -10156,29 +10061,23 @@ snapshots:
     dependencies:
       resolve-pkg-maps: 1.0.0
 
-  giget@3.3.0:
-    optional: true
+  giget@3.3.0: {}
 
   github-slugger@2.0.0: {}
 
-  glob-to-regexp@0.4.1:
-    optional: true
+  glob-to-regexp@0.4.1: {}
 
   global-directory@4.0.1:
     dependencies:
       ini: 4.1.1
-    optional: true
 
-  graceful-fs@4.2.10:
-    optional: true
+  graceful-fs@4.2.10: {}
 
   graceful-fs@4.2.11: {}
 
-  graceful-readlink@1.0.1:
-    optional: true
+  graceful-readlink@1.0.1: {}
 
-  growly@1.3.0:
-    optional: true
+  growly@1.3.0: {}
 
   h3@1.15.11:
     dependencies:
@@ -10407,7 +10306,6 @@ snapshots:
       domhandler: 5.0.3
       domutils: 3.2.2
       entities: 7.0.1
-    optional: true
 
   http-cache-semantics@4.2.0: {}
 
@@ -10417,29 +10315,23 @@ snapshots:
 
   idb-keyval@6.3.0: {}
 
-  immediate@3.0.6:
-    optional: true
+  immediate@3.0.6: {}
 
   immer@10.2.0: {}
 
   immer@11.1.15: {}
 
-  import-meta-resolve@4.2.0:
-    optional: true
+  import-meta-resolve@4.2.0: {}
 
   import-without-cache@0.4.0: {}
 
-  inherits@2.0.4:
-    optional: true
+  inherits@2.0.4: {}
 
-  ini@1.3.8:
-    optional: true
+  ini@1.3.8: {}
 
-  ini@4.1.1:
-    optional: true
+  ini@4.1.1: {}
 
-  ini@4.1.3:
-    optional: true
+  ini@4.1.3: {}
 
   inline-style-parser@0.2.7: {}
 
@@ -10450,7 +10342,6 @@ snapshots:
   is-absolute@0.1.7:
     dependencies:
       is-relative: 0.1.3
-    optional: true
 
   is-alphabetical@2.0.1: {}
 
@@ -10459,16 +10350,13 @@ snapshots:
       is-alphabetical: 2.0.1
       is-decimal: 2.0.1
 
-  is-arrayish@0.2.1:
-    optional: true
+  is-arrayish@0.2.1: {}
 
   is-decimal@2.0.1: {}
 
-  is-docker@2.2.1:
-    optional: true
+  is-docker@2.2.1: {}
 
-  is-docker@3.0.0:
-    optional: true
+  is-docker@3.0.0: {}
 
   is-docker@4.0.0: {}
 
@@ -10477,79 +10365,61 @@ snapshots:
   is-fullwidth-code-point@5.1.0:
     dependencies:
       get-east-asian-width: 1.6.0
-    optional: true
 
   is-hexadecimal@2.0.1: {}
 
-  is-in-ci@1.0.0:
-    optional: true
+  is-in-ci@1.0.0: {}
 
-  is-in-ssh@1.0.0:
-    optional: true
+  is-in-ssh@1.0.0: {}
 
   is-inside-container@1.0.0:
     dependencies:
       is-docker: 3.0.0
-    optional: true
 
   is-installed-globally@1.0.0:
     dependencies:
       global-directory: 4.0.1
       is-path-inside: 4.0.0
-    optional: true
 
-  is-npm@6.1.0:
-    optional: true
+  is-npm@6.1.0: {}
 
-  is-path-inside@4.0.0:
-    optional: true
+  is-path-inside@4.0.0: {}
 
   is-plain-obj@4.1.0: {}
 
   is-plain-object@2.0.4:
     dependencies:
       isobject: 3.0.1
-    optional: true
 
-  is-potential-custom-element-name@1.0.1:
-    optional: true
+  is-potential-custom-element-name@1.0.1: {}
 
-  is-primitive@3.0.1:
-    optional: true
+  is-primitive@3.0.1: {}
 
-  is-relative@0.1.3:
-    optional: true
+  is-relative@0.1.3: {}
 
   is-wsl@2.2.0:
     dependencies:
       is-docker: 2.2.1
-    optional: true
 
   is-wsl@3.1.1:
     dependencies:
       is-inside-container: 1.0.0
-    optional: true
 
-  isarray@1.0.0:
-    optional: true
+  isarray@1.0.0: {}
 
   isbot@5.2.1: {}
 
-  isexe@1.1.2:
-    optional: true
+  isexe@1.1.2: {}
 
-  isexe@2.0.0:
-    optional: true
+  isexe@2.0.0: {}
 
-  isobject@3.0.1:
-    optional: true
+  isobject@3.0.1: {}
 
   jiti@2.7.0: {}
 
   js-tokens@4.0.0: {}
 
-  js-tokens@9.0.1:
-    optional: true
+  js-tokens@9.0.1: {}
 
   js-yaml@4.3.0:
     dependencies:
@@ -10557,8 +10427,7 @@ snapshots:
 
   jsesc@3.1.0: {}
 
-  json-parse-even-better-errors@3.0.2:
-    optional: true
+  json-parse-even-better-errors@3.0.2: {}
 
   json-schema-traverse@1.0.0: {}
 
@@ -10573,7 +10442,6 @@ snapshots:
       universalify: 2.0.1
     optionalDependencies:
       graceful-fs: 4.2.11
-    optional: true
 
   jsonwebtoken@9.0.3:
     dependencies:
@@ -10587,7 +10455,6 @@ snapshots:
       lodash.once: 4.1.1
       ms: 2.1.3
       semver: 7.8.5
-    optional: true
 
   jszip@3.10.1:
     dependencies:
@@ -10595,40 +10462,33 @@ snapshots:
       pako: 1.0.11
       readable-stream: 2.3.8
       setimmediate: 1.0.5
-    optional: true
 
   jwa@2.0.1:
     dependencies:
       buffer-equal-constant-time: 1.0.1
       ecdsa-sig-formatter: 1.0.11
       safe-buffer: 5.2.1
-    optional: true
 
   jws@4.0.1:
     dependencies:
       jwa: 2.0.1
       safe-buffer: 5.2.1
-    optional: true
 
-  kleur@3.0.3:
-    optional: true
+  kleur@3.0.3: {}
 
   kleur@4.1.5: {}
 
   klona@2.0.6: {}
 
-  ky@1.14.3:
-    optional: true
+  ky@1.14.3: {}
 
   latest-version@9.0.0:
     dependencies:
       package-json: 10.0.1
-    optional: true
 
   lie@3.3.0:
     dependencies:
       immediate: 3.0.6
-    optional: true
 
   lighthouse-logger@2.0.2(supports-color@10.2.2):
     dependencies:
@@ -10636,7 +10496,6 @@ snapshots:
       marky: 1.3.0
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   lightningcss-android-arm64@1.32.0:
     optional: true
@@ -10687,8 +10546,7 @@ snapshots:
       lightningcss-win32-arm64-msvc: 1.32.0
       lightningcss-win32-x64-msvc: 1.32.0
 
-  lines-and-columns@2.0.4:
-    optional: true
+  lines-and-columns@2.0.4: {}
 
   linkedom@0.18.13:
     dependencies:
@@ -10697,7 +10555,6 @@ snapshots:
       html-escaper: 3.0.3
       htmlparser2: 10.1.0
       uhyphen: 0.2.0
-    optional: true
 
   listr2@10.2.2:
     dependencies:
@@ -10706,38 +10563,28 @@ snapshots:
       log-update: 6.1.0
       rfdc: 1.4.1
       wrap-ansi: 10.0.0
-    optional: true
 
   local-pkg@1.2.1:
     dependencies:
       mlly: 1.8.2
       pkg-types: 2.3.1
       quansync: 0.2.11
-    optional: true
 
-  lodash.includes@4.3.0:
-    optional: true
+  lodash.includes@4.3.0: {}
 
-  lodash.isboolean@3.0.3:
-    optional: true
+  lodash.isboolean@3.0.3: {}
 
-  lodash.isinteger@4.0.4:
-    optional: true
+  lodash.isinteger@4.0.4: {}
 
-  lodash.isnumber@3.0.3:
-    optional: true
+  lodash.isnumber@3.0.3: {}
 
-  lodash.isplainobject@4.0.6:
-    optional: true
+  lodash.isplainobject@4.0.6: {}
 
-  lodash.isstring@4.0.1:
-    optional: true
+  lodash.isstring@4.0.1: {}
 
-  lodash.merge@4.6.2:
-    optional: true
+  lodash.merge@4.6.2: {}
 
-  lodash.once@4.1.1:
-    optional: true
+  lodash.once@4.1.1: {}
 
   log-update@6.1.0:
     dependencies:
@@ -10746,7 +10593,6 @@ snapshots:
       slice-ansi: 7.1.2
       strip-ansi: 7.2.0
       wrap-ansi: 9.0.2
-    optional: true
 
   longest-streak@3.1.0: {}
 
@@ -10770,18 +10616,15 @@ snapshots:
       '@babel/types': 7.29.7
       source-map-js: 1.2.1
 
-  make-error@1.3.6:
-    optional: true
+  make-error@1.3.6: {}
 
-  many-keys-map@3.0.3:
-    optional: true
+  many-keys-map@3.0.3: {}
 
   markdown-extensions@2.0.0: {}
 
   markdown-table@3.0.4: {}
 
-  marky@1.3.0:
-    optional: true
+  marky@1.3.0: {}
 
   mdast-util-definitions@6.0.0:
     dependencies:
@@ -11244,8 +11087,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  mimic-function@5.0.1:
-    optional: true
+  mimic-function@5.0.1: {}
 
   miniflare@4.20260714.0:
     dependencies:
@@ -11262,10 +11104,8 @@ snapshots:
   minimatch@3.1.5:
     dependencies:
       brace-expansion: 1.1.16
-    optional: true
 
-  minimist@1.2.8:
-    optional: true
+  minimist@1.2.8: {}
 
   mlly@1.8.2:
     dependencies:
@@ -11273,7 +11113,6 @@ snapshots:
       pathe: 2.0.3
       pkg-types: 1.3.1
       ufo: 1.6.4
-    optional: true
 
   mrmime@2.0.1: {}
 
@@ -11287,10 +11126,8 @@ snapshots:
       array-differ: 4.0.0
       array-union: 3.0.1
       minimatch: 3.1.5
-    optional: true
 
-  nano-spawn@2.1.0:
-    optional: true
+  nano-spawn@2.1.0: {}
 
   nanoid@3.3.16: {}
 
@@ -11301,7 +11138,6 @@ snapshots:
   nanospinner@1.2.2:
     dependencies:
       picocolors: 1.1.1
-    optional: true
 
   neotraverse@1.0.1: {}
 
@@ -11316,8 +11152,7 @@ snapshots:
 
   node-fetch-native@1.6.7: {}
 
-  node-forge@1.4.0:
-    optional: true
+  node-forge@1.4.0: {}
 
   node-mock-http@1.0.4: {}
 
@@ -11329,7 +11164,6 @@ snapshots:
       shellwords: 0.1.1
       uuid: 8.3.2
       which: 2.0.2
-    optional: true
 
   node-releases@2.0.51: {}
 
@@ -11342,14 +11176,12 @@ snapshots:
   nth-check@3.0.1:
     dependencies:
       boolbase: 2.0.0
-    optional: true
 
   nypm@0.6.8:
     dependencies:
       citty: 0.2.2
       pathe: 2.0.3
       tinyexec: 1.2.4
-    optional: true
 
   obug@2.1.4: {}
 
@@ -11361,13 +11193,11 @@ snapshots:
 
   ohash@2.0.11: {}
 
-  on-exit-leak-free@2.1.2:
-    optional: true
+  on-exit-leak-free@2.1.2: {}
 
   onetime@7.0.0:
     dependencies:
       mimic-function: 5.0.1
-    optional: true
 
   oniguruma-parser@0.12.2: {}
 
@@ -11385,19 +11215,16 @@ snapshots:
       is-inside-container: 1.0.0
       powershell-utils: 0.1.0
       wsl-utils: 0.3.1
-    optional: true
 
   open@8.4.2:
     dependencies:
       define-lazy-prop: 2.0.0
       is-docker: 2.2.1
       is-wsl: 2.2.0
-    optional: true
 
   openapi-types@12.1.3: {}
 
-  os-shim@0.1.3:
-    optional: true
+  os-shim@0.1.3: {}
 
   p-limit@7.3.1:
     dependencies:
@@ -11416,7 +11243,6 @@ snapshots:
       registry-auth-token: 5.1.1
       registry-url: 6.0.1
       semver: 7.8.5
-    optional: true
 
   package-manager-detector@1.8.0: {}
 
@@ -11430,8 +11256,7 @@ snapshots:
       '@pagefind/windows-arm64': 1.5.2
       '@pagefind/windows-x64': 1.5.2
 
-  pako@1.0.11:
-    optional: true
+  pako@1.0.11: {}
 
   parse-entities@4.0.2:
     dependencies:
@@ -11450,7 +11275,6 @@ snapshots:
       json-parse-even-better-errors: 3.0.2
       lines-and-columns: 2.0.4
       type-fest: 3.13.1
-    optional: true
 
   parse-latin@7.0.0:
     dependencies:
@@ -11471,8 +11295,7 @@ snapshots:
 
   pathe@2.0.3: {}
 
-  perfect-debounce@2.1.0:
-    optional: true
+  perfect-debounce@2.1.0: {}
 
   piccolore@0.1.3: {}
 
@@ -11485,10 +11308,8 @@ snapshots:
   pino-abstract-transport@2.0.0:
     dependencies:
       split2: 4.2.0
-    optional: true
 
-  pino-std-serializers@7.1.0:
-    optional: true
+  pino-std-serializers@7.1.0: {}
 
   pino@9.7.0:
     dependencies:
@@ -11503,21 +11324,18 @@ snapshots:
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.1
       thread-stream: 3.2.0
-    optional: true
 
   pkg-types@1.3.1:
     dependencies:
       confbox: 0.1.8
       mlly: 1.8.2
       pathe: 2.0.3
-    optional: true
 
   pkg-types@2.3.1:
     dependencies:
       confbox: 0.2.4
       exsolve: 1.1.0
       pathe: 2.0.3
-    optional: true
 
   postcss-nested@6.2.0(postcss@8.5.19):
     dependencies:
@@ -11535,8 +11353,7 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  powershell-utils@0.1.0:
-    optional: true
+  powershell-utils@0.1.0: {}
 
   prettier@3.9.5: {}
 
@@ -11544,27 +11361,22 @@ snapshots:
 
   process-ancestry@0.1.0: {}
 
-  process-nextick-args@2.0.1:
-    optional: true
+  process-nextick-args@2.0.1: {}
 
-  process-warning@5.0.0:
-    optional: true
+  process-warning@5.0.0: {}
 
   promise-toolbox@0.21.0:
     dependencies:
       make-error: 1.3.6
-    optional: true
 
   prompts@2.4.2:
     dependencies:
       kleur: 3.0.3
       sisteransi: 1.0.5
-    optional: true
 
   property-information@7.2.0: {}
 
-  proto-list@1.2.4:
-    optional: true
+  proto-list@1.2.4: {}
 
   publish-browser-extension@4.0.5:
     dependencies:
@@ -11577,19 +11389,16 @@ snapshots:
       listr2: 10.2.2
       ofetch: 1.5.1
       zod: 4.4.3
-    optional: true
 
   pupa@3.3.0:
     dependencies:
       escape-goat: 4.0.0
-    optional: true
 
   quansync@0.2.11: {}
 
   quansync@1.0.0: {}
 
-  quick-format-unescaped@4.0.4:
-    optional: true
+  quick-format-unescaped@4.0.4: {}
 
   radix-ui@1.6.3(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
     dependencies:
@@ -11660,7 +11469,6 @@ snapshots:
     dependencies:
       defu: 6.1.7
       destr: 2.0.5
-    optional: true
 
   rc@1.2.8:
     dependencies:
@@ -11668,7 +11476,6 @@ snapshots:
       ini: 1.3.8
       minimist: 1.2.8
       strip-json-comments: 2.0.1
-    optional: true
 
   react-day-picker@10.0.1(@types/react@19.2.17)(react@19.2.7):
     dependencies:
@@ -11732,14 +11539,12 @@ snapshots:
       safe-buffer: 5.1.2
       string_decoder: 1.1.1
       util-deprecate: 1.0.2
-    optional: true
 
   readdirp@4.1.2: {}
 
   readdirp@5.0.0: {}
 
-  real-require@0.2.0:
-    optional: true
+  real-require@0.2.0: {}
 
   recharts@3.8.0(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react-is@19.2.8)(react@19.2.7)(redux@5.0.1):
     dependencies:
@@ -11809,12 +11614,10 @@ snapshots:
   registry-auth-token@5.1.1:
     dependencies:
       '@pnpm/npm-conf': 3.0.3
-    optional: true
 
   registry-url@6.0.1:
     dependencies:
       rc: 1.2.8
-    optional: true
 
   rehype-expressive-code@0.44.1:
     dependencies:
@@ -11931,7 +11734,6 @@ snapshots:
     dependencies:
       onetime: 7.0.0
       signal-exit: 4.1.0
-    optional: true
 
   retext-latin@4.0.0:
     dependencies:
@@ -11958,8 +11760,7 @@ snapshots:
       retext-stringify: 4.0.0
       unified: 11.0.5
 
-  rfdc@1.4.1:
-    optional: true
+  rfdc@1.4.1: {}
 
   rolldown-plugin-dts@0.27.12(@volar/typescript@2.4.28)(rolldown@1.2.0)(typescript@7.0.2):
     dependencies:
@@ -12018,17 +11819,13 @@ snapshots:
       '@rolldown/binding-win32-arm64-msvc': 1.2.0
       '@rolldown/binding-win32-x64-msvc': 1.2.0
 
-  run-applescript@7.1.0:
-    optional: true
+  run-applescript@7.1.0: {}
 
-  safe-buffer@5.1.2:
-    optional: true
+  safe-buffer@5.1.2: {}
 
-  safe-buffer@5.2.1:
-    optional: true
+  safe-buffer@5.2.1: {}
 
-  safe-stable-stringify@2.5.0:
-    optional: true
+  safe-stable-stringify@2.5.0: {}
 
   satteri@0.9.5:
     dependencies:
@@ -12051,8 +11848,7 @@ snapshots:
 
   scheduler@0.27.0: {}
 
-  scule@1.3.0:
-    optional: true
+  scule@1.3.0: {}
 
   semver@6.3.1: {}
 
@@ -12068,10 +11864,8 @@ snapshots:
     dependencies:
       is-plain-object: 2.0.4
       is-primitive: 3.0.1
-    optional: true
 
-  setimmediate@1.0.5:
-    optional: true
+  setimmediate@1.0.5: {}
 
   sharp@0.34.5:
     dependencies:
@@ -12137,11 +11931,9 @@ snapshots:
       '@img/sharp-win32-x64': 0.35.3
       '@types/node': 26.1.1
 
-  shell-quote@1.7.3:
-    optional: true
+  shell-quote@1.7.3: {}
 
-  shellwords@0.1.1:
-    optional: true
+  shellwords@0.1.1: {}
 
   shiki@4.3.1:
     dependencies:
@@ -12156,8 +11948,7 @@ snapshots:
 
   siginfo@2.0.0: {}
 
-  signal-exit@4.1.0:
-    optional: true
+  signal-exit@4.1.0: {}
 
   sisteransi@1.0.5: {}
 
@@ -12172,20 +11963,17 @@ snapshots:
     dependencies:
       ansi-styles: 6.2.3
       is-fullwidth-code-point: 5.1.0
-    optional: true
 
   slice-ansi@8.0.0:
     dependencies:
       ansi-styles: 6.2.3
       is-fullwidth-code-point: 5.1.0
-    optional: true
 
   smol-toml@1.7.0: {}
 
   sonic-boom@4.2.1:
     dependencies:
       atomic-sleep: 1.0.0
-    optional: true
 
   sonner@2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
     dependencies:
@@ -12209,15 +11997,12 @@ snapshots:
     dependencies:
       concat-stream: 1.6.2
       os-shim: 0.1.3
-    optional: true
 
-  split2@4.2.0:
-    optional: true
+  split2@4.2.0: {}
 
   split@1.0.1:
     dependencies:
       through: 2.3.8
-    optional: true
 
   stackback@0.0.2: {}
 
@@ -12236,18 +12021,15 @@ snapshots:
       emoji-regex: 10.6.0
       get-east-asian-width: 1.6.0
       strip-ansi: 7.2.0
-    optional: true
 
   string-width@8.2.2:
     dependencies:
       get-east-asian-width: 1.6.0
       strip-ansi: 7.2.0
-    optional: true
 
   string_decoder@1.1.1:
     dependencies:
       safe-buffer: 5.1.2
-    optional: true
 
   stringify-entities@4.0.4:
     dependencies:
@@ -12261,29 +12043,22 @@ snapshots:
   strip-ansi@7.2.0:
     dependencies:
       ansi-regex: 6.2.2
-    optional: true
 
-  strip-bom@5.0.0:
-    optional: true
+  strip-bom@5.0.0: {}
 
-  strip-json-comments@2.0.1:
-    optional: true
+  strip-json-comments@2.0.1: {}
 
-  strip-json-comments@5.0.2:
-    optional: true
+  strip-json-comments@5.0.2: {}
 
   strip-literal@3.1.0:
     dependencies:
       js-tokens: 9.0.1
-    optional: true
 
   stubborn-fs@2.0.0:
     dependencies:
       stubborn-utils: 1.0.2
-    optional: true
 
-  stubborn-utils@1.0.2:
-    optional: true
+  stubborn-utils@1.0.2: {}
 
   style-to-js@1.1.21:
     dependencies:
@@ -12316,10 +12091,8 @@ snapshots:
   thread-stream@3.2.0:
     dependencies:
       real-require: 0.2.0
-    optional: true
 
-  through@2.3.8:
-    optional: true
+  through@2.3.8: {}
 
   tiny-inflate@1.0.3: {}
 
@@ -12338,8 +12111,7 @@ snapshots:
 
   tinyrainbow@3.1.0: {}
 
-  tmp@0.2.5:
-    optional: true
+  tmp@0.2.5: {}
 
   tree-kill@1.2.2: {}
 
@@ -12383,18 +12155,15 @@ snapshots:
 
   tw-animate-css@1.4.0: {}
 
-  type-fest@3.13.1:
-    optional: true
+  type-fest@3.13.1: {}
 
-  type-fest@4.41.0:
-    optional: true
+  type-fest@4.41.0: {}
 
   type-fest@5.8.0:
     dependencies:
       tagged-tag: 1.0.0
 
-  typedarray@0.0.6:
-    optional: true
+  typedarray@0.0.6: {}
 
   typesafe-path@0.2.2: {}
 
@@ -12429,8 +12198,7 @@ snapshots:
 
   ufo@1.6.4: {}
 
-  uhyphen@0.2.0:
-    optional: true
+  uhyphen@0.2.0: {}
 
   ultrahtml@1.7.0: {}
 
@@ -12494,7 +12262,6 @@ snapshots:
       - unloader
       - vite
       - webpack
-    optional: true
 
   unist-util-find-after@5.0.0:
     dependencies:
@@ -12542,14 +12309,12 @@ snapshots:
       unist-util-is: 6.0.1
       unist-util-visit-parents: 6.0.2
 
-  universalify@2.0.1:
-    optional: true
+  universalify@2.0.1: {}
 
   unplugin-utils@0.3.2:
     dependencies:
       pathe: 2.0.3
       picomatch: 4.0.5
-    optional: true
 
   unplugin@3.3.0(esbuild@0.27.7)(rolldown@1.2.0)(vite@8.1.5(@types/node@26.1.1)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0)):
     dependencies:
@@ -12560,7 +12325,6 @@ snapshots:
       esbuild: 0.27.7
       rolldown: 1.2.0
       vite: 8.1.5(@types/node@26.1.1)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0)
-    optional: true
 
   unplugin@3.3.0(esbuild@0.28.1)(rolldown@1.2.0)(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0)):
     dependencies:
@@ -12603,7 +12367,6 @@ snapshots:
       pupa: 3.3.0
       semver: 7.8.5
       xdg-basedir: 5.1.0
-    optional: true
 
   url-extras@0.1.0: {}
 
@@ -12628,8 +12391,7 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  uuid@8.3.2:
-    optional: true
+  uuid@8.3.2: {}
 
   valibot@1.4.2(typescript@7.0.2):
     optionalDependencies:
@@ -12689,7 +12451,6 @@ snapshots:
       - terser
       - tsx
       - yaml
-    optional: true
 
   vite@8.1.5(@types/node@26.1.1)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0):
     dependencies:
@@ -12889,7 +12650,6 @@ snapshots:
     dependencies:
       glob-to-regexp: 0.4.1
       graceful-fs: 4.2.11
-    optional: true
 
   web-ext-run@0.2.4(supports-color@10.2.2):
     dependencies:
@@ -12915,28 +12675,23 @@ snapshots:
       zip-dir: 2.0.0
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   web-namespaces@2.0.1: {}
 
   webpack-virtual-modules@0.6.2: {}
 
-  when-exit@2.1.5:
-    optional: true
+  when-exit@2.1.5: {}
 
-  when@3.7.7:
-    optional: true
+  when@3.7.7: {}
 
   which@1.2.4:
     dependencies:
       is-absolute: 0.1.7
       isexe: 1.1.2
-    optional: true
 
   which@2.0.2:
     dependencies:
       isexe: 2.0.0
-    optional: true
 
   why-is-node-running@2.3.0:
     dependencies:
@@ -12946,10 +12701,8 @@ snapshots:
   widest-line@5.0.0:
     dependencies:
       string-width: 7.2.0
-    optional: true
 
-  winreg@0.0.12:
-    optional: true
+  winreg@0.0.12: {}
 
   workerd@1.20260714.1:
     optionalDependencies:
@@ -12980,7 +12733,6 @@ snapshots:
       ansi-styles: 6.2.3
       string-width: 8.2.2
       strip-ansi: 7.2.0
-    optional: true
 
   wrap-ansi@7.0.0:
     dependencies:
@@ -12993,7 +12745,6 @@ snapshots:
       ansi-styles: 6.2.3
       string-width: 7.2.0
       strip-ansi: 7.2.0
-    optional: true
 
   ws@8.21.0: {}
 
@@ -13001,7 +12752,6 @@ snapshots:
     dependencies:
       is-wsl: 3.1.1
       powershell-utils: 0.1.0
-    optional: true
 
   wxt@0.20.27(@types/node@26.1.1)(jiti@2.7.0)(rolldown@1.2.0)(supports-color@10.2.2)(tsx@4.23.1)(yaml@2.9.0):
     dependencies:
@@ -13069,19 +12819,15 @@ snapshots:
       - unloader
       - webpack
       - yaml
-    optional: true
 
-  xdg-basedir@5.1.0:
-    optional: true
+  xdg-basedir@5.1.0: {}
 
   xml2js@0.6.2:
     dependencies:
       sax: 1.6.0
       xmlbuilder: 11.0.1
-    optional: true
 
-  xmlbuilder@11.0.1:
-    optional: true
+  xmlbuilder@11.0.1: {}
 
   xxhash-wasm@1.1.0: {}
 
@@ -13182,7 +12928,6 @@ snapshots:
     dependencies:
       async: 3.2.6
       jszip: 3.10.1
-    optional: true
 
   zod@3.25.76: {}
 
