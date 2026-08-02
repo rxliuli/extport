@@ -343,7 +343,9 @@ function BreakdownCard({
   format: (value: string) => string
 }) {
   const shares = dimensionShares(rows)
-  const max = shares[0]?.wau ?? 0
+  // Widths scale to the largest ROW, which can be the Other tail — long-tail
+  // dimensions (country) routinely have Other outweigh every single value.
+  const max = Math.max(...shares.map((s) => s.wau), 1)
   return (
     <Card>
       <CardHeader>
