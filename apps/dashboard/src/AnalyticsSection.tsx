@@ -214,10 +214,10 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
         <StatCard label="All-time installs" value={overview ? String(overview.allTimeInstalls) : '—'} />
         <StatCard
           label="Top version"
-          hint="among active installs"
+          hint="among weekly actives"
           value={
             overview && overview.versions[0]
-              ? `${overview.versions[0].version} (${overview.activeInstalls > 0 ? Math.round((overview.versions[0].installs / overview.activeInstalls) * 100) : 0}%)`
+              ? `${overview.versions[0].version} (${overview.weeklyActives > 0 ? Math.round((overview.versions[0].weeklyUsers / overview.weeklyActives) * 100) : 0}%)`
               : '—'
           }
         />

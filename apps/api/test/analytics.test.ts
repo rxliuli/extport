@@ -220,7 +220,12 @@ describe('analytics rollup', () => {
 
     const overview = (await (
       await request(`/api/v1/analytics/overview?extension=${extension.id}`, { headers: { cookie: sessionCookie } })
-    ).json()) as { activeInstalls: number; allTimeInstalls: number; versions: { version: string; installs: number }[] }
+    ).json()) as {
+      activeInstalls: number
+      weeklyActives: number
+      allTimeInstalls: number
+      versions: { version: string; weeklyUsers: number }[]
+    }
     // Derived from analytics_daily (the rollup), not live install state —
     // see the "fleet-wide analytics" describe block below for the case
     // that actually motivated the switch. activeInstalls sums mau (chrome
@@ -230,8 +235,13 @@ describe('analytics rollup', () => {
     // ever processes "yesterday", so i2/i3/i4's first_seen dates were
     // never rolled up here, unlike a real fleet with many nights behind it).
     expect(overview.activeInstalls).toBe(3)
+    // wau: chrome i1+i2 pinged yesterday, firefox i4 pinged within the week.
+    expect(overview.weeklyActives).toBe(3)
     expect(overview.allTimeInstalls).toBe(1)
-    expect(overview.versions.find((v) => v.version === '1.0.1')).toMatchObject({ installs: 2 })
+    // Version shares are wau/wau — same-metric, so 1.0.1's share is 2/3,
+    // never the >100% the old dau-over-mau-snapshot math could produce.
+    expect(overview.versions.find((v) => v.version === '1.0.1')).toMatchObject({ weeklyUsers: 2 })
+    expect(overview.versions.find((v) => v.version === '1.0.0')).toMatchObject({ weeklyUsers: 1 })
 
     // Auth + scoping.
     expect((await request(`/api/v1/analytics/series?extension=${extension.id}`)).status).toBe(401)

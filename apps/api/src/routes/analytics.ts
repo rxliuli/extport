@@ -187,24 +187,37 @@ analyticsTenantRoutes.get(
       .where(and(eq(analyticsDaily.extensionId, extension.id), eq(analyticsDaily.dim, 'total')))
       .orderBy(desc(analyticsDaily.date))
       .limit(1)
-    if (!latest) return c.json({ activeInstalls: 0, allTimeInstalls: 0, versions: [] })
+    if (!latest) return c.json({ activeInstalls: 0, weeklyActives: 0, allTimeInstalls: 0, versions: [] })
 
     const [active] = await db
-      .select({ activeInstalls: sql<number>`sum(${analyticsDaily.mau})` })
+      .select({
+        activeInstalls: sql<number>`sum(${analyticsDaily.mau})`,
+        weeklyActives: sql<number>`sum(${analyticsDaily.wau})`,
+      })
       .from(analyticsDaily)
       .where(and(eq(analyticsDaily.extensionId, extension.id), eq(analyticsDaily.dim, 'total'), eq(analyticsDaily.date, latest.date)))
     const [allTime] = await db
       .select({ allTimeInstalls: sql<number>`sum(${analyticsDaily.installs})` })
       .from(analyticsDaily)
       .where(and(eq(analyticsDaily.extensionId, extension.id), eq(analyticsDaily.dim, 'total')))
+    // Version share reads wau over wau — same metric as the headline, both
+    // exact, so a share can never exceed 100%. (It used to divide yesterday's
+    // per-version DAU by the MAU snapshot: cross-granularity, and the
+    // snapshot's same-day undercount pushed shares past 100% on day-one
+    // extensions.)
     const versions = await db
-      .select({ version: analyticsDaily.dimValue, installs: sql<number>`sum(${analyticsDaily.dau})` })
+      .select({ version: analyticsDaily.dimValue, weeklyUsers: sql<number>`sum(${analyticsDaily.wau})` })
       .from(analyticsDaily)
       .where(and(eq(analyticsDaily.extensionId, extension.id), eq(analyticsDaily.dim, 'version'), eq(analyticsDaily.date, latest.date)))
       .groupBy(analyticsDaily.dimValue)
-      .orderBy(sql`sum(${analyticsDaily.dau}) desc`)
+      .orderBy(sql`sum(${analyticsDaily.wau}) desc`)
 
-    return c.json({ activeInstalls: active?.activeInstalls ?? 0, allTimeInstalls: allTime?.allTimeInstalls ?? 0, versions })
+    return c.json({
+      activeInstalls: active?.activeInstalls ?? 0,
+      weeklyActives: active?.weeklyActives ?? 0,
+      allTimeInstalls: allTime?.allTimeInstalls ?? 0,
+      versions,
+    })
   },
 )
 
