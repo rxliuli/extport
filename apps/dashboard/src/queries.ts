@@ -106,7 +106,7 @@ export const licensesSummaryQuery = queryOptions({
 
 // 30 days is the CWS default too; a range picker joins once there is
 // enough history to make one meaningful.
-export const analyticsSeriesQuery = (extensionId: string, dim: 'total' | 'version', days = 30) =>
+export const analyticsSeriesQuery = (extensionId: string, dim: 'total' | 'version' | 'country' | 'language' | 'os', days = 30) =>
   queryOptions({
     queryKey: ['analytics', extensionId, dim, days],
     queryFn: () =>

@@ -510,8 +510,8 @@ export const analyticsPings = sqliteTable(
 )
 
 // Permanent single-dimension daily series — what every chart reads.
-// dim 'total' rows carry the headline metrics; dimension rows carry dau
-// only (store consoles never cross dimensions, so neither do we).
+// dim 'total' rows carry the headline metrics; dimension rows carry
+// dau + wau only (store consoles never cross dimensions, so neither do we).
 export const analyticsDaily = sqliteTable(
   'analytics_daily',
   {

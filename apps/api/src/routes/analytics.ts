@@ -125,7 +125,7 @@ analyticsTenantRoutes.get(
   describeRoute({
     summary: 'Daily analytics series',
     description:
-      "Rows from the permanent rollup for one extension: ?dim=total (headline dau/wau/mau/installs/departures) or version/country/language/os (dau only). ?days= bounds the window (default 90, max 1830). Departures live on the last-seen day and are only present once confirmed — the trailing 30 days legitimately show none.",
+      "Rows from the permanent rollup for one extension: ?dim=total (headline dau/wau/mau/installs/departures) or version/country/language/os (dau + wau). ?days= bounds the window (default 90, max 1830). Departures live on the last-seen day and are only present once confirmed — the trailing 30 days legitimately show none.",
     responses: { 200: { description: 'OK' }, 404: { description: 'Extension not found' } },
   }),
   async (c) => {

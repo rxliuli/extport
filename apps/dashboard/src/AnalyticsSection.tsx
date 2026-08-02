@@ -133,10 +133,58 @@ function versionSeries(rows: AnalyticsSeriesRow[], domain: string[]): {
 
 export const shortDate = (value: string) => value.slice(5)
 
+/**
+ * Latest-day WAU per dimension value, top N with the tail folded into an
+ * Other row (value: null). Reads wau, not dau, so a value active this week
+ * but quiet yesterday still shows — same semantics as the CWS console's
+ * "weekly users by" charts.
+ */
+export function dimensionShares(rows: AnalyticsSeriesRow[], topN = 5): { value: string | null; wau: number; share: number }[] {
+  const lastDate = rows.reduce((max, r) => (r.date > max ? r.date : max), '')
+  const byValue = new Map<string, number>()
+  for (const row of rows) {
+    if (row.date === lastDate && row.wau > 0) byValue.set(row.dimValue, (byValue.get(row.dimValue) ?? 0) + row.wau)
+  }
+  const ranked = [...byValue.entries()].sort((a, b) => b[1] - a[1])
+  const total = ranked.reduce((sum, [, wau]) => sum + wau, 0)
+  if (total === 0) return []
+  const top = ranked.slice(0, topN)
+  const otherWau = total - top.reduce((sum, [, wau]) => sum + wau, 0)
+  const shares: { value: string | null; wau: number; share: number }[] = top.map(([value, wau]) => ({ value, wau, share: wau / total }))
+  if (otherWau > 0) shares.push({ value: null, wau: otherWau, share: otherWau / total })
+  return shares
+}
+
+// Human labels via Intl.DisplayNames — the codes themselves stay raw in
+// the rollup ('us', 'en-us'); presentation is the only place names live.
+const regionNames = new Intl.DisplayNames(['en'], { type: 'region' })
+const languageNames = new Intl.DisplayNames(['en'], { type: 'language', languageDisplay: 'standard' })
+export function countryLabel(code: string): string {
+  if (code === 'unknown') return 'Unknown'
+  try {
+    return regionNames.of(code.toUpperCase()) ?? code.toUpperCase()
+  } catch {
+    return code.toUpperCase()
+  }
+}
+export function languageLabel(code: string): string {
+  if (code === 'unknown') return 'Unknown'
+  try {
+    return languageNames.of(code) ?? code
+  } catch {
+    return code
+  }
+}
+const OS_LABELS: Record<string, string> = { windows: 'Windows', macos: 'macOS', linux: 'Linux', android: 'Android', chromeos: 'ChromeOS', ios: 'iOS', unknown: 'Unknown' }
+export const osLabel = (value: string) => OS_LABELS[value] ?? value
+
 export function AnalyticsSection({ extension }: { extension: Extension }) {
   const { data: overview } = useQuery(analyticsOverviewQuery(extension.id))
   const { data: totalRows = [], isPending } = useQuery(analyticsSeriesQuery(extension.id, 'total'))
   const { data: versionRows = [] } = useQuery(analyticsSeriesQuery(extension.id, 'version'))
+  const { data: countryRows = [] } = useQuery(analyticsSeriesQuery(extension.id, 'country', 7))
+  const { data: languageRows = [] } = useQuery(analyticsSeriesQuery(extension.id, 'language', 7))
+  const { data: osRows = [] } = useQuery(analyticsSeriesQuery(extension.id, 'os', 7))
 
   const domain = lastNDays(30)
   const daily = byDate(totalRows, domain)
@@ -223,6 +271,12 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
         </CardContent>
       </Card>
 
+      <div className="grid gap-6 lg:grid-cols-3">
+        <BreakdownCard title="Weekly users by country" rows={countryRows} format={countryLabel} />
+        <BreakdownCard title="Weekly users by language" rows={languageRows} format={languageLabel} />
+        <BreakdownCard title="Weekly users by OS" rows={osRows} format={osLabel} />
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Installs &amp; departures</CardTitle>
@@ -288,6 +342,50 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function BreakdownCard({
+  title,
+  rows,
+  format,
+}: {
+  title: string
+  rows: AnalyticsSeriesRow[]
+  format: (value: string) => string
+}) {
+  const shares = dimensionShares(rows)
+  const max = shares[0]?.wau ?? 0
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{title}</CardTitle>
+        <CardDescription>Rolling 7 days, latest rolled-up day</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {shares.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No data yet.</p>
+        ) : (
+          shares.map((s) => {
+            const label = s.value === null ? 'Other' : format(s.value)
+            return (
+              <div key={s.value ?? '__other__'} className="flex items-center gap-2">
+                <span className="w-28 shrink-0 truncate text-sm text-muted-foreground" title={label}>
+                  {label}
+                </span>
+                <div className="flex-1">
+                  <div
+                    className="h-4 min-w-1 rounded-sm bg-primary/80"
+                    style={{ width: `${(s.wau / max) * 100}%` }}
+                  />
+                </div>
+                <span className="w-10 shrink-0 text-right text-sm tabular-nums">{Math.round(s.share * 100)}%</span>
+              </div>
+            )
+          })
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

@@ -163,12 +163,16 @@ describe('analytics rollup', () => {
     // Departure confirmed today, written into the historical last-seen row.
     expect(find(day(-31), 'chrome', 'total', '')).toMatchObject({ departures: 1, dau: 0 })
 
-    // Dimension rows carry dau only.
-    expect(find(day(-1), 'chrome', 'version', '1.0.1')).toMatchObject({ dau: 2 })
-    expect(find(day(-1), 'chrome', 'country', 'us')).toMatchObject({ dau: 1 })
-    expect(find(day(-1), 'chrome', 'country', 'de')).toMatchObject({ dau: 1 })
-    expect(find(day(-1), 'chrome', 'language', 'en-us')).toMatchObject({ dau: 1 })
-    expect(find(day(-1), 'chrome', 'os', 'windows')).toMatchObject({ dau: 1 })
+    // Dimension rows carry dau + wau.
+    expect(find(day(-1), 'chrome', 'version', '1.0.1')).toMatchObject({ dau: 2, wau: 2 })
+    expect(find(day(-1), 'chrome', 'country', 'us')).toMatchObject({ dau: 1, wau: 1 })
+    expect(find(day(-1), 'chrome', 'country', 'de')).toMatchObject({ dau: 1, wau: 1 })
+    expect(find(day(-1), 'chrome', 'language', 'en-us')).toMatchObject({ dau: 1, wau: 1 })
+    expect(find(day(-1), 'chrome', 'os', 'windows')).toMatchObject({ dau: 1, wau: 1 })
+    // i4's country pinged this week but not yesterday — the dimension row
+    // exists on yesterday's date purely for its wau, dau legitimately 0.
+    expect(find(day(-1), 'firefox', 'country', 'fr')).toMatchObject({ dau: 0, wau: 1 })
+    expect(find(day(-1), 'firefox', 'os', 'linux')).toMatchObject({ dau: 0, wau: 1 })
 
     // The 90-day prune removed the ancient raw row, kept this week's.
     const raw = await db.select().from(analyticsPings).where(eq(analyticsPings.extensionId, extension.id))

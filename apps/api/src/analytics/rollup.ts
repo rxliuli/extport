@@ -35,6 +35,20 @@ export async function runAnalyticsRollup(db: Db, now: Date = new Date()): Promis
       FROM analytics_pings WHERE date = ${yesterday}
       GROUP BY tenant_id, extension_id, browser, coalesce(${column}, 'unknown')
     `)
+    // Per-dimension WAU, same window and exactness argument as the headline
+    // WAU below. Upsert: a dim value seen this week but not yesterday gets
+    // its own row here (dau 0, wau > 0) — the breakdown charts read wau, so
+    // a value must not vanish just because it skipped a day. An install
+    // whose value changed mid-week (country hop, version update) counts
+    // once per value; shares are computed within the dimension.
+    await db.run(sql`
+      INSERT INTO analytics_daily (tenant_id, extension_id, date, browser, dim, dim_value, wau)
+      SELECT tenant_id, extension_id, ${yesterday}, browser, ${dim}, coalesce(${column}, 'unknown'), count(DISTINCT install_id)
+      FROM analytics_pings WHERE date >= ${wauStart} AND date <= ${yesterday}
+      GROUP BY tenant_id, extension_id, browser, coalesce(${column}, 'unknown')
+      ON CONFLICT (extension_id, date, browser, dim, dim_value)
+      DO UPDATE SET wau = excluded.wau
+    `)
   }
 
   // Rolling 7-day WAU ending yesterday — from raw pings, not the mutable
