@@ -44,7 +44,7 @@ const FEATURES = [
   title="extport — write one extension, reach every platform's users"
   description="Chrome, Firefox, Edge, and Safari from one push — including Safari's Xcode build in your own CI — plus Stripe-powered licensing. Open source, self-hostable."
 >
-  <div class="mx-auto flex min-h-svh max-w-5xl flex-col px-6">
+  <div class="mx-auto flex min-h-svh max-w-3xl flex-col px-6">
     <header class="flex items-center justify-between py-6">
       <span class="text-lg font-bold tracking-tight">extport</span>
       <div class="flex items-center gap-4">
@@ -60,10 +60,10 @@ const FEATURES = [
     </header>
 
     <section class="flex flex-col gap-6 py-20 sm:py-28">
-      <h1 class="max-w-2xl text-4xl font-bold tracking-tight sm:text-5xl">
+      <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">
         Write one extension. Reach every platform's users.
       </h1>
-      <p class="max-w-xl text-lg text-muted-foreground">
+      <p class="text-lg text-muted-foreground">
         {STORES.join(', ')} — one push, and extport submits to all four, with one dashboard for what's live, in
         review, rejected, or stuck. Open source, self-hostable.
       </p>
@@ -82,7 +82,7 @@ const FEATURES = [
 
     <section class="border-t border-border py-16">
       <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">The problem</h2>
-      <p class="mt-4 max-w-2xl text-base leading-relaxed">
+      <p class="mt-4 text-base leading-relaxed">
         A browser extension is one of the only app formats that reaches desktop and mobile users from a single
         codebase — Chrome, Firefox, and Edge cover Windows, macOS, and Linux, Safari is the only real option on iOS,
         and Firefox already puts you on Android too (Edge is close behind). But every store has its own console, its
@@ -98,7 +98,7 @@ const FEATURES = [
   with:
     store: chrome
     api-key: \${{ secrets.EXTPORT_API_KEY }}`}</code></pre>
-      <p class="mt-4 max-w-2xl text-sm text-muted-foreground">
+      <p class="mt-4 text-sm text-muted-foreground">
         The file, version, and extension are inferred from your build output and <code>extport.config.json</code>.
         Runs from your existing release workflow, or from the <code>extport</code> CLI on your own machine. Push once,
         and every configured store target picks it up.
@@ -122,11 +122,11 @@ const FEATURES = [
     <section id="pricing" class="border-t border-border py-16">
       <div class="rounded-lg border border-border bg-card p-6">
         <h2 class="font-semibold">Free while in beta — and open source</h2>
-        <p class="mt-2 max-w-xl text-sm text-muted-foreground">
+        <p class="mt-2 text-sm text-muted-foreground">
           Sign in with GitHub and start publishing — no waitlist. Exact prices will be set during the beta with
           real users, but the shape is fixed now:
         </p>
-        <ul class="mt-3 max-w-xl list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+        <ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
           <li>
             The free tier is permanent: 3 extensions, analytics included, and licensing that only ever costs a
             small percentage of sales you actually make.
@@ -137,8 +137,8 @@ const FEATURES = [
             beta keeps working.
           </li>
         </ul>
-        <p class="mt-3 max-w-xl text-sm text-muted-foreground">
-          The <a href={GITHUB_URL} class="underline underline-offset-4">source is on GitHub</a>
+        <p class="mt-3 text-sm text-muted-foreground">
+          The <a href={GITHUB_URL} class="underline underline-offset-4">source is on GitHub</a>{' '}
           under the Elastic License 2.0 — self-hosting is explicitly allowed.
         </p>
         <div class="mt-4 flex flex-wrap gap-3">
