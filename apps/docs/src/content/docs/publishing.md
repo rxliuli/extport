@@ -45,22 +45,26 @@ This is what the CLI and GitHub Actions use to push on your behalf — treat it 
 Either from your own machine:
 
 ```sh
-npx extport login
-npx extport push dist/my-extension.zip --extension ext_yourExtensionId --version 1.0.0
+npx extport login   # once per machine — stores a key locally, so push never needs --api-key here
+npx extport push    # WXT project: zip, version, and extension id all inferred
 ```
 
-Or from CI, using the published GitHub Actions:
+In a WXT project with [`@extport/wxt`](https://www.npmjs.com/package/@extport/wxt) configured, that's the whole
+command: the extension id comes from `extport.config.json`, the zip from `.output/{name}-{version}-{browser}.zip`,
+and the version from its `manifest.json`. Outside a WXT project, point at the zip explicitly:
+
+```sh
+npx extport push path/to/my-extension-1.0.0.zip --extension ext_yourExtensionId --version 1.0.0
+```
+
+Or from CI, using the published GitHub Actions — CI can't run the interactive `login`, so the API key input
+takes its place, and everything else infers exactly like the local command:
 
 ```yaml
 - uses: extport-dev/actions/push@v1
   with:
     api-key: ${{ secrets.EXTPORT_API_KEY }}
-    extension: ext_yourExtensionId
-    file: dist/my-extension.zip
 ```
-
-Both `extension` and `file` can be omitted: the extension id comes from `extport.config.json`, and in a WXT
-project the zip and version are inferred from `.output/` and its `manifest.json`.
 
 Omit `--store`/`store:` to push a universal zip to every store target you've configured for that extension, or
 target one store specifically (e.g. for Firefox's separate source-zip requirement). Safari has no zip upload at

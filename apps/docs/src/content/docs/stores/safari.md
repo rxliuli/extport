@@ -37,26 +37,30 @@ For example, [Redirector](https://store.rxliuli.com/extensions/redirector/)'s iO
 
 ## Building and uploading
 
-`extport safari-build` needs your Xcode project path and Apple Developer Team ID in addition to the API key —
-either passed as flags/env vars, or saved once via `extport init`'s interactive Safari setup into
-`extport.config.json`:
+In a WXT project with [`@extport/wxt`](https://www.npmjs.com/package/@extport/wxt)'s `safari` block configured
+(or after `extport init`'s interactive Safari setup), everything `extport safari-build` needs — project path,
+Team ID, issuer id, key id — is already in `extport.config.json`, so locally it's just:
 
 ```sh
-npx extport safari-build --project-path ./ios --team-id ABCDE12345
+npx extport safari-build
 ```
 
-Or from CI:
+Outside that setup, pass them as flags: `--project-path ./ios --team-id ABCDE12345 --issuer-id … --key-id …`.
+The `.p8` key file itself is found the same way Apple's own tools look for it — `AuthKey_{KEY_ID}.p8` in
+`./private_keys`, `~/private_keys`, `~/.private_keys`, or `~/.appstoreconnect/private_keys` — or point at it
+directly with `--key-path`.
+
+From CI, the secrets are passed in explicitly — project path and Team ID still infer from `extport.config.json`:
 
 ```yaml
 - uses: extport-dev/actions/safari-build@v1
   with:
+    # project-path/team-id inferred from extport.config.json (synced by @extport/wxt)
     issuer-id: ${{ secrets.APPLE_API_ISSUER }}
     key-id: ${{ secrets.APPLE_API_KEY_ID }}
     key-base64: ${{ secrets.APPLE_API_KEY }}
     certificate-base64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
     certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-    project-path: ./ios
-    team-id: ABCDE12345
 ```
 
 This builds and uploads every platform your Xcode project ships (macOS and/or iOS) — Safari's macOS and iOS
