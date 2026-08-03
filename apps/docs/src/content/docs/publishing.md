@@ -51,10 +51,12 @@ npx extport push    # WXT project: zip, version, and extension id all inferred
 
 In a WXT project with [`@extport/wxt`](https://www.npmjs.com/package/@extport/wxt) configured, that's the whole
 command: the extension id comes from `extport.config.json`, the zip from `.output/{name}-{version}-{browser}.zip`,
-and the version from its `manifest.json`. Outside a WXT project, point at the zip explicitly:
+and the version from its `manifest.json`. Outside a WXT project, point at the zip explicitly — the version still
+reads from the zip's own `manifest.json`, and `--extension` is only needed if you haven't created an
+`extport.config.json`:
 
 ```sh
-npx extport push path/to/my-extension-1.0.0.zip --extension ext_yourExtensionId --version 1.0.0
+npx extport push path/to/my-extension.zip
 ```
 
 Or from CI, using the published GitHub Actions — CI can't run the interactive `login`, so the API key input
