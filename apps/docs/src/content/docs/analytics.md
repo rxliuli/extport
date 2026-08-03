@@ -74,7 +74,7 @@ if you're wiring the SDK directly) — Firefox shows it in the install prompt an
 
 Open your extension's **Analytics** tab. Every chart reads straight from the daily rollup:
 
-![The Analytics tab for Imp Translate, showing active-installs/all-time-installs/top-version stat cards and a per-store daily-actives line chart](../../assets/screenshots/dashboard-analytics.jpg)
+![The Analytics tab for Redirector, showing weekly-active-users/all-time-installs/top-version stat cards, the per-store weekly actives chart, and the country/language/OS breakdown cards](../../assets/screenshots/dashboard-analytics.jpg)
 
 - **Active users** — weekly actives (rolling 7 days, the same metric the Chrome Web Store console headlines), one
   line per store, so a review going sideways on one store or a release adopting slowly shows up as that store's line
