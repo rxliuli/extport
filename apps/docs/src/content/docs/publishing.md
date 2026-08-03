@@ -59,21 +59,33 @@ only needed if you haven't created an `extport.config.json`:
 npx extport push path/to/my-extension.zip --store chrome
 ```
 
-Keep `--store` when passing a single file: omitting it means "this is one universal zip, push it to *every*
-configured store" — right for genuinely universal builds, a surprise for a zip built for one browser.
+When passing a file, always say which store it was built for — zips are per-browser artifacts.
 
 Or from CI, using the published GitHub Actions — CI can't run the interactive `login`, so the API key input
-takes its place, and everything else infers exactly like the local command:
+takes its place, and everything else infers exactly like the local command. The convention is one step per
+store (it's what `extport init` scaffolds), because per-store inputs like Firefox's source zip attach to their
+own step and each store fails independently in the run view:
 
 ```yaml
 - uses: extport-dev/actions/push@v1
   with:
+    # file/version/extension inferred from .output/, its manifest.json, and extport.config.json
+    store: chrome
+    api-key: ${{ secrets.EXTPORT_API_KEY }}
+
+- uses: extport-dev/actions/push@v1
+  with:
+    store: firefox
+    source-zip: .output/my-extension-1.0.0-sources.zip # AMO reviews source; no convention to infer this from
     api-key: ${{ secrets.EXTPORT_API_KEY }}
 ```
 
-Omit `--store`/`store:` to push a universal zip to every store target you've configured for that extension, or
-target one store specifically (e.g. for Firefox's separate source-zip requirement). Safari has no zip upload at
-all — it's built and signed locally via `extport safari-build`, see the [Safari](/stores/safari/) page.
+Edge and Safari follow the same pattern (`store: edge` falls back to the chrome zip when no dedicated edge
+build exists; `store: safari` registers the version only — no zip travels through extport, see the
+[Safari](/stores/safari/) page). `extport init` generates the complete workflow so you never write this by hand.
+
+Safari has no zip upload at all — it's built and signed locally via `extport safari-build`, see the
+[Safari](/stores/safari/) page.
 
 Every push is checked against its target stores before it's accepted: a zip without a `manifest.json`, a manifest
 version that doesn't match the pushed version, a Chrome-only build (no `gecko.id`, service-worker-only background)
