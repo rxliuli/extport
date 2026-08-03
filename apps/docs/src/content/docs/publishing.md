@@ -75,8 +75,8 @@ own step and each store fails independently in the run view:
 
 - uses: extport-dev/actions/push@v1
   with:
+    # AMO's source zip infers too — .output/{name}-{version}-sources.zip, WXT's own sourcesTemplate
     store: firefox
-    source-zip: .output/my-extension-1.0.0-sources.zip # AMO reviews source; no convention to infer this from
     api-key: ${{ secrets.EXTPORT_API_KEY }}
 ```
 
