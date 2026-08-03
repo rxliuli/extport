@@ -10,6 +10,15 @@ export default defineConfig({
       title: 'extport',
       description: 'Publish a browser extension to every store, from one push.',
       favicon: '/favicon.png',
+      // Default social-card image for every docs page (Starlight already
+      // emits per-page og:title/description/canonical on its own).
+      head: [
+        { tag: 'meta', attrs: { property: 'og:image', content: 'https://extport.dev/og.png' } },
+        { tag: 'meta', attrs: { property: 'og:image:width', content: '1200' } },
+        { tag: 'meta', attrs: { property: 'og:image:height', content: '630' } },
+        { tag: 'meta', attrs: { name: 'twitter:card', content: 'summary_large_image' } },
+        { tag: 'meta', attrs: { name: 'twitter:image', content: 'https://extport.dev/og.png' } },
+      ],
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/rxliuli/extport' },
         { icon: 'discord', label: 'Discord', href: 'https://discord.gg/Va9kcSqu3f' },
