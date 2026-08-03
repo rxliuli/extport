@@ -50,14 +50,17 @@ npx extport push    # WXT project: zip, version, and extension id all inferred
 ```
 
 In a WXT project with [`@extport/wxt`](https://www.npmjs.com/package/@extport/wxt) configured, that's the whole
-command: the extension id comes from `extport.config.json`, the zip from `.output/{name}-{version}-{browser}.zip`,
-and the version from its `manifest.json`. Outside a WXT project, point at the zip explicitly — the version still
-reads from the zip's own `manifest.json`, and `--extension` is only needed if you haven't created an
-`extport.config.json`:
+command: the extension id comes from `extport.config.json`, the per-browser zips from
+`.output/{name}-{version}-{browser}.zip`, and the version from their `manifest.json`. Outside a WXT project,
+point at the zip explicitly — the version still reads from the zip's own `manifest.json`, and `--extension` is
+only needed if you haven't created an `extport.config.json`:
 
 ```sh
-npx extport push path/to/my-extension.zip
+npx extport push path/to/my-extension.zip --store chrome
 ```
+
+Keep `--store` when passing a single file: omitting it means "this is one universal zip, push it to *every*
+configured store" — right for genuinely universal builds, a surprise for a zip built for one browser.
 
 Or from CI, using the published GitHub Actions — CI can't run the interactive `login`, so the API key input
 takes its place, and everything else infers exactly like the local command:
