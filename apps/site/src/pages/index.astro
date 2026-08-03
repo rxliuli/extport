@@ -119,12 +119,25 @@ const FEATURES = [
       </div>
     </section>
 
-    <section class="border-t border-border py-16">
+    <section id="pricing" class="border-t border-border py-16">
       <div class="rounded-lg border border-border bg-card p-6">
         <h2 class="font-semibold">Free while in beta — and open source</h2>
         <p class="mt-2 max-w-xl text-sm text-muted-foreground">
-          Sign in with GitHub and start publishing — no waitlist. extport is free during the beta; when pricing
-          launches it will be a small percentage of license sales, so it only ever costs anything if you're earning.
+          Sign in with GitHub and start publishing — no waitlist. Exact prices will be set during the beta with
+          real users, but the shape is fixed now:
+        </p>
+        <ul class="mt-3 max-w-xl list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+          <li>
+            The free tier is permanent: 3 extensions, analytics included, and licensing that only ever costs a
+            small percentage of sales you actually make.
+          </li>
+          <li>Paid plans will be about scale — more extensions for bigger fleets — never about unlocking basics.</li>
+          <li>
+            When pricing lands, nothing breaks retroactively: advance notice, and whatever you set up during the
+            beta keeps working.
+          </li>
+        </ul>
+        <p class="mt-3 max-w-xl text-sm text-muted-foreground">
           The <a href={GITHUB_URL} class="underline underline-offset-4">source is on GitHub</a>
           under the Elastic License 2.0 — self-hosting is explicitly allowed.
         </p>

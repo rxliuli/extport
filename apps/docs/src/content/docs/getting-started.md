@@ -4,8 +4,11 @@ description: Sign in, create your first extension, and pick your path — new pr
 ---
 
 extport is in open beta — sign in with GitHub and your account works immediately, no waitlist. It's free during
-the beta. [Join the Discord](https://discord.gg/Va9kcSqu3f) for questions, feedback, or anything broken — it's the
-fastest way to reach us.
+the beta, and the free tier is permanent: **3 extensions** (artifacts up to **64 MB** each), analytics included —
+the limits are written here so you never discover them by hitting them. Paid plans for bigger fleets come after
+the beta; see [the pricing principles](https://extport.dev/#pricing) for what's fixed already.
+[Join the Discord](https://discord.gg/Va9kcSqu3f) for questions, feedback, or anything broken — it's the fastest
+way to reach us.
 
 ## 1. Sign in
 
