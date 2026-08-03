@@ -142,10 +142,10 @@ function PendingScreen({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
     <main className="flex min-h-svh items-center justify-center p-6">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl tracking-tight">You're on the list</CardTitle>
+          <CardTitle className="text-2xl tracking-tight">Account on hold</CardTitle>
           <CardDescription>
-            Hi {me.user?.displayName ?? me.user?.email} — extport is in closed beta and new accounts are reviewed by
-            hand. We'll email you once yours is activated.
+            Hi {me.user?.displayName ?? me.user?.email} — your account isn't active right now. If you think this is
+            a mistake, reach us on Discord and we'll sort it out.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

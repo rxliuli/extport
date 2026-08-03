@@ -12,8 +12,7 @@ import type { AppEnv } from '../middleware/auth'
 const STATE_COOKIE = 'extport_oauth_state'
 const RETURN_TO_COOKIE = 'extport_oauth_return_to'
 
-// Sent to every new signup while their tenant is 'pending' — the closed
-// beta's touchpoint until they're manually approved.
+// Linked from the welcome email — the fastest way to reach a human.
 const DISCORD_INVITE_URL = 'https://discord.gg/Va9kcSqu3f'
 
 // Same-origin only — never let this become an open redirect. Checked both
@@ -157,8 +156,8 @@ auth.get('/github/callback', async (c) => {
 
     await createEmailNotifier(c.env).send({
       to: email,
-      subject: "You're on the extport beta list",
-      text: `Thanks for signing up for extport!\n\nWe're running a closed beta and reviewing new accounts by hand, so it may take a little while before yours is activated.\n\nIn the meantime, join our Discord — it's the fastest way to reach us, ask questions, and hear when you're approved:\n${DISCORD_INVITE_URL}\n\n— rxliuli`,
+      subject: 'Welcome to extport',
+      text: `Thanks for signing up for extport — your account is ready to use.\n\nThe quickest way in: https://docs.extport.dev/getting-started/\n\nQuestions, feedback, or something broken? Join our Discord — it's the fastest way to reach us:\n${DISCORD_INVITE_URL}\n\n— rxliuli`,
     })
   }
 

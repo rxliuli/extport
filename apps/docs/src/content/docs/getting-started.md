@@ -3,9 +3,9 @@ title: Getting started
 description: Sign in, create your first extension, and pick your path — new project or existing one.
 ---
 
-extport is currently in closed beta — new accounts are reviewed by hand. Sign in once and you'll either land in the
-dashboard right away, or see a waiting screen until your account is activated. [Join the Discord](https://discord.gg/Va9kcSqu3f)
-to reach us directly while you wait.
+extport is in open beta — sign in with GitHub and your account works immediately, no waitlist. It's free during
+the beta. [Join the Discord](https://discord.gg/Va9kcSqu3f) for questions, feedback, or anything broken — it's the
+fastest way to reach us.
 
 ## 1. Sign in
 

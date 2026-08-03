@@ -26,11 +26,13 @@ export const tenants = sqliteTable('tenants', {
   name: text('name').notNull(),
   email: text('email').notNull(),
   plan: text('plan', { enum: ['free', 'starter', 'pro'] }).notNull().$defaultFn(() => 'free'),
-  // Closed beta: new signups land 'pending' and are manually flipped to
-  // 'active' — see middleware/auth.ts's requireActiveTenant. Migration 0010
-  // backfilled every pre-existing tenant to 'active' so this only gates
-  // signups from that point forward.
-  status: text('status', { enum: ['pending', 'active'] }).notNull().$defaultFn(() => 'pending'),
+  // Open signup: new tenants are active immediately. 'pending' remains as
+  // the moderation lever — flip an abusive tenant back and
+  // requireActiveTenant shuts them out. (It started life as the closed
+  // beta's manual-approval gate; open signup inverted the default from
+  // approve-before to revoke-after. Platform-side abuse is bounded by the
+  // 64 MB artifact cap and the free plan's 3-extension limit.)
+  status: text('status', { enum: ['pending', 'active'] }).notNull().$defaultFn(() => 'active'),
   settings: text('settings', { mode: 'json' }).$type<TenantSettings>().notNull().$defaultFn(() => ({})),
   // Envelope encryption: per-tenant DEK, wrapped by the versioned master KEK.
   dekEncrypted: text('dek_encrypted').notNull(),

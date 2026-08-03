@@ -78,7 +78,7 @@ describe('GET /auth/github/callback', () => {
     }
   })
 
-  it('creates a new tenant as pending', async () => {
+  it('creates a new tenant as active — open signup, moderation is revoke-after', async () => {
     stubGithub()
     try {
       const { state } = await startLogin()
@@ -91,7 +91,7 @@ describe('GET /auth/github/callback', () => {
       const db = createDb(env.DB)
       const [user] = await db.select().from(users).where(eq(users.authSubject, '999'))
       const [tenant] = await db.select().from(tenants).where(eq(tenants.id, user!.tenantId))
-      expect(tenant!.status).toBe('pending')
+      expect(tenant!.status).toBe('active')
     } finally {
       globalThis.fetch = realFetch
     }
