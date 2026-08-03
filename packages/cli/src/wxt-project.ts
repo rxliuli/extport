@@ -21,6 +21,11 @@ export function wxtZipPath(name: string, version: string, store: string): string
   return join('.output', `${name}-${version}-${store}.zip`)
 }
 
+/** WXT's default zip.sourcesTemplate: "{{name}}-{{version}}-sources.zip" — built alongside the firefox zip for AMO review. */
+export function wxtSourcesZipPath(name: string, version: string): string {
+  return join('.output', `${name}-${version}-sources.zip`)
+}
+
 /** Reads manifest.json's "version" straight out of a built extension zip — the ground truth for what's actually in that artifact. */
 export async function readZipManifestVersion(zipPath: string): Promise<string | undefined> {
   let bytes: Uint8Array
@@ -51,8 +56,8 @@ export async function readZipManifestVersion(zipPath: string): Promise<string | 
  * the ground truth when one exists (it's what's actually being uploaded);
  * package.json is the only signal left for --store safari, which has no zip.
  */
-export async function inferPushDefaults(raw: { file?: string; version?: string }, store: string | undefined, cwd: string): Promise<{ file?: string; version?: string }> {
-  const result: { file?: string; version?: string } = {}
+export async function inferPushDefaults(raw: { file?: string; version?: string; sourceZip?: string }, store: string | undefined, cwd: string): Promise<{ file?: string; version?: string; sourceZip?: string }> {
+  const result: { file?: string; version?: string; sourceZip?: string } = {}
   const pkg = await readPackageJson(cwd)
 
   if (!raw.file && store && store !== 'safari' && pkg?.name && pkg?.version) {
@@ -65,6 +70,15 @@ export async function inferPushDefaults(raw: { file?: string; version?: string }
       const chromeCandidate = wxtZipPath(pkg.name, pkg.version, 'chrome')
       if (existsSync(resolve(cwd, chromeCandidate))) result.file = chromeCandidate
     }
+  }
+
+  // AMO's source zip follows a WXT convention too (zip.sourcesTemplate,
+  // built alongside the firefox zip) — infer it exactly like the artifact.
+  // Only attached when the file actually exists: source review is an AMO
+  // policy question, not something to fail a push over.
+  if (!raw.sourceZip && store === 'firefox' && pkg?.name && pkg?.version) {
+    const candidate = wxtSourcesZipPath(pkg.name, pkg.version)
+    if (existsSync(resolve(cwd, candidate))) result.sourceZip = candidate
   }
 
   if (!raw.version) {

@@ -384,7 +384,7 @@ const main = defineCommand({
           options: ['chrome', 'firefox', 'edge', 'safari'],
           description: 'With --file, omit for one universal zip pushed to every configured store. With neither --file nor --store, pushes every configured store individually',
         },
-        'source-zip': { type: 'string', description: 'Source code zip for AMO review (--store firefox only)' },
+        'source-zip': { type: 'string', description: "Source code zip for AMO review (--store firefox only; inferred from .output/{name}-{version}-sources.zip when present)" },
         'api-url': apiUrlArg,
         'api-key': { type: 'string', description: 'API key sk_live_… (or env EXTPORT_API_KEY, or run "extport login")' },
       },

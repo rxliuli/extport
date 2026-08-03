@@ -32,6 +32,7 @@ export interface PushDefaults {
   apiUrl?: string
   file?: string
   version?: string
+  sourceZip?: string
 }
 
 export interface PushContext {
@@ -74,9 +75,12 @@ export function resolvePushOptions(raw: RawPushArgs, env: Record<string, string 
   if (raw.sourceZip !== undefined && raw.store !== 'firefox') {
     throw new Error('--source-zip is only valid with --store firefox')
   }
+  // The inferred default is firefox-only by construction (wxt-project.ts),
+  // but guard here too so a stray default can never leak to another store.
+  const sourceZip = raw.sourceZip ?? (raw.store === 'firefox' ? defaults.sourceZip : undefined)
 
   const { extension, apiUrl, apiKey } = resolvePushContext(raw, env, defaults)
-  return { file, extension, version, store: raw.store, sourceZip: raw.sourceZip, apiUrl, apiKey }
+  return { file, extension, version, store: raw.store, sourceZip, apiUrl, apiKey }
 }
 
 export function buildPushUrl(options: PushOptions): string {

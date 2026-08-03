@@ -111,6 +111,26 @@ describe('readZipManifestVersion / readPackageJson / inferPushDefaults', () => {
     expect(result.version).toBe('9.9.9')
   })
 
+  it('infers the AMO sources zip for firefox from WXT\'s sourcesTemplate convention', async () => {
+    await writeFile(join(cwd, 'package.json'), JSON.stringify({ name: 'scrub', version: '0.0.14' }))
+    await mkdir(join(cwd, '.output'), { recursive: true })
+    await writeFile(join(cwd, '.output', 'scrub-0.0.14-firefox.zip'), makeZip({ 'manifest.json': JSON.stringify({ version: '0.0.14' }) }))
+    await writeFile(join(cwd, '.output', 'scrub-0.0.14-sources.zip'), makeZip({ 'src/main.ts': 'export {}' }))
+
+    const result = await inferPushDefaults({}, 'firefox', cwd)
+    expect(result.sourceZip).toBe(join('.output', 'scrub-0.0.14-sources.zip'))
+  })
+
+  it('leaves sourceZip undefined when the sources zip is absent, the store is not firefox, or --source-zip was given', async () => {
+    await writeFile(join(cwd, 'package.json'), JSON.stringify({ name: 'scrub', version: '0.0.14' }))
+    await mkdir(join(cwd, '.output'), { recursive: true })
+    expect((await inferPushDefaults({}, 'firefox', cwd)).sourceZip).toBeUndefined()
+
+    await writeFile(join(cwd, '.output', 'scrub-0.0.14-sources.zip'), makeZip({ 'src/main.ts': 'export {}' }))
+    expect((await inferPushDefaults({}, 'chrome', cwd)).sourceZip).toBeUndefined()
+    expect((await inferPushDefaults({ sourceZip: 'my-sources.zip' }, 'firefox', cwd)).sourceZip).toBeUndefined()
+  })
+
   it('never overrides an explicitly-given --version', async () => {
     await writeFile(join(cwd, 'package.json'), JSON.stringify({ name: 'scrub', version: '0.0.14' }))
     await mkdir(join(cwd, '.output'), { recursive: true })
