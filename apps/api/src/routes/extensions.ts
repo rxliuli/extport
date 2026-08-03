@@ -27,7 +27,10 @@ route.get(
       .select()
       .from(extensions)
       .where(eq(extensions.tenantId, c.get('tenant').id))
-      .orderBy(extensions.name)
+      // Most-recently-touched first (updatedAt covers every tenant action:
+      // creation, config edits, and artifact pushes — see artifacts.ts's
+      // touch). Name as tiebreak keeps the order stable across refreshes.
+      .orderBy(desc(extensions.updatedAt), extensions.name)
     return c.json({ extensions: rows })
   },
 )
@@ -48,7 +51,7 @@ route.get(
       .select()
       .from(extensions)
       .where(eq(extensions.tenantId, tenant.id))
-      .orderBy(extensions.name)
+      .orderBy(desc(extensions.updatedAt), extensions.name)
 
     const targetRows = await db
       .select({ target: publishTargets, credential: storeCredentials })

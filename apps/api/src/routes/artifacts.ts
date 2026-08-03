@@ -203,6 +203,11 @@ route.post(
       sha256,
       size: bytes.length,
     })
+    // Pushing IS touching the extension — bump updatedAt so recency
+    // ordering in the dashboard reflects publish activity, not just config
+    // edits. Invariant: every future publish-shaped write path must do the
+    // same, or its extensions stop floating to the top of the list.
+    await db.update(extensions).set({ updatedAt: new Date().toISOString() }).where(eq(extensions.id, extension.id))
     const [created] = await db.select().from(artifacts).where(eq(artifacts.id, id))
 
     for (const s of targetStores) {

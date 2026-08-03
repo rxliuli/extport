@@ -1,8 +1,9 @@
 import { newId } from '@extport/shared'
+import { eq } from 'drizzle-orm'
 import { env } from 'cloudflare:test'
 import { strToU8, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import { publishTargets } from '../src/db'
+import { extensions, publishTargets } from '../src/db'
 import { createApiKey, createExtension, fakeZip, request, seedTenantWithUser } from './helpers'
 
 function upload(
@@ -92,6 +93,22 @@ describe('artifact upload', () => {
     const object = await env.ARTIFACTS.get(artifact.r2Key)
     expect(object).not.toBeNull()
     expect(object!.customMetadata?.sha256).toBe(artifact.sha256)
+  })
+
+  it('pushing bumps the extension\'s updatedAt — the recency-ordering invariant', async () => {
+    const { db, sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const key = await createApiKey(sessionCookie)
+
+    // Age the row so the bump is observable.
+    const stale = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    await db.update(extensions).set({ updatedAt: stale }).where(eq(extensions.id, extension.id))
+
+    const res = await upload({ key }, `extension=${extension.id}&version=1.2.3&store=chrome`, fakeZip())
+    expect(res.status).toBe(201)
+
+    const [row] = await db.select().from(extensions).where(eq(extensions.id, extension.id))
+    expect(row!.updatedAt > stale).toBe(true)
   })
 
   it('does not warn when a publish target already exists for the store', async () => {
