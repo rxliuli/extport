@@ -28,9 +28,10 @@ Then create a plan. A plan is one sellable tier of one extension:
 - **Max devices** — how many devices one license covers (editable later;
   applies to codes issued from then on).
 
-The `productName` your extension passes to the SDK is simply your
-**extension's name** — it's part of the verification contract baked into
-shipped builds, so the name is locked while licensing is enabled.
+Activation codes verify against your **extension's id** (`ext_…`) — the
+identity is part of the verification contract baked into shipped builds,
+which is also why the extension's name is locked while licensing is
+enabled.
 
 The plans table shows a `extport_plan=plan_…` value per row — that's the
 Stripe metadata you'll need in step 3.
@@ -42,7 +43,9 @@ import { createActivationClient } from '@extport/sdk'
 import { webextTransport } from '@extport/sdk/webext'
 
 export const client = createActivationClient({
-  productName: 'My Extension',            // = your extension's name in extport
+  // extensionId resolves automatically when built with @extport/wxt
+  // (extport: { extension: 'ext_…' }); otherwise pass it here:
+  // extensionId: 'ext_…',
   plans: {
     free: { records: 100 },               // 'free' is required
     pro: { records: Infinity },           // tier names = your plan tiers
