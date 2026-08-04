@@ -535,11 +535,11 @@ function ExtensionDetailLayout() {
               <AlertDialogTrigger asChild>
                 <Button
                   variant="outline"
-                  size="icon-sm"
+                  size="sm"
                   aria-label="Delete extension"
                   className="text-red-600 hover:text-red-600 dark:text-red-400 dark:hover:text-red-400"
                 >
-                  <Trash2 />
+                  <Trash2 /> <span className="hidden sm:inline">Delete</span>
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
