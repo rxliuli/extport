@@ -102,8 +102,8 @@ function PlansCard({ extension }: { extension: Extension }) {
         <CardTitle>Plans</CardTitle>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button variant="outline" size="sm">
-              <Plus /> Add a plan
+            <Button variant="outline" size="sm" aria-label="Add a plan">
+              <Plus /> <span className="hidden sm:inline">Add a plan</span>
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -285,8 +285,8 @@ function LicensesCard({ extension }: { extension: Extension }) {
         {plans.length > 0 && (
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Plus /> Issue a license
+              <Button variant="outline" size="sm" aria-label="Issue a license">
+                <Plus /> <span className="hidden sm:inline">Issue a license</span>
               </Button>
             </DialogTrigger>
             <DialogContent>

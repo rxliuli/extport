@@ -125,8 +125,8 @@ export function TargetsSection({ extensionId }: { extensionId: string }) {
         {availableStores.length > 0 && (
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Plus /> Add a store
+              <Button variant="outline" size="sm" aria-label="Add a store">
+                <Plus /> <span className="hidden sm:inline">Add a store</span>
               </Button>
             </DialogTrigger>
             <DialogContent>

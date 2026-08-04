@@ -74,7 +74,7 @@ function ApiKeysSection() {
             className="h-8 w-full max-w-56"
             required
           />
-          <Button type="submit" size="sm" disabled={create.isPending}>
+          <Button type="submit" size="sm" aria-label="Create API key" disabled={create.isPending}>
             <Plus /> <span className="hidden sm:inline">Create</span>
           </Button>
         </form>
@@ -283,7 +283,7 @@ function CredentialsSection() {
         <CardAction>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" aria-label="Add credential">
                 <Plus /> <span className="hidden sm:inline">Add credential</span>
               </Button>
             </DialogTrigger>
