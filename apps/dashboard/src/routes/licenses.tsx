@@ -38,7 +38,11 @@ function LicensesPage() {
       <h2 className="text-2xl font-bold tracking-tight">Licenses</h2>
 
       {overview.data && (
-        <div className="grid gap-6 lg:grid-cols-2">
+        // *:min-w-0 — grid items default to min-width:auto, and recharts
+        // pins a measured pixel width on its wrapper, so without this the
+        // track can never shrink below the chart's last width and the
+        // whole page scrolls sideways on phones.
+        <div className="grid gap-6 *:min-w-0 lg:grid-cols-2">
           <TrendCard
             title="Revenue"
             overview={overview.data}

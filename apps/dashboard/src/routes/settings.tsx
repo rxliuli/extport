@@ -4,8 +4,15 @@ import { DatePicker } from '@/components/date-picker'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -14,7 +21,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { credentialsQuery, keysQuery, meQuery, paymentCredentialsQuery } from '@/queries'
 import { useIsFetching, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { KeyRound, Loader2, Plus } from 'lucide-react'
+import { KeyRound, Loader2, MoreHorizontal, Plus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -64,11 +71,11 @@ function ApiKeysSection() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Key name (e.g. ci)"
-            className="h-8 w-56"
+            className="h-8 w-full max-w-56"
             required
           />
           <Button type="submit" size="sm" disabled={create.isPending}>
-            <Plus /> Create
+            <Plus /> <span className="hidden sm:inline">Create</span>
           </Button>
         </form>
 
@@ -267,66 +274,66 @@ function CredentialsSection() {
 
   return (
     <Card>
-      <CardHeader className="flex items-center justify-between">
-        <div>
-          <CardTitle id="store-credentials">Store credentials</CardTitle>
-          <CardDescription>
-            Verified against the live store API before saving, then envelope-encrypted — only the last four characters
-            are ever shown again.
-          </CardDescription>
-        </div>
-        <Dialog open={addOpen} onOpenChange={setAddOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm">
-              <Plus /> Add credential
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add credential</DialogTitle>
-            </DialogHeader>
-            <form
-              className="flex flex-col gap-3"
-              onSubmit={(e) => {
-                e.preventDefault()
-                add.mutate()
-              }}
-            >
-              <Select
-                value={store}
-                onValueChange={(value: string) => {
-                  setStore(value as CredentialRow['store'])
-                  setFields({})
+      <CardHeader>
+        <CardTitle id="store-credentials">Store credentials</CardTitle>
+        <CardDescription>
+          Verified against the live store API before saving, then envelope-encrypted — only the last four characters
+          are ever shown again.
+        </CardDescription>
+        <CardAction>
+          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Plus /> <span className="hidden sm:inline">Add credential</span>
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add credential</DialogTitle>
+              </DialogHeader>
+              <form
+                className="flex flex-col gap-3"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  add.mutate()
                 }}
               >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(STORE_OPTION_LABEL) as CredentialRow['store'][]).map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {STORE_OPTION_LABEL[s]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label (optional)" />
-              <CredentialFieldInputs store={store} fields={fields} onChange={setFields} />
-              {store === 'edge' && (
-                <div className="grid gap-1.5">
-                  <Label htmlFor="expiry" className="text-xs text-muted-foreground">
-                    API key expiry (rotates every ~72 days)
-                  </Label>
-                  <DatePicker id="expiry" value={expiresAt} onChange={setExpiresAt} />
-                </div>
-              )}
-              <Button type="submit" disabled={add.isPending} className="justify-self-start">
-                {add.isPending && <Loader2 className="animate-spin" />}
-                {add.isPending ? 'Verifying…' : 'Verify & save'}
-              </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <Select
+                  value={store}
+                  onValueChange={(value: string) => {
+                    setStore(value as CredentialRow['store'])
+                    setFields({})
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(STORE_OPTION_LABEL) as CredentialRow['store'][]).map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {STORE_OPTION_LABEL[s]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label (optional)" />
+                <CredentialFieldInputs store={store} fields={fields} onChange={setFields} />
+                {store === 'edge' && (
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="expiry" className="text-xs text-muted-foreground">
+                      API key expiry (rotates every ~72 days)
+                    </Label>
+                    <DatePicker id="expiry" value={expiresAt} onChange={setExpiresAt} />
+                  </div>
+                )}
+                <Button type="submit" disabled={add.isPending} className="justify-self-start">
+                  {add.isPending && <Loader2 className="animate-spin" />}
+                  {add.isPending ? 'Verifying…' : 'Verify & save'}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </CardAction>
       </CardHeader>
       <CardContent className="space-y-6">
         {rows.length > 0 && (
@@ -340,34 +347,39 @@ function CredentialsSection() {
                     <code className="text-xs">…{row.hint}</code>
                   </TableCell>
                   <TableCell className={`font-semibold ${CREDENTIAL_STATUS_CLASS[row.status]}`}>{row.status}</TableCell>
-                  <TableCell className="space-x-2 text-right">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => verify.mutate(row.id)}
-                      disabled={verify.isPending && verify.variables === row.id}
-                    >
-                      Verify
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setRotateFields({})
-                        setRotateExpiresAt(undefined)
-                        setRotatingId(row.id)
-                      }}
-                    >
-                      Rotate
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => remove.mutate(row.id)}
-                      disabled={remove.isPending && remove.variables === row.id}
-                    >
-                      Delete
-                    </Button>
+                  <TableCell className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${row.store} credential`}>
+                          <MoreHorizontal />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          disabled={verify.isPending && verify.variables === row.id}
+                          onSelect={() => verify.mutate(row.id)}
+                        >
+                          Verify
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            setRotateFields({})
+                            setRotateExpiresAt(undefined)
+                            setRotatingId(row.id)
+                          }}
+                        >
+                          Rotate…
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          variant="destructive"
+                          disabled={remove.isPending && remove.variables === row.id}
+                          onSelect={() => remove.mutate(row.id)}
+                        >
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))}
@@ -449,13 +461,13 @@ function PaymentCredentialsSection() {
       </CardHeader>
       <CardContent className="space-y-4">
         {stripe && !editing ? (
-          <div className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-            <div className="flex items-center gap-3">
-              <span className="font-medium">stripe</span>
-              <code className="text-muted-foreground">whsec_…{stripe.hint}</code>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground">updated {formatDate(stripe.updatedAt)}</span>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border px-3 py-2 text-sm">
+            <span className="font-medium">stripe</span>
+            <code className="text-muted-foreground">whsec_…{stripe.hint}</code>
+            <div className="ml-auto flex items-center gap-3">
+              <span className="text-xs whitespace-nowrap text-muted-foreground">
+                updated {formatDate(stripe.updatedAt)}
+              </span>
               <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
                 Replace
               </Button>

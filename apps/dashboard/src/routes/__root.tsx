@@ -1,6 +1,13 @@
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -9,6 +16,7 @@ import type { Me } from '@/api'
 import type { QueryClient } from '@tanstack/react-query'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createRootRouteWithContext, Link, Outlet, redirect, useNavigate } from '@tanstack/react-router'
+import { Menu } from 'lucide-react'
 import { useEffect } from 'react'
 
 // Mirrors apps/api/src/routes/auth.ts's DISCORD_INVITE_URL — the closed
@@ -86,13 +94,13 @@ function RootLayout() {
         <PendingScreen me={me} onSignOut={() => void signOut()} />
       ) : (
         <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
-          {/* flex-wrap, not a drawer: on phones the nav and account rows
-              stack below the logo — everything stays visible and tappable. */}
-          <header className="mb-8 flex flex-wrap items-center gap-x-6 gap-y-2">
+          {/* One row at every width: below sm the nav links and Sign out
+              fold into the dropdown so the header never wraps or clips. */}
+          <header className="mb-8 flex items-center gap-6">
             <Link to="/" className="text-xl font-bold tracking-tight">
               extport
             </Link>
-            <nav className="flex flex-wrap items-center gap-1">
+            <nav className="hidden items-center gap-1 sm:flex">
               <Link
                 to="/"
                 className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -126,9 +134,32 @@ function RootLayout() {
             <div className="ml-auto flex items-center gap-3 text-sm text-muted-foreground">
               <span className="hidden sm:inline">{me.user?.displayName ?? me.user?.email}</span>
               <Badge variant="secondary">{me.tenant.plan}</Badge>
-              <Button variant="outline" size="sm" onClick={() => void signOut()}>
+              <Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={() => void signOut()}>
                 Sign out
               </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon-sm" className="sm:hidden" aria-label="Menu">
+                    <Menu />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem asChild>
+                    <Link to="/">Extensions</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link to="/licenses">Licenses</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link to="/analytics">Analytics</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link to="/settings">Settings</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => void signOut()}>Sign out</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </header>
           <Outlet />
