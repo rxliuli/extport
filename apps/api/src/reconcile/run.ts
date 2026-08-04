@@ -102,17 +102,19 @@ const STORE_LABELS: Record<Store, string> = {
   safari: 'App Store',
 }
 
-type NotifyKind = 'submitted' | 'rejected' | 'error'
+type NotifyKind = 'rejected' | 'error'
 
 /**
  * Maps a notification-worthy moment into an email. `error` and `stale_review`
- * are also persisted as publish_events; submitted/rejected live only as the
+ * are also persisted as publish_events; rejected lives only as the
  * deployment_versions row's status — the row itself is the record, this is
  * purely the side-effect of telling the tenant about it.
  *
- * Going live has no case here on purpose: it's not actionable, and every
- * store already emails the tenant directly when a review is approved —
- * this would just be a second copy of news they already have.
+ * Going live and successful submission have no case here on purpose:
+ * neither is actionable, every store already emails when a review
+ * resolves, and CI already reported the push — a fanout to N stores was
+ * bursting N copies of news the tenant had. Email is for what only
+ * extport can see.
  */
 function buildMessage(row: JoinedRow, kind: NotifyKind, payload: Record<string, unknown>, platform?: string): { subject: string; text: string } | null {
   const ext = row.extension.name
@@ -130,11 +132,6 @@ function buildMessage(row: JoinedRow, kind: NotifyKind, payload: Record<string, 
       return {
         subject: `⚠️ ${ext} publishing error on ${store}`,
         text: `${ext} hit an error while reconciling ${store}:\n\n${payload.message ?? 'unknown error'}\n\nStore page: ${link}`,
-      }
-    case 'submitted':
-      return {
-        subject: `${ext} v${payload.version} submitted to ${store}`,
-        text: `${ext} v${payload.version} was submitted for review on ${store}.${payload.detail ? `\n\n${payload.detail}` : ''}\n\nStore page: ${link}`,
       }
   }
 }
@@ -377,7 +374,10 @@ async function reconcileLifecycle(
     .update(deploymentVersions)
     .set({ status: 'in_review', statusDetail: result.detail ?? null, submittedAt: new Date().toISOString() })
     .where(eq(deploymentVersions.id, queued!.id))
-  await notify(notifier, row, 'submitted', { version: queued!.version, detail: result.detail }, platform)
+  // Deliberately no email here: a push to N stores would burst N copies of
+  // news the tenant already has (CI reported the push; the store announces
+  // the review outcome). Email is reserved for what only extport can see —
+  // submit-stage errors, rejections caught by polling, expiring credentials.
   return 'submitted'
 }
 

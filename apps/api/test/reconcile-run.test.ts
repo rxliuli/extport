@@ -217,10 +217,9 @@ describe('runReconciliation — fresh publish', () => {
     expect(rows[0]!.submittedAt).not.toBeNull()
     expect(calls.some((c) => c.url.endsWith(':publish'))).toBe(true)
 
-    expect(sent).toHaveLength(1)
-    expect(sent[0]).toMatchObject({ to: 't@test.com' })
-    expect(sent[0]!.subject).toContain('v1.0.0')
-    expect(sent[0]!.text).toContain('https://chromewebstore.google.com/detail/item-1')
+    // Success is silent: CI already reported the push and the store will
+    // announce the review outcome — email is reserved for failures.
+    expect(sent).toHaveLength(0)
   })
 })
 
@@ -337,11 +336,11 @@ describe('runReconciliation — rejection frees the slot for a newer version', (
       { version: '1.2.0', status: 'in_review' },
     ])
 
-    expect(sent).toHaveLength(2)
+    // Only the rejection emails — the follow-up submission is silent.
+    expect(sent).toHaveLength(1)
     expect(sent[0]!.subject).toContain('rejected')
     expect(sent[0]!.text).toContain('does not expose rejection reasons via API')
     expect(sent[0]!.text).toContain('https://chromewebstore.google.com/detail/item-1')
-    expect(sent[1]!.subject).toContain('v1.2.0')
   })
 })
 
@@ -372,10 +371,9 @@ describe('runReconciliation — phantom in-review row self-heals', () => {
       { version: '1.1.0', status: 'skipped' },
       { version: '1.2.0', status: 'in_review' },
     ])
-    // No email for the phantom row resolving — it was never real to begin
-    // with, so there's nothing to alert the tenant about.
-    expect(sent).toHaveLength(1)
-    expect(sent[0]!.subject).toContain('1.2.0')
+    // No email for the phantom row resolving (it was never real to begin
+    // with) and none for the follow-up submission either — success is silent.
+    expect(sent).toHaveLength(0)
   })
 
   it('leaves a freshly-submitted in_review row alone even if the store reports nothing yet', async () => {
@@ -854,8 +852,7 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
     expect(macos.submittedAt).not.toBeNull()
     // The iOS lifecycle was never observed to exist — no phantom rows.
     expect(rows.filter((v) => v.platform === 'ios')).toHaveLength(0)
-    expect(sent).toHaveLength(1)
-    expect(sent[0]!.subject).toContain('v0.0.2')
+    expect(sent).toHaveLength(0)
   })
 
   it('never polls a platform the target declared it does not have', async () => {
@@ -1015,8 +1012,10 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
     const events = await eventsFor(db, extensionId)
     expect(events.filter((e) => e.type === 'error')).toHaveLength(1)
     expect(events.filter((e) => e.type === 'recovered')).toHaveLength(0)
-    expect(sent.some((n) => n.subject.includes('v0.0.2 submitted'))).toBe(true)
+    // The failing platform emails; the sibling's successful submission is
+    // silent (visible above as the macos in_review row instead).
     expect(sent.some((n) => n.subject.includes('publishing error'))).toBe(true)
+    expect(sent.some((n) => n.subject.includes('submitted'))).toBe(false)
   })
 })
 
