@@ -14,6 +14,13 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -32,6 +39,7 @@ import {
   CircleX,
   Clock,
   Loader2,
+  MoreHorizontal,
   Plus,
   RefreshCw,
   SkipForward,
@@ -243,12 +251,22 @@ export function TargetsSection({ extensionId }: { extensionId: string }) {
                         disabled
                       </Badge>
                     )}
-                    <Button variant="outline" size="sm" onClick={() => toggle.mutate(t)} disabled={toggle.isPending}>
-                      {t.enabled ? 'Disable' : 'Enable'}
-                    </Button>{' '}
-                    <Button variant="outline" size="sm" onClick={() => remove.mutate(t)} disabled={remove.isPending}>
-                      Remove
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${t.store} target`}>
+                          <MoreHorizontal />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem disabled={toggle.isPending} onSelect={() => toggle.mutate(t)}>
+                          {t.enabled ? 'Disable' : 'Enable'}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem variant="destructive" disabled={remove.isPending} onSelect={() => remove.mutate(t)}>
+                          Remove
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))}
@@ -511,12 +529,17 @@ function ExtensionDetailLayout() {
           <div className="ml-auto flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => reconcile.mutate()} disabled={reconcile.isPending}>
               {reconcile.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-              Reconcile now
+              Reconcile
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="outline" size="sm" className="text-red-600 hover:text-red-600 dark:text-red-400 dark:hover:text-red-400">
-                  <Trash2 /> Delete
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="Delete extension"
+                  className="text-red-600 hover:text-red-600 dark:text-red-400 dark:hover:text-red-400"
+                >
+                  <Trash2 />
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
