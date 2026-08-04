@@ -32,7 +32,6 @@ function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold tracking-tight">Analytics</h2>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Weekly active users" hint="rolling 7 days, same as the chart" value={overview ? String(overview.weeklyActives) : '—'} />
@@ -57,7 +56,9 @@ function AnalyticsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Active users</CardTitle>
-              <CardDescription>Weekly actives (rolling 7 days) across every extension, one line per store.</CardDescription>
+              <CardDescription>
+                Weekly actives (rolling 7 days) across every extension, one line per store. Days are UTC.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <ChartContainer

@@ -35,7 +35,6 @@ function LicensesPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold tracking-tight">Licenses</h2>
 
       {overview.data && (
         // *:min-w-0 — grid items default to min-width:auto, and recharts

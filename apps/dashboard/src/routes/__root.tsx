@@ -98,10 +98,10 @@ function RootLayout() {
         // 16px inset from the screen edge instead of two. Scoped here (not
         // in ui/card) so the login, pending, and portal cards — which render
         // outside this shell — keep their framed look.
-        <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 max-sm:[&_[data-slot=card]]:-mx-4 max-sm:[&_[data-slot=card]]:rounded-none max-sm:[&_[data-slot=card]]:border-x-0">
+        <div className="mx-auto max-w-5xl p-4 sm:p-6 max-sm:[&_[data-slot=card]]:-mx-4 max-sm:[&_[data-slot=card]]:rounded-none max-sm:[&_[data-slot=card]]:border-x-0">
           {/* One row at every width: below sm the nav links and Sign out
               fold into the dropdown so the header never wraps or clips. */}
-          <header className="mb-8 flex items-center gap-6">
+          <header className="mb-4 flex items-center gap-6 sm:mb-8">
             <Link to="/" className="text-xl font-bold tracking-tight">
               extport
             </Link>

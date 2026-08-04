@@ -209,7 +209,7 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 *:min-w-0 sm:grid-cols-3">
         <StatCard label="Weekly active users" hint="rolling 7 days, same as the chart" value={overview ? String(overview.weeklyActives) : '—'} />
         <StatCard label="All-time installs" value={overview ? String(overview.allTimeInstalls) : '—'} />
         <StatCard
@@ -259,7 +259,7 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 *:min-w-0 lg:grid-cols-3">
         <BreakdownCard title="Weekly users by country" rows={countryRows} format={countryLabel} />
         <BreakdownCard title="Weekly users by language" rows={languageRows} format={languageLabel} />
         <BreakdownCard title="Weekly users by OS" rows={osRows} format={osLabel} />
