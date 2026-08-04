@@ -48,15 +48,25 @@ function LifecycleLine({ lifecycle }: { lifecycle: TargetLifecycle }) {
   return <span className="text-muted-foreground/50">—</span>
 }
 
+// iOS before macOS: on iOS every browser is WebKit and extensions exist
+// only through Safari, so that's where Safari-extension users actually
+// live — macOS Safari competes with Chrome/Firefox for a far smaller
+// share. Display-level order only; adapters and reconcile are untouched.
+const PLATFORM_ORDER: Record<string, number> = { ios: 0, macos: 1 }
+
 /**
- * A target's lifecycles, one line each. Single-lifecycle stores render
- * exactly as before; Safari gets one line per platform with a small label.
+ * A target's lifecycles on a single row (uniform table row heights even
+ * when Safari carries two platforms). Single-lifecycle stores render
+ * exactly as before; Safari platforms each get a small label.
  */
 export function VersionSummary({ lifecycles }: { lifecycles: TargetLifecycle[] }) {
   if (lifecycles.length === 0) return <span className="text-muted-foreground/50">—</span>
+  const ordered = [...lifecycles].sort(
+    (a, b) => (PLATFORM_ORDER[a.platform ?? ''] ?? 9) - (PLATFORM_ORDER[b.platform ?? ''] ?? 9),
+  )
   return (
-    <span className="inline-flex flex-col gap-0.5">
-      {lifecycles.map((lifecycle) => (
+    <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-0.5">
+      {ordered.map((lifecycle) => (
         <span key={lifecycle.platform ?? 'default'} className="inline-flex items-center gap-1.5">
           {lifecycle.platform && (
             <span className="rounded bg-muted px-1 py-px font-mono text-[10px] text-muted-foreground">{lifecycle.platform}</span>
