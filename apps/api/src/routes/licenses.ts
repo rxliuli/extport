@@ -81,28 +81,37 @@ route.get(
   describeRoute({
     summary: 'Purchase trend — last 30 days vs the 30 before',
     description:
-      'Daily revenue and licenses-sold buckets for the trailing 30 days (today included, partial), index-aligned with the previous 30-day period for the dashed comparison line. Manual issuances are excluded — this charts purchases. Revenue is gross by sale date (a later refund does not remove the sale from its day, matching how the license list shows amounts) and covers the dominant currency only; counts span all currencies.',
+      'Daily revenue and licenses-sold buckets for the trailing 30 days (today included, partial), index-aligned with the previous 30-day period for the dashed comparison line. Manual issuances are excluded — this charts purchases. Revenue is gross by sale date (a later refund does not remove the sale from its day, matching how the license list shows amounts) and covers the dominant currency only; counts span all currencies. Pass ?tz= as minutes east of UTC to bucket days in the viewer’s timezone; the default is UTC.',
     responses: { 200: { description: 'OK' } },
   }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
-    const dayIso = (back: number) => new Date(Date.now() - back * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    const windowStart = dayIso(2 * OVERVIEW_DAYS - 1)
+    // Days follow the viewer's clock (?tz=, sent by the dashboard) so the
+    // chart, the license table's local dates, and Stripe's own local-time
+    // dashboard all agree on which day a sale happened. Analytics stays
+    // UTC — its days are per-install dedup buckets, not calendar days —
+    // so the offset deliberately stops at the money surfaces.
+    const tz = Math.max(-720, Math.min(840, Math.trunc(Number(c.req.query('tz')) || 0)))
+    const dayIso = (back: number) => new Date(Date.now() + tz * 60_000 - back * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    // One padding day: east of UTC, the window's first local day starts on
+    // the previous UTC date. Surplus rows never match a charted day.
+    const windowStart = dayIso(2 * OVERVIEW_DAYS)
+    const localDay = sql<string>`substr(datetime(${licenses.createdAt}, ${`${tz} minutes`}), 1, 10)`
 
-    // Imported rows keep their original license-kit timestamps and (both
-    // ISO and SQLite datetime formats start YYYY-MM-DD) bucket correctly,
-    // so the comparison line has real history from day one.
+    // Imported rows keep their original license-kit timestamps — datetime()
+    // parses their SQLite format and our ISO strings alike, so the
+    // comparison line has real history from day one.
     const rows = await db
       .select({
-        day: sql<string>`substr(${licenses.createdAt}, 1, 10)`,
+        day: localDay,
         currency: licenses.currency,
         revenue: sql<number>`coalesce(sum(${licenses.amountTotal}), 0)`,
         count: sql<number>`count(*)`,
       })
       .from(licenses)
       .where(and(eq(licenses.tenantId, tenant.id), ne(licenses.source, 'manual'), gte(licenses.createdAt, windowStart)))
-      .groupBy(sql`substr(${licenses.createdAt}, 1, 10)`, licenses.currency)
+      .groupBy(localDay, licenses.currency)
 
     // One currency per chart — mixed-currency sums are meaningless and FX
     // conversion is out of scope. The dominant currency (by revenue in the

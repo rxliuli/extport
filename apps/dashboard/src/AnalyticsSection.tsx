@@ -228,7 +228,7 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
           <CardTitle>Active users</CardTitle>
           <CardDescription>
             Weekly actives (rolling 7 days, same as the CWS console), one line per store — the view no single console
-            can draw.
+            can draw. Days are UTC.
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -621,6 +621,47 @@ describe('GET /v1/licenses/overview', () => {
     expect(overview.totals).toEqual({ revenue: 2998, count: 2, prevRevenue: 3999, prevCount: 1 })
     expect(license.source).toBe('manual')
   })
+
+  it('buckets days in the viewer timezone when ?tz= is passed', async () => {
+    const { db, plan, sessionCookie } = await setupLicensedProduct()
+    const res = await request('/api/v1/licenses', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ planId: plan.id, buyerEmail: 'buyer2@example.com' }),
+    })
+    expect(res.status).toBe(201)
+    const sale = ((await res.json()) as { license: License }).license
+
+    // A purchase late in the UTC evening yesterday is already "today" for a
+    // viewer east of UTC — the exact mismatch ?tz= exists to fix. Anchoring
+    // to yesterday keeps both candidate days inside the 30-day window no
+    // matter what time of day the test runs.
+    const y = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    const instant = new Date(Date.UTC(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate(), 20, 35, 0)).toISOString()
+    await db
+      .update(licenses)
+      .set({ source: 'stripe_webhook', amountTotal: 1999, currency: 'usd', createdAt: instant })
+      .where(eq(licenses.id, sale.id))
+
+    const dayOf = (offsetMinutes: number) =>
+      new Date(new Date(instant).getTime() + offsetMinutes * 60_000).toISOString().slice(0, 10)
+    const fetchDays = async (query: string) =>
+      ((await (await request(`/api/v1/licenses/overview${query}`, { headers: { cookie: sessionCookie } })).json()) as {
+        days: { date: string; revenue: number; count: number }[]
+      }).days
+
+    expect(dayOf(420)).not.toBe(dayOf(0))
+    const utc = await fetchDays('')
+    expect(utc.find((d) => d.date === dayOf(0))).toMatchObject({ revenue: 1999, count: 1 })
+
+    const bangkok = await fetchDays('?tz=420')
+    expect(bangkok.find((d) => d.date === dayOf(420))).toMatchObject({ revenue: 1999, count: 1 })
+    expect(bangkok.find((d) => d.date === dayOf(0))).toMatchObject({ revenue: 0, count: 0 })
+
+    // Garbage offsets fall back to UTC instead of erroring.
+    const garbage = await fetchDays('?tz=abc')
+    expect(garbage.find((d) => d.date === dayOf(0))).toMatchObject({ revenue: 1999, count: 1 })
+  })
 })
 
 describe('host-based surface isolation', () => {

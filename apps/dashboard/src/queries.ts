@@ -102,7 +102,9 @@ export interface LicensesOverview {
 
 export const licensesOverviewQuery = queryOptions({
   queryKey: ['licenses', 'overview'],
-  queryFn: () => api<LicensesOverview>('/api/v1/licenses/overview'),
+  // getTimezoneOffset is minutes *behind* UTC — negate into minutes east,
+  // so chart days match the local dates the license table already shows.
+  queryFn: () => api<LicensesOverview>(`/api/v1/licenses/overview?tz=${-new Date().getTimezoneOffset()}`),
 })
 
 // 30 days is the CWS default too; a range picker joins once there is
