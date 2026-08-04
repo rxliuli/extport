@@ -85,12 +85,14 @@ function RootLayout() {
       ) : me.tenant.status === 'pending' ? (
         <PendingScreen me={me} onSignOut={() => void signOut()} />
       ) : (
-        <div className="mx-auto max-w-5xl px-6 py-6">
-          <header className="mb-8 flex items-center gap-6">
+        <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
+          {/* flex-wrap, not a drawer: on phones the nav and account rows
+              stack below the logo — everything stays visible and tappable. */}
+          <header className="mb-8 flex flex-wrap items-center gap-x-6 gap-y-2">
             <Link to="/" className="text-xl font-bold tracking-tight">
               extport
             </Link>
-            <nav className="flex items-center gap-1">
+            <nav className="flex flex-wrap items-center gap-1">
               <Link
                 to="/"
                 className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -122,7 +124,7 @@ function RootLayout() {
               </Link>
             </nav>
             <div className="ml-auto flex items-center gap-3 text-sm text-muted-foreground">
-              <span>{me.user?.displayName ?? me.user?.email}</span>
+              <span className="hidden sm:inline">{me.user?.displayName ?? me.user?.email}</span>
               <Badge variant="secondary">{me.tenant.plan}</Badge>
               <Button variant="outline" size="sm" onClick={() => void signOut()}>
                 Sign out

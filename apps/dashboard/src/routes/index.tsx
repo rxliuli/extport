@@ -34,7 +34,7 @@ function ExtensionsPage() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-y-3">
         <CardTitle>Extensions</CardTitle>
         <form
           className="flex items-center gap-2"

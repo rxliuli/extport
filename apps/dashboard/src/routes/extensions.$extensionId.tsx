@@ -503,7 +503,7 @@ function ExtensionDetailLayout() {
         <Link to="/" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft size={14} /> Back to extensions
         </Link>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <div>
             <h2 className="text-2xl font-bold tracking-tight">{extension.name}</h2>
             <code className="text-xs text-muted-foreground">{extension.id}</code>
