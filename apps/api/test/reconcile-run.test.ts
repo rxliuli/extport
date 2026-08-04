@@ -341,6 +341,70 @@ describe('runReconciliation — rejection frees the slot for a newer version', (
     expect(sent[0]!.subject).toContain('rejected')
     expect(sent[0]!.text).toContain('does not expose rejection reasons via API')
     expect(sent[0]!.text).toContain('https://chromewebstore.google.com/detail/item-1')
+    expect(sent[0]!.text).not.toContain('paused')
+  })
+
+  it('a second consecutive rejection auto-pauses the target instead of submitting the next version', async () => {
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      artifacts: [{ version: '1.1.0' }, { version: '1.2.0' }],
+      versions: [
+        { version: '1.0.0', status: 'rejected' },
+        { version: '1.1.0', status: 'in_review', submittedAt: new Date().toISOString() },
+        { version: '1.2.0', status: 'queued' },
+      ],
+    })
+    const { fetch, calls } = routedFetch(
+      chromeRoutes({ fetchStatus: { submittedItemRevisionStatus: { state: 'REJECTED', distributionChannels: [{ crxVersion: '1.1.0' }] } } }),
+    )
+    globalThis.fetch = fetch
+    const { notifier, sent } = recordingNotifier()
+
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
+    expect(summary.submitted).toBe(0)
+    const rows = await versionsFor(db, extensionId)
+    expect(rows).toMatchObject([
+      { version: '1.0.0', status: 'rejected' },
+      { version: '1.1.0', status: 'rejected' },
+      // The queued version stays queued — repeat submissions of an
+      // unaddressed rejection accrue against the store account.
+      { version: '1.2.0', status: 'queued' },
+    ])
+    expect(calls.some((c) => c.url.endsWith(':publish'))).toBe(false)
+
+    const target = await targetFor(db, extensionId)
+    expect(target.enabled).toBe(false)
+    expect(target.disabledSource).toBe('auto')
+    expect(target.disabledReason).toContain('v1.0.0 and v1.1.0')
+    expect(target.disabledAt).not.toBeNull()
+
+    const events = await eventsFor(db, extensionId)
+    expect(events.filter((e) => e.type === 'paused')).toHaveLength(1)
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.subject).toContain('rejected')
+    expect(sent[0]!.text).toContain('second rejection in a row')
+    expect(sent[0]!.text).toContain('re-enable')
+  })
+
+  it('a rejection after an accepted version does not pause — fix-forward stays frictionless', async () => {
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      artifacts: [{ version: '1.2.0' }],
+      versions: [
+        { version: '1.0.0', status: 'rejected' },
+        { version: '1.1.0', status: 'online' },
+        { version: '1.2.0', status: 'in_review', submittedAt: new Date().toISOString() },
+      ],
+    })
+    globalThis.fetch = routedFetch(
+      chromeRoutes({ fetchStatus: { submittedItemRevisionStatus: { state: 'REJECTED', distributionChannels: [{ crxVersion: '1.2.0' }] } } }),
+    ).fetch
+    const { notifier, sent } = recordingNotifier()
+
+    await runReconciliation(env, db, { tenantId }, notifier)
+    const target = await targetFor(db, extensionId)
+    expect(target.enabled).toBe(true)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.text).not.toContain('paused')
   })
 })
 

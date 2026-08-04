@@ -172,6 +172,14 @@ export const publishTargets = sqliteTable(
     platforms: text('platforms', { mode: 'json' }).$type<string[]>(),
     credentialId: text('credential_id').notNull(),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().$defaultFn(() => true),
+    // Who flipped enabled off and why — 'auto' is reconcile pausing after
+    // two back-to-back rejections (repeat submissions of an unaddressed
+    // violation risk store-account strikes), 'manual' is the tenant. All
+    // three clear on re-enable; the reason is shown in the dashboard and
+    // in the new-version-while-disabled warning email.
+    disabledSource: text('disabled_source', { enum: ['manual', 'auto'] }),
+    disabledReason: text('disabled_reason'),
+    disabledAt: text('disabled_at'),
     // Operational health, not business state — never touches a specific
     // version's lifecycle. Cleared on the next tick that gets past getState().
     lastReconciledAt: text('last_reconciled_at'),
@@ -282,7 +290,7 @@ export const publishEvents = sqliteTable(
     tenantId: text('tenant_id').notNull(),
     extensionId: text('extension_id').notNull(),
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
-    type: text('type', { enum: ['error', 'recovered', 'stale_review'] }).notNull(),
+    type: text('type', { enum: ['error', 'recovered', 'stale_review', 'paused'] }).notNull(),
     payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>().notNull().$defaultFn(() => ({})),
     createdAt: text('created_at').notNull().$defaultFn(now),
   },

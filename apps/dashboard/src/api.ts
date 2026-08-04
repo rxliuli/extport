@@ -59,6 +59,10 @@ export interface PublishTarget {
   /** Edge only — Partner Center's Submission API needs storeItemId to be the Product ID; this is the separate crx id its public status fallback needs. */
   crxId: string | null
   enabled: boolean
+  /** Who flipped enabled off — 'auto' is reconcile pausing after two back-to-back rejections. */
+  disabledSource: 'manual' | 'auto' | null
+  disabledReason: string | null
+  disabledAt: string | null
   credentialId: string
   credentialLabel: string
   credentialStatus: 'active' | 'invalid' | 'expiring'
@@ -86,7 +90,7 @@ export interface DeploymentVersion {
 export interface PublishEvent {
   id: string
   store: Store
-  type: 'error' | 'recovered' | 'stale_review'
+  type: 'error' | 'recovered' | 'stale_review' | 'paused'
   payload: Record<string, unknown>
   /** ISO date string (Date -> JSON) */
   createdAt: string

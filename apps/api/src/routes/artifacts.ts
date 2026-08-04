@@ -1,10 +1,11 @@
 import { isValidExtensionVersion, newId, parseZipManifest, sha256Hex, STORES, validateArtifactManifest, type Store } from '@extport/shared'
 import { getAdapter } from '@extport/store-adapters'
-import { and, desc, eq, isNull, or } from 'drizzle-orm'
+import { and, desc, eq, isNull, ne, or } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { describeRoute, resolver, validator } from 'hono-openapi'
 import * as v from 'valibot'
-import { artifacts, extensions, publishTargets, type Extension } from '../db'
+import { artifacts, extensions, publishTargets, tenants, type Db, type Extension, type PublishTarget } from '../db'
+import { createEmailNotifier } from '../lib/notify'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
 import { isVersionRegression, queueLatestArtifact } from '../reconcile/queue'
@@ -15,6 +16,50 @@ const MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
 const route = new Hono<AppEnv>()
 
 route.use('*', requireAuth, requireActiveTenant)
+
+function disabledTargetLine(t: PublishTarget): string {
+  const since = t.disabledAt ? ` on ${t.disabledAt.slice(0, 10)}` : ''
+  if (t.disabledSource === 'auto') {
+    const why = t.disabledReason ? ` (${t.disabledReason})` : ''
+    return `- ${t.store} — paused automatically${since}${why}. Fix the cause on the store's developer console, then re-enable the target; the newest version submits automatically.`
+  }
+  return `- ${t.store} — disabled manually${since}.`
+}
+
+/**
+ * "You keep shipping while a store has quietly fallen behind" is a fact
+ * only extport can see — the tenant's own disable (and forget), or an
+ * auto-pause, silently exclude that store from every later release. Warn
+ * once per version: pushes arrive as one request per store, so the gate is
+ * "this version's first artifact", not "this push".
+ */
+async function warnAboutDisabledTargets(db: Db, env: Env, extension: Extension, version: string, newArtifactId: string): Promise<void> {
+  const [sibling] = await db
+    .select({ id: artifacts.id })
+    .from(artifacts)
+    .where(and(eq(artifacts.extensionId, extension.id), eq(artifacts.version, version), ne(artifacts.id, newArtifactId)))
+    .limit(1)
+  if (sibling) return
+
+  const disabled = await db
+    .select()
+    .from(publishTargets)
+    .where(and(eq(publishTargets.extensionId, extension.id), eq(publishTargets.enabled, false)))
+  if (disabled.length === 0) return
+
+  const [tenant] = await db.select().from(tenants).where(eq(tenants.id, extension.tenantId))
+  if (!tenant) return
+
+  const stores = disabled.map((t) => t.store).join(', ')
+  await createEmailNotifier(env).send({
+    to: tenant.email,
+    subject: `⚠️ ${extension.name} v${version} won't reach ${stores}`,
+    text:
+      `${extension.name} v${version} was pushed, but these store targets are disabled and will not receive it:\n\n` +
+      disabled.map(disabledTargetLine).join('\n') +
+      `\n\nManage targets: ${env.DASHBOARD_URL}/extensions/${extension.id}/publishing`,
+  })
+}
 
 const EXTENSION_MSG = 'extension query param is required (the ext_… id)'
 const VERSION_MSG = 'version must be 1-4 dot-separated integers (e.g. 1.2.3)'
@@ -208,6 +253,7 @@ route.post(
     // edits. Invariant: every future publish-shaped write path must do the
     // same, or its extensions stop floating to the top of the list.
     await db.update(extensions).set({ updatedAt: new Date().toISOString() }).where(eq(extensions.id, extension.id))
+    c.executionCtx.waitUntil(warnAboutDisabledTargets(db, c.env, extension, version, id))
     const [created] = await db.select().from(artifacts).where(eq(artifacts.id, id))
 
     for (const s of targetStores) {

@@ -1,4 +1,4 @@
-import { DEFAULT_STALE_REVIEW_DAYS, decryptJson, newId, type Store } from '@extport/shared'
+import { compareVersions, DEFAULT_STALE_REVIEW_DAYS, decryptJson, newId, type Store } from '@extport/shared'
 import { getAdapter, type StoreAdapter } from '@extport/store-adapters'
 import { and, desc, eq, gt, inArray, isNull, lt, or } from 'drizzle-orm'
 import {
@@ -126,7 +126,10 @@ function buildMessage(row: JoinedRow, kind: NotifyKind, payload: Record<string, 
         typeof payload.reason === 'string' && payload.reason
           ? payload.reason
           : 'No reason was provided by the store — check its developer dashboard.'
-      return { subject: `❌ ${ext} rejected on ${store}`, text: `${ext} v${payload.version} was rejected on ${store}.\n\n${reason}\n\nStore page: ${link}` }
+      const pausedNote = payload.paused
+        ? `\n\nThis is the second rejection in a row, so submissions to ${store} are paused. Fix the cause on the store's developer console first, then re-enable the target in the extport dashboard — the newest version submits automatically.`
+        : ''
+      return { subject: `❌ ${ext} rejected on ${store}`, text: `${ext} v${payload.version} was rejected on ${store}.\n\n${reason}${pausedNote}\n\nStore page: ${link}` }
     }
     case 'error':
       return {
@@ -139,6 +142,43 @@ function buildMessage(row: JoinedRow, kind: NotifyKind, payload: Record<string, 
 async function notify(notifier: Notifier, row: JoinedRow, kind: NotifyKind, payload: Record<string, unknown>, platform?: string): Promise<void> {
   const message = buildMessage(row, kind, payload, platform)
   if (message) await notifier.send({ to: row.tenant.email, ...message })
+}
+
+/**
+ * Two rejections in a row (no accepted version in between) mean the cause
+ * wasn't addressed — usually a store-console compliance issue no new push
+ * can fix — and repeat submissions of an unaddressed violation accrue
+ * against the tenant's store account. Pause the target until a human acts;
+ * re-enabling from the dashboard auto-queues the newest version.
+ *
+ * A behavioral trigger, deliberately not error-string parsing: Chrome
+ * exposes no rejection reason over the API at all, and store error bodies
+ * are undocumented and unstable. "The last verdict was also rejected" is
+ * store-agnostic and is precisely the harm pattern being stopped.
+ */
+async function maybeAutoPause(db: Db, row: JoinedRow, justRejected: DeploymentVersion, lifecycleRows: DeploymentVersion[]): Promise<boolean> {
+  const previousVerdict = lifecycleRows
+    .filter((v) => v.id !== justRejected.id && (v.platform ?? null) === (justRejected.platform ?? null))
+    .filter((v) => v.status === 'online' || v.status === 'rejected')
+    .filter((v) => compareVersions(v.version, justRejected.version) < 0)
+    .sort((a, b) => compareVersions(b.version, a.version))[0]
+  if (previousVerdict?.status !== 'rejected') return false
+
+  const reason = `v${previousVerdict.version} and v${justRejected.version} were rejected back-to-back`
+  await db
+    .update(publishTargets)
+    .set({ enabled: false, disabledSource: 'auto', disabledReason: reason, disabledAt: new Date().toISOString() })
+    .where(eq(publishTargets.id, row.target.id))
+  row.target.enabled = false
+  await db.insert(publishEvents).values({
+    id: newId('publishEvent'),
+    tenantId: row.extension.tenantId,
+    extensionId: row.extension.id,
+    store: row.target.store,
+    type: 'paused',
+    payload: { reason },
+  })
+  return true
 }
 
 async function persistError(db: Db, notifier: Notifier, row: JoinedRow, message: string): Promise<void> {
@@ -265,8 +305,12 @@ async function reconcileLifecycle(
   }
   if (inReview && actual.reviewStatus === 'rejected') {
     await db.update(deploymentVersions).set({ status: 'rejected', statusDetail: actual.rejectionReason ?? null }).where(eq(deploymentVersions.id, inReview.id))
-    await notify(notifier, row, 'rejected', { version: inReview.version, reason: actual.rejectionReason }, platform)
+    const paused = await maybeAutoPause(db, row, inReview, lifecycleRows)
+    await notify(notifier, row, 'rejected', { version: inReview.version, reason: actual.rejectionReason, paused }, platform)
     inReview = null
+    // A paused target must not push the queued next version into the same
+    // grinder this tick — and the enabled filter keeps it out of later ones.
+    if (paused) return 'noop'
   }
   // A local row claims something is in review, but the store authoritatively
   // says nothing is (known: true, no version — never "can't tell", which is

@@ -246,11 +246,16 @@ export function TargetsSection({ extensionId }: { extensionId: string }) {
                     <VersionSummary lifecycles={t.lifecycles} />
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-right">
-                    {!t.enabled && (
-                      <Badge variant="outline" className="mr-2">
-                        disabled
-                      </Badge>
-                    )}
+                    {!t.enabled &&
+                      (t.disabledSource === 'auto' ? (
+                        <Badge variant="destructive" className="mr-2" title={t.disabledReason ?? undefined}>
+                          paused
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="mr-2">
+                          disabled
+                        </Badge>
+                      ))}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${t.store} target`}>
@@ -315,12 +320,14 @@ const OPS_EVENT: Record<PublishEvent['type'], { className: string; label: string
   error: { className: 'text-red-600 dark:text-red-400', label: 'error' },
   recovered: { className: 'text-green-700 dark:text-green-500', label: 'recovered' },
   stale_review: { className: 'text-amber-600 dark:text-amber-400', label: 'stale review' },
+  paused: { className: 'text-red-600 dark:text-red-400', label: 'paused' },
 }
 
 function opsEventDetail(event: PublishEvent): string | null {
   const { payload } = event
   if (event.type === 'error') return typeof payload.message === 'string' ? payload.message : null
   if (event.type === 'stale_review') return `in review for ${payload.ageDays}+ days`
+  if (event.type === 'paused') return typeof payload.reason === 'string' ? payload.reason : null
   return null
 }
 

@@ -321,6 +321,9 @@ route.get(
         crxId: r.target.crxId,
         platforms: r.target.platforms,
         enabled: r.target.enabled,
+        disabledSource: r.target.disabledSource,
+        disabledReason: r.target.disabledReason,
+        disabledAt: r.target.disabledAt,
         credentialId: r.credential.id,
         credentialLabel: r.credential.label,
         credentialStatus: r.credential.status,
@@ -510,7 +513,20 @@ route.patch(
     // string clears it back to falling through to storeItemId (pre-existing
     // targets' behavior), rather than being unable to unset it once set.
     if (body.crxId !== undefined) patch.crxId = body.crxId.trim() || null
-    if (typeof body.enabled === 'boolean') patch.enabled = body.enabled
+    if (typeof body.enabled === 'boolean') {
+      patch.enabled = body.enabled
+      if (body.enabled) {
+        // Re-enabling wipes the provenance either way — manual pause or
+        // auto-pause, the human just declared the cause handled.
+        patch.disabledSource = null
+        patch.disabledReason = null
+        patch.disabledAt = null
+      } else if (target.enabled) {
+        patch.disabledSource = 'manual'
+        patch.disabledReason = null
+        patch.disabledAt = new Date().toISOString()
+      }
+    }
     if (body.platforms !== undefined) {
       if (body.platforms) {
         const adapter = getAdapter(target.store)
@@ -535,6 +551,12 @@ route.patch(
     if (Object.keys(patch).length === 0) return c.json({ error: 'nothing to update' }, 400)
 
     await db.update(publishTargets).set(patch).where(eq(publishTargets.id, target.id))
+    // Re-enabling submits the newest version without a separate push — the
+    // recovery flow after an auto-pause is fix-at-the-store, then one click.
+    if (body.enabled === true && !target.enabled) {
+      await queueLatestArtifact(db, tenant.id, extension.id, target.store)
+      c.executionCtx.waitUntil(runReconciliation(c.env, db, { tenantId: tenant.id, extensionId: extension.id }))
+    }
     const [updated] = await db.select().from(publishTargets).where(eq(publishTargets.id, target.id))
     return c.json({ target: updated })
   },

@@ -2,7 +2,7 @@ import { newId } from '@extport/shared'
 import { eq } from 'drizzle-orm'
 import { env } from 'cloudflare:test'
 import { strToU8, zipSync } from 'fflate'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { extensions, publishTargets } from '../src/db'
 import { createApiKey, createExtension, fakeZip, request, seedTenantWithUser } from './helpers'
 
@@ -109,6 +109,41 @@ describe('artifact upload', () => {
 
     const [row] = await db.select().from(extensions).where(eq(extensions.id, extension.id))
     expect(row!.updatedAt > stale).toBe(true)
+  })
+
+  it('emails once per version when a disabled target will miss it', async () => {
+    const { db, tenantId, sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const key = await createApiKey(sessionCookie)
+    await db.insert(publishTargets).values({
+      id: newId('publishTarget'),
+      tenantId,
+      extensionId: extension.id,
+      store: 'firefox',
+      storeItemId: 'slug-1',
+      credentialId: newId('storeCredential'),
+      enabled: false,
+      disabledSource: 'auto',
+      disabledReason: 'v1.0.0 and v1.1.0 were rejected back-to-back',
+      disabledAt: '2026-08-01T00:00:00.000Z',
+    })
+    const sendSpy = vi.spyOn(env.EMAIL, 'send').mockResolvedValue({ messageId: 'm1' } as never)
+
+    const first = await upload({ key }, `extension=${extension.id}&version=1.2.3&store=chrome`, fakeZip(1))
+    expect(first.status).toBe(201)
+    await vi.waitFor(() => expect(sendSpy).toHaveBeenCalledTimes(1))
+    const mail = sendSpy.mock.calls[0]![0] as { subject: string; text: string }
+    expect(mail.subject).toContain("won't reach firefox")
+    expect(mail.text).toContain('paused automatically on 2026-08-01')
+    expect(mail.text).toContain('rejected back-to-back')
+    expect(mail.text).toContain(`/extensions/${extension.id}/publishing`)
+
+    // The same version's other store zips are the same release — the push
+    // arrives as one request per store, but only the first artifact warns.
+    const second = await upload({ key }, `extension=${extension.id}&version=1.2.3&store=edge`, fakeZip(2))
+    expect(second.status).toBe(201)
+    await new Promise((r) => setTimeout(r, 100))
+    expect(sendSpy).toHaveBeenCalledTimes(1)
   })
 
   it('does not warn when a publish target already exists for the store', async () => {
