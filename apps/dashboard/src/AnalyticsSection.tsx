@@ -175,6 +175,17 @@ export function languageLabel(code: string): string {
 const OS_LABELS: Record<string, string> = { windows: 'Windows', macos: 'macOS', linux: 'Linux', android: 'Android', chromeos: 'ChromeOS', ios: 'iOS', unknown: 'Unknown' }
 export const osLabel = (value: string) => OS_LABELS[value] ?? value
 
+/** Numeric-aware compare, same semantics as @extport/shared's compareVersions (1.10 > 1.9). */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(Number)
+  const pb = b.split('.').map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
 export function AnalyticsSection({ extension }: { extension: Extension }) {
   const { data: overview } = useQuery(analyticsOverviewQuery(extension.id))
   const { data: totalRows = [], isPending } = useQuery(analyticsSeriesQuery(extension.id, 'total'))
@@ -213,11 +224,15 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
         <StatCard label="Weekly active users" hint="rolling 7 days, same as the chart" value={overview ? String(overview.weeklyActives) : '—'} />
         <StatCard label="All-time installs" value={overview ? String(overview.allTimeInstalls) : '—'} />
         <StatCard
-          label="Most-used version"
-          hint="among weekly actives"
+          label="Latest version adoption"
+          hint="share of weekly actives on it"
           value={
-            overview && overview.versions[0]
-              ? `${overview.versions[0].version} (${overview.weeklyActives > 0 ? Math.round((overview.versions[0].weeklyUsers / overview.weeklyActives) * 100) : 0}%)`
+            overview && overview.versions.length > 0
+              ? (() => {
+                  const latest = overview.versions.reduce((a, b) => (compareVersions(b.version, a.version) > 0 ? b : a))
+                  const pct = overview.weeklyActives > 0 ? Math.round((latest.weeklyUsers / overview.weeklyActives) * 100) : 0
+                  return `${latest.version} (${pct}%)`
+                })()
               : '—'
           }
         />
