@@ -123,8 +123,9 @@ async function submit(
   // the strongest confirmation the public API can ever give that the
   // *request* went through; it can't confirm the submission stays healthy
   // afterward (a later rejection, or Microsoft's backend stalling past this
-  // point, is invisible to any endpoint we have — filed upstream as
-  // microsoft/MicrosoftEdge-Extensions#696, no official status endpoint exists).
+  // point, is invisible to any endpoint we have. Requested a status endpoint
+  // upstream — microsoft/MicrosoftEdge-Extensions#696 — closed 2026-08-05,
+  // "not on the current roadmap." Permanent limitation, not a pending fix.)
   return { submitted: true }
 }
 
