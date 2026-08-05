@@ -213,7 +213,7 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
         <StatCard label="Weekly active users" hint="rolling 7 days, same as the chart" value={overview ? String(overview.weeklyActives) : '—'} />
         <StatCard label="All-time installs" value={overview ? String(overview.allTimeInstalls) : '—'} />
         <StatCard
-          label="Top version"
+          label="Most-used version"
           hint="among weekly actives"
           value={
             overview && overview.versions[0]
