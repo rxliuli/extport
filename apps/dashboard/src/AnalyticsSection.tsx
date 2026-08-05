@@ -111,9 +111,12 @@ function versionSeries(rows: AnalyticsSeriesRow[], domain: string[]): {
   )
   const top = ranked.slice(0, MAX_VERSION_SERIES)
   const hasOther = ranked.length > top.length
-  // Newest version first in the ranking; render oldest at the bottom of the
-  // stack so a release visually eats the layers above it.
-  const series = [...top].reverse().map((version) => ({ key: safeKey(version), label: version }))
+  // Stack/legend order is the actual version number (oldest at the bottom,
+  // so a release visually eats the layers above it) — not the popularity
+  // rank used to pick `top` above. A fresh release starts out least-used, so
+  // sorting by popularity here would misplace it — and read confusingly out
+  // of order — until adoption catches up.
+  const series = [...top].sort(compareVersions).map((version) => ({ key: safeKey(version), label: version }))
   if (hasOther) series.unshift({ key: 'other', label: 'other' })
 
   const days = new Map<string, Record<string, string | number>>(
