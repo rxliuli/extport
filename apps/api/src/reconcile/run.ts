@@ -104,6 +104,16 @@ const STORE_LABELS: Record<Store, string> = {
 
 type NotifyKind = 'rejected' | 'error'
 
+// Chrome needs the tenant's own publisherId to deep-link into their
+// console — not always available where a notification is built (e.g. the
+// credential itself failed to decrypt), so this is best-effort and
+// storeConsoleUrl falls back to the public listing when it's missing.
+function chromePublisherId(store: Store, credentials: unknown): string | undefined {
+  if (store !== 'chrome' || typeof credentials !== 'object' || credentials === null) return undefined
+  const publisherId = (credentials as Record<string, unknown>).publisherId
+  return typeof publisherId === 'string' ? publisherId : undefined
+}
+
 /**
  * Maps a notification-worthy moment into an email. `error` and `stale_review`
  * are also persisted as publish_events; rejected lives only as the
@@ -116,10 +126,10 @@ type NotifyKind = 'rejected' | 'error'
  * bursting N copies of news the tenant had. Email is for what only
  * extport can see.
  */
-function buildMessage(row: JoinedRow, kind: NotifyKind, payload: Record<string, unknown>, platform?: string): { subject: string; text: string } | null {
+function buildMessage(row: JoinedRow, kind: NotifyKind, payload: Record<string, unknown>, credentials: unknown, platform?: string): { subject: string; text: string } | null {
   const ext = row.extension.name
   const store = STORE_LABELS[row.target.store]
-  const link = storeConsoleUrl(row.target.store, row.target.storeItemId, { crxId: row.target.crxId ?? undefined, platform })
+  const link = storeConsoleUrl(row.target.store, row.target.storeItemId, { platform, publisherId: chromePublisherId(row.target.store, credentials) })
   switch (kind) {
     case 'rejected': {
       const reason =
@@ -139,8 +149,8 @@ function buildMessage(row: JoinedRow, kind: NotifyKind, payload: Record<string, 
   }
 }
 
-async function notify(notifier: Notifier, row: JoinedRow, kind: NotifyKind, payload: Record<string, unknown>, platform?: string): Promise<void> {
-  const message = buildMessage(row, kind, payload, platform)
+async function notify(notifier: Notifier, row: JoinedRow, kind: NotifyKind, payload: Record<string, unknown>, credentials: unknown, platform?: string): Promise<void> {
+  const message = buildMessage(row, kind, payload, credentials, platform)
   if (message) await notifier.send({ to: row.tenant.email, ...message })
 }
 
@@ -181,7 +191,7 @@ async function maybeAutoPause(db: Db, row: JoinedRow, justRejected: DeploymentVe
   return true
 }
 
-async function persistError(db: Db, notifier: Notifier, row: JoinedRow, message: string): Promise<void> {
+async function persistError(db: Db, notifier: Notifier, row: JoinedRow, message: string, credentials: unknown = undefined): Promise<void> {
   const detail = truncate(message)
   // The event and the email mark the healthy → erroring TRANSITION, not every
   // failing tick — a credential left broken for a week must not produce 48
@@ -207,14 +217,14 @@ async function persistError(db: Db, notifier: Notifier, row: JoinedRow, message:
     type: 'error',
     payload: { message: detail },
   })
-  await notify(notifier, row, 'error', { message: detail })
+  await notify(notifier, row, 'error', { message: detail }, credentials)
 }
 
 function staleReviewThresholdDays(tenant: Tenant, store: Store): number {
   return tenant.settings.staleReviewDays?.[store] ?? DEFAULT_STALE_REVIEW_DAYS[store]
 }
 
-async function maybeEmitStaleReview(db: Db, notifier: Notifier, row: JoinedRow, inReview: DeploymentVersion | null): Promise<void> {
+async function maybeEmitStaleReview(db: Db, notifier: Notifier, row: JoinedRow, inReview: DeploymentVersion | null, credentials: unknown): Promise<void> {
   if (!inReview || !inReview.submittedAt) return
   const thresholdMs = staleReviewThresholdDays(row.tenant, row.target.store) * 24 * 60 * 60 * 1000
   const ageMs = Date.now() - new Date(inReview.submittedAt).getTime()
@@ -243,7 +253,10 @@ async function maybeEmitStaleReview(db: Db, notifier: Notifier, row: JoinedRow, 
     type: 'stale_review',
     payload: { version: inReview.version, ageDays },
   })
-  const link = storeConsoleUrl(row.target.store, row.target.storeItemId, { crxId: row.target.crxId ?? undefined, platform: inReview.platform ?? undefined })
+  const link = storeConsoleUrl(row.target.store, row.target.storeItemId, {
+    platform: inReview.platform ?? undefined,
+    publisherId: chromePublisherId(row.target.store, credentials),
+  })
   await notifier.send({
     to: row.tenant.email,
     subject: `⏳ ${row.extension.name} still in review on ${STORE_LABELS[row.target.store]} (${ageDays}+ days)`,
@@ -306,7 +319,7 @@ async function reconcileLifecycle(
   if (inReview && actual.reviewStatus === 'rejected') {
     await db.update(deploymentVersions).set({ status: 'rejected', statusDetail: actual.rejectionReason ?? null }).where(eq(deploymentVersions.id, inReview.id))
     const paused = await maybeAutoPause(db, row, inReview, lifecycleRows)
-    await notify(notifier, row, 'rejected', { version: inReview.version, reason: actual.rejectionReason, paused }, platform)
+    await notify(notifier, row, 'rejected', { version: inReview.version, reason: actual.rejectionReason, paused }, credentials, platform)
     inReview = null
     // A paused target must not push the queued next version into the same
     // grinder this tick — and the enabled filter keeps it out of later ones.
@@ -375,7 +388,7 @@ async function reconcileLifecycle(
     inReview = { version: inReviewVersion, submittedAt: null } as DeploymentVersion
   }
 
-  await maybeEmitStaleReview(db, notifier, row, inReview)
+  await maybeEmitStaleReview(db, notifier, row, inReview, credentials)
 
   const decision = decide({ hasQueued: !!queued, stillInReview: !!inReview })
   if (decision.action === 'noop') return 'noop'
@@ -597,7 +610,7 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
         try {
           return await reconcileOne(env, db, notifier, row, credentials, versionsByExtStore.get(key) ?? [])
         } catch (err) {
-          await persistError(db, notifier, row, (err as Error).message)
+          await persistError(db, notifier, row, (err as Error).message, credentials)
           return 'error' as const
         }
       })

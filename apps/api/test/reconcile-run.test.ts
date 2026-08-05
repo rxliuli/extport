@@ -340,7 +340,7 @@ describe('runReconciliation — rejection frees the slot for a newer version', (
     expect(sent).toHaveLength(1)
     expect(sent[0]!.subject).toContain('rejected')
     expect(sent[0]!.text).toContain('does not expose rejection reasons via API')
-    expect(sent[0]!.text).toContain('https://chromewebstore.google.com/detail/item-1')
+    expect(sent[0]!.text).toContain('https://chrome.google.com/webstore/devconsole/pub-1/item-1/edit')
     expect(sent[0]!.text).not.toContain('paused')
   })
 
@@ -558,6 +558,8 @@ describe('runReconciliation — failure isolation', () => {
 
     expect((await eventsFor(db, extensionId)).map((e) => e.type)).toEqual(['error'])
     expect(sent).toHaveLength(1)
+    // Invalid credential — never decrypted, so no publisherId; falls back
+    // to the public listing rather than omit a link entirely.
     expect(sent[0]!.text).toContain('https://chromewebstore.google.com/detail/item-1')
     // The freshest failure detail still lands on the target every tick.
     expect((await targetFor(db, extensionId)).lastErrorDetail).toMatch(/failed verification/)

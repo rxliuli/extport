@@ -1,26 +1,30 @@
 import type { Store } from '@extport/shared'
 
 /**
- * Where a tenant can see this listing for themselves — the same purpose as
- * the notification it's attached to: letting them check extport's claim
- * against what the store itself shows, not just take our word for it.
+ * Where a tenant can actually diagnose a failure — every caller of this is
+ * a rejected/error notification (see reconcile/run.ts's NotifyKind), never
+ * a "here's your listing" message, so the public consumer-facing page is
+ * the wrong link on every store: it never shows submission status, a
+ * rejection reason, or a draft's state, only whatever's already live. The
+ * developer console does. (Confirmed the hard way for Edge specifically —
+ * a rejection notification pointed at the public listing, which showed
+ * nothing about the actual "In draft" state the dashboard would have.)
  *
- * Chrome/Firefox/Edge(with crxId) point at the store's own public listing —
- * no login required. Edge without a crxId and Safari fall back to their
- * developer console instead, since neither store exposes a public page
- * addressable by the id extport has on hand (Edge's Product ID is an
- * internal GUID; Safari never has a public listing url at all pre-release).
+ * Chrome needs the tenant's own publisherId to deep-link into their
+ * console (`credentials` isn't always available where this is called from
+ * — e.g. the credential itself failed to decrypt — so it falls back to the
+ * public listing rather than omit a link entirely).
  */
-export function storeConsoleUrl(store: Store, storeItemId: string, opts: { crxId?: string; platform?: string } = {}): string {
+export function storeConsoleUrl(store: Store, storeItemId: string, opts: { platform?: string; publisherId?: string } = {}): string {
   switch (store) {
     case 'chrome':
-      return `https://chromewebstore.google.com/detail/${storeItemId}`
+      return opts.publisherId
+        ? `https://chrome.google.com/webstore/devconsole/${opts.publisherId}/${storeItemId}/edit`
+        : `https://chromewebstore.google.com/detail/${storeItemId}`
     case 'firefox':
-      return `https://addons.mozilla.org/firefox/addon/${storeItemId}/`
+      return `https://addons.mozilla.org/en-US/developers/addon/${storeItemId}/versions`
     case 'edge':
-      return opts.crxId
-        ? `https://microsoftedge.microsoft.com/addons/detail/${opts.crxId}`
-        : `https://partner.microsoft.com/en-us/dashboard/microsoftedge/${storeItemId}/packages/dashboard`
+      return `https://partner.microsoft.com/en-us/dashboard/microsoftedge/${storeItemId}/packages/dashboard`
     case 'safari':
       return `https://appstoreconnect.apple.com/apps/${storeItemId}/distribution/${opts.platform ?? 'macos'}/version/inflight`
   }
