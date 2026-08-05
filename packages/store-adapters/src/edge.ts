@@ -113,7 +113,18 @@ async function submit(
     poll,
   )
   if (!submitted) {
-    return { submitted: false, waiting: true, detail: 'submission still processing after the poll window — will retry next reconcile' }
+    // Unlike the upload-validation timeout above, retrying here is NOT
+    // safe: re-calling POST .../submissions while this exact operation is
+    // still processing gets rejected with "InProgressSubmission" — a real
+    // production incident (2026-08-05, both Twitter Blocker and Twitter
+    // Exporter) where the timeout path above returned `waiting: true`, the
+    // next reconcile tick retried from scratch, and that retry collided
+    // with the still-in-flight first attempt. Nothing persists this
+    // operation id across reconcile ticks to poll it again later, so the
+    // 202 that got us this operation id is the only confirmation we can
+    // safely act on — same as before this file started polling the
+    // submission step at all.
+    return { submitted: true }
   }
   if (submitted.status !== 'Succeeded') {
     return { submitted: false, detail: `submission failed: ${submitted.errorCode ?? ''} ${truncate(submitted.message ?? '')}`.trim() }

@@ -102,7 +102,12 @@ describe('edge adapter — submit', () => {
     expect(calls).toHaveLength(5)
   })
 
-  it('gives up (not a failure) if the submission is still processing after the poll window', async () => {
+  // Retrying a submission poll timeout is unsafe (unlike the upload-
+  // validation timeout above): re-submitting while the accepted request is
+  // still processing gets rejected by Edge as "already in progress" — a
+  // real production incident. So a timeout here falls back to trusting the
+  // 202, not to `waiting: true`.
+  it('accepts the 202 (does not retry) if the submission operation is still processing after the poll window', async () => {
     const entries = [
       { status: 202, headers: OP_LOCATION },
       { status: 200, body: { status: 'Succeeded' } },
@@ -111,8 +116,7 @@ describe('edge adapter — submit', () => {
     ]
     const { fetch, calls } = queueFetch(entries)
     const result = await createEdgeAdapter(fetch, FAST_POLL).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
-    expect(result.submitted).toBe(false)
-    expect(result.detail).toMatch(/still processing/)
+    expect(result).toEqual({ submitted: true })
     // upload + validated + submit + FAST_POLL.attempts polls
     expect(calls).toHaveLength(3 + FAST_POLL.attempts)
   })
