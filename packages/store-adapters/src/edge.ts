@@ -95,9 +95,36 @@ async function submit(
   if (submitRes.status !== 202) {
     return { submitted: false, detail: `submission rejected (${submitRes.status}): ${truncate(await submitRes.text())}` }
   }
-  // Edge exposes no further status query once a submission enters certification —
-  // this 202 is the strongest confirmation signal the public API will ever give us
-  // (confirmed 2026-07 research: there is no GET-product/status endpoint at all).
+  const submitOperationId = operationIdFromLocation(submitRes)
+  if (!submitOperationId) {
+    return { submitted: false, detail: 'edge did not return an operation id for the submission' }
+  }
+
+  // This 202 only means the request was accepted, not that the submission
+  // actually left draft — same async shape as the upload above, and the
+  // same operation-status endpoint pattern applies. Confirmed against a
+  // real incident: a target sat at in_review for 10 days while Partner
+  // Center's own UI still showed the version "In draft" — extport had
+  // treated the bare 202 as final and never checked further.
+  const submitted = await pollOperation(
+    `${API_BASE}/v1/products/${productId}/submissions/operations/${submitOperationId}`,
+    headers,
+    fetchImpl,
+    poll,
+  )
+  if (!submitted) {
+    return { submitted: false, waiting: true, detail: 'submission still processing after the poll window — will retry next reconcile' }
+  }
+  if (submitted.status !== 'Succeeded') {
+    return { submitted: false, detail: `submission failed: ${submitted.errorCode ?? ''} ${truncate(submitted.message ?? '')}`.trim() }
+  }
+  // Once this operation itself reports Succeeded, Edge exposes no further
+  // status query — see getState()'s inReview.known: false, always. This is
+  // the strongest confirmation the public API can ever give that the
+  // *request* went through; it can't confirm the submission stays healthy
+  // afterward (a later rejection, or Microsoft's backend stalling past this
+  // point, is invisible to any endpoint we have — filed upstream as
+  // microsoft/MicrosoftEdge-Extensions#696, no official status endpoint exists).
   return { submitted: true }
 }
 

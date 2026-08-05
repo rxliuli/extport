@@ -5,6 +5,7 @@ import { queueFetch, unreachableFetch } from './fetch-stub'
 const creds = { clientId: 'cid', apiKey: 'edge-key' }
 const PRODUCT = 'prod-1'
 const OP_LOCATION = { location: 'https://api.addons.microsoftedge.microsoft.com/v1/products/prod-1/submissions/draft/package/operations/op-1' }
+const SUBMIT_OP_LOCATION = { location: 'https://api.addons.microsoftedge.microsoft.com/v1/products/prod-1/submissions/operations/op-2' }
 // Real (tiny) intervals instead of vitest fake timers — see firefox.test.ts for why.
 const FAST_POLL = { intervalMs: 1, attempts: 3 }
 
@@ -55,11 +56,12 @@ describe('edge adapter — getState', () => {
 })
 
 describe('edge adapter — submit', () => {
-  it('uploads, validates, and submits for certification', async () => {
+  it('uploads, validates, submits for certification, and confirms the submission operation', async () => {
     const { fetch, calls } = queueFetch([
       { status: 202, headers: OP_LOCATION },
       { status: 200, body: { status: 'Succeeded' } },
-      { status: 202 },
+      { status: 202, headers: SUBMIT_OP_LOCATION },
+      { status: 200, body: { status: 'Succeeded' } },
     ])
     const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
     expect(result).toEqual({ submitted: true })
@@ -67,6 +69,7 @@ describe('edge adapter — submit', () => {
     expect(calls[1]!.url).toBe(`https://api.addons.microsoftedge.microsoft.com/v1/products/${PRODUCT}/submissions/draft/package/operations/op-1`)
     expect(calls[2]!.url).toBe(`https://api.addons.microsoftedge.microsoft.com/v1/products/${PRODUCT}/submissions`)
     expect(JSON.parse(String(calls[2]!.init?.body))).toEqual({ notes: 'Submitted automatically by extport.' })
+    expect(calls[3]!.url).toBe(`https://api.addons.microsoftedge.microsoft.com/v1/products/${PRODUCT}/submissions/operations/op-2`)
   })
 
   it('polls the package operation until it succeeds', async () => {
@@ -74,11 +77,70 @@ describe('edge adapter — submit', () => {
       { status: 202, headers: OP_LOCATION },
       { status: 200, body: { status: 'InProgress' } },
       { status: 200, body: { status: 'Succeeded' } },
-      { status: 202 },
+      { status: 202, headers: SUBMIT_OP_LOCATION },
+      { status: 200, body: { status: 'Succeeded' } },
     ])
     const result = await createEdgeAdapter(fetch, FAST_POLL).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
     expect(result).toEqual({ submitted: true })
+    expect(calls).toHaveLength(5)
+  })
+
+  // Same async shape as the package upload — a bare 202 from the submissions
+  // POST only means the request was accepted, not that it left draft. Real
+  // incident: a target sat at in_review for 10 days while Partner Center's
+  // own UI still showed the version "In draft" because this poll didn't exist.
+  it('polls the submission operation until it succeeds', async () => {
+    const { fetch, calls } = queueFetch([
+      { status: 202, headers: OP_LOCATION },
+      { status: 200, body: { status: 'Succeeded' } },
+      { status: 202, headers: SUBMIT_OP_LOCATION },
+      { status: 200, body: { status: 'InProgress' } },
+      { status: 200, body: { status: 'Succeeded' } },
+    ])
+    const result = await createEdgeAdapter(fetch, FAST_POLL).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
+    expect(result).toEqual({ submitted: true })
+    expect(calls).toHaveLength(5)
+  })
+
+  it('gives up (not a failure) if the submission is still processing after the poll window', async () => {
+    const entries = [
+      { status: 202, headers: OP_LOCATION },
+      { status: 200, body: { status: 'Succeeded' } },
+      { status: 202, headers: SUBMIT_OP_LOCATION },
+      ...Array.from({ length: FAST_POLL.attempts }, () => ({ status: 200, body: { status: 'InProgress' } })),
+    ]
+    const { fetch, calls } = queueFetch(entries)
+    const result = await createEdgeAdapter(fetch, FAST_POLL).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
+    expect(result.submitted).toBe(false)
+    expect(result.detail).toMatch(/still processing/)
+    // upload + validated + submit + FAST_POLL.attempts polls
+    expect(calls).toHaveLength(3 + FAST_POLL.attempts)
+  })
+
+  it('reports submission operation failure with the error code and message', async () => {
+    const { fetch, calls } = queueFetch([
+      { status: 202, headers: OP_LOCATION },
+      { status: 200, body: { status: 'Succeeded' } },
+      { status: 202, headers: SUBMIT_OP_LOCATION },
+      { status: 200, body: { status: 'Failed', errorCode: 'CertificationFailure', message: 'metadata rejected' } },
+    ])
+    const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
+    expect(result.submitted).toBe(false)
+    expect(result.detail).toContain('CertificationFailure')
+    expect(result.detail).toContain('metadata rejected')
     expect(calls).toHaveLength(4)
+  })
+
+  it('fails cleanly when no operation id comes back for the submission', async () => {
+    const { fetch, calls } = queueFetch([
+      { status: 202, headers: OP_LOCATION },
+      { status: 200, body: { status: 'Succeeded' } },
+      { status: 202 },
+    ])
+    const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
+    expect(result.submitted).toBe(false)
+    expect(result.detail).toMatch(/operation id for the submission/)
+    expect(calls).toHaveLength(3)
   })
 
   it('gives up (not a failure) if validation is still in progress after the poll window', async () => {
