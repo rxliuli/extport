@@ -51,6 +51,20 @@ describe('generateProjectConfig', () => {
     const { config } = generateProjectConfig({}, { extension: 'ext_a' })
     expect(config).toEqual({ extension: 'ext_a' })
   })
+
+  // Regression: a chrome run must not overwrite the projectPath a safari run
+  // recorded. Extensions that rename themselves for Safari resolve a
+  // different manifest.name on chrome, and writing that would point
+  // `extport safari-build` at a directory the converter never creates.
+  it('a non-safari run leaves an existing projectPath intact', () => {
+    const existing = { extension: 'ext_a', safari: { projectPath: '.output/Clean for Twitter', teamId: 'TEAM1' } }
+    const { config, changed } = generateProjectConfig(existing, {
+      extension: 'ext_a',
+      safari: { teamId: 'TEAM1' },
+    })
+    expect(config.safari?.projectPath).toBe('.output/Clean for Twitter')
+    expect(changed).toBe(false)
+  })
 })
 
 describe('loadProjectConfig / saveProjectConfig', () => {

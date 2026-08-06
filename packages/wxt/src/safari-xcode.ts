@@ -9,7 +9,6 @@ export interface ConvertToXcodeProjectOptions {
   appCategory: string
   bundleIdentifier: string
   developmentTeam?: string
-  outputPath: string
   projectType: SafariProjectType
   openProject: boolean
   rootPath: string
@@ -17,9 +16,9 @@ export interface ConvertToXcodeProjectOptions {
 }
 
 /**
- * Runs `xcrun safari-web-extension-converter` and moves the result to
- * `outputPath`, then patches the generated project (version, category,
- * team, bundle ids) to match what `extport safari-build` expects to find.
+ * Runs `xcrun safari-web-extension-converter`, then patches the generated
+ * project (version, category, team, bundle ids) to match what `extport
+ * safari-build` expects to find.
  */
 export async function convertToXcodeProject(opts: ConvertToXcodeProjectOptions): Promise<void> {
   const flags = ['--force', '--no-prompt']
@@ -33,11 +32,6 @@ export async function convertToXcodeProject(opts: ConvertToXcodeProjectOptions):
     { cwd: opts.rootPath },
   )
 
-  const defaultOutputPath = `.output/${opts.projectName}`
-  if (opts.outputPath !== defaultOutputPath) {
-    await fs.rename(path.resolve(opts.rootPath, defaultOutputPath), path.resolve(opts.rootPath, opts.outputPath))
-  }
-
   await updateProjectConfig(opts)
   await updateInfoPlist(opts)
 }
@@ -47,12 +41,20 @@ interface PostBuildOptions {
   appCategory: string
   bundleIdentifier: string
   developmentTeam?: string
-  outputPath: string
   rootPath: string
 }
 
+/**
+ * The converter names the project directory after the manifest's `name`
+ * verbatim — spaces, hyphens and all — and projectName is resolved from that
+ * same manifest, so this is always where the project landed.
+ */
+function projectDir(options: PostBuildOptions): string {
+  return `.output/${options.projectName}`
+}
+
 async function updateProjectConfig(options: PostBuildOptions): Promise<void> {
-  const projectConfigPath = path.resolve(options.rootPath, `${options.outputPath}/${options.projectName}.xcodeproj/project.pbxproj`)
+  const projectConfigPath = path.resolve(options.rootPath, `${projectDir(options)}/${options.projectName}.xcodeproj/project.pbxproj`)
   const packageJsonModule = await import(path.resolve(options.rootPath, 'package.json'), { with: { type: 'json' } })
   const packageJson = packageJsonModule.default as { version: string }
   const content = await fs.readFile(projectConfigPath, 'utf-8')
@@ -76,7 +78,7 @@ async function updateProjectConfig(options: PostBuildOptions): Promise<void> {
 }
 
 async function updateInfoPlist(options: PostBuildOptions): Promise<void> {
-  const projectPath = path.resolve(options.rootPath, options.outputPath)
+  const projectPath = path.resolve(options.rootPath, projectDir(options))
   const files = await findPlistFiles(projectPath)
   for (const file of files) {
     const content = await fs.readFile(file, 'utf-8')

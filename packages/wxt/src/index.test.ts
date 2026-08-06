@@ -8,33 +8,15 @@ describe('normalizeOptions', () => {
       analytics: true,
       safari: { appCategory: 'cat', bundleIdentifier: 'com.x.y', developmentTeam: 'T1' },
     })
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       extension: 'ext_a',
       analytics: true,
       safari: { appCategory: 'cat', bundleIdentifier: 'com.x.y', developmentTeam: 'T1' },
-      usedLegacyKeys: false,
     })
-  })
-
-  it('accepts the pre-0.0.4 flat safari keys with a deprecation flag', () => {
-    const result = normalizeOptions({ appCategory: 'cat', bundleIdentifier: 'com.x.y', developmentTeam: 'T1' })
-    expect(result.safari).toMatchObject({ appCategory: 'cat', bundleIdentifier: 'com.x.y', developmentTeam: 'T1' })
-    expect(result.usedLegacyKeys).toBe(true)
-    expect(result.analytics).toBe(false)
-  })
-
-  it('nested safari wins over stray flat keys', () => {
-    const result = normalizeOptions({
-      safari: { appCategory: 'new', bundleIdentifier: 'com.new' },
-      appCategory: 'old',
-      bundleIdentifier: 'com.old',
-    })
-    expect(result.safari?.appCategory).toBe('new')
-    expect(result.usedLegacyKeys).toBe(false)
   })
 
   it('handles a missing options object', () => {
-    expect(normalizeOptions(undefined)).toMatchObject({ analytics: false, usedLegacyKeys: false })
+    expect(normalizeOptions(undefined)).toEqual({ extension: undefined, analytics: false, safari: undefined })
   })
 })
 

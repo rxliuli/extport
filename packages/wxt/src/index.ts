@@ -5,8 +5,6 @@ import { convertToXcodeProject, type SafariProjectType } from './safari-xcode'
 import { generateProjectConfig, loadProjectConfig, saveProjectConfig } from './project-config'
 
 export interface ExtportSafariOptions {
-  /** Safari project name. Defaults to manifest.name, then package.json's name. */
-  projectName?: string
   /** App category, e.g. 'public.app-category.productivity'. */
   appCategory: string
   /** Bundle identifier, e.g. 'com.example.your-extension'. */
@@ -17,11 +15,9 @@ export interface ExtportSafariOptions {
   issuerId?: string
   /** App Store Connect API key id — used by local `extport safari-build` (CI passes it as a secret). */
   keyId?: string
-  /** Output path for the Xcode project. Defaults to '.output/{projectName}'. */
-  outputPath?: string
   /** Defaults to 'both' (macOS and iOS). */
   projectType?: SafariProjectType
-  /** Open the Xcode project after creation. Defaults to true; set false in CI. */
+  /** Open the Xcode project after creation. Defaults to false. */
   openProject?: boolean
 }
 
@@ -43,42 +39,18 @@ export interface ExtportWxtOptions {
    */
   analytics?: boolean
   safari?: ExtportSafariOptions
-  /** @deprecated Move under `safari: {}`. */
-  projectName?: string
-  /** @deprecated Move under `safari: {}`. */
-  appCategory?: string
-  /** @deprecated Move under `safari: {}`. */
-  bundleIdentifier?: string
-  /** @deprecated Move under `safari: {}`. */
-  developmentTeam?: string
-  /** @deprecated Move under `safari: {}`. */
-  outputPath?: string
-  /** @deprecated Move under `safari: {}`. */
-  projectType?: SafariProjectType
-  /** @deprecated Move under `safari: {}`. */
-  openProject?: boolean
 }
 
 const VIRTUAL_PLUGIN_ID = 'virtual:extport-plugin'
 
-/**
- * Accept the pre-0.0.4 flat safari keys for one deprecation cycle. Pure so
- * it can be tested without booting WXT.
- */
+/** Pure so it can be tested without booting WXT. */
 export function normalizeOptions(options: ExtportWxtOptions | undefined): {
   extension?: string
   analytics: boolean
   safari?: ExtportSafariOptions
-  usedLegacyKeys: boolean
 } {
-  const { extension, analytics, safari, ...legacy } = options ?? {}
-  const hasLegacy = legacy.appCategory !== undefined || legacy.bundleIdentifier !== undefined
-  return {
-    extension,
-    analytics: analytics ?? false,
-    safari: safari ?? (hasLegacy ? (legacy as ExtportSafariOptions) : undefined),
-    usedLegacyKeys: !safari && hasLegacy,
-  }
+  const { extension, analytics, safari } = options ?? {}
+  return { extension, analytics: analytics ?? false, safari }
 }
 
 /**
@@ -129,32 +101,40 @@ export default defineWxtModule<ExtportWxtOptions>({
   name: 'extport',
   configKey: 'extport',
   async setup(wxt, options) {
-    const { extension, analytics, safari, usedLegacyKeys } = normalizeOptions(options)
-    if (usedLegacyKeys) {
-      wxt.logger.warn(
-        '@extport/wxt: top-level appCategory/bundleIdentifier/… are deprecated — move them under `extport: { safari: { … } }`.',
-      )
-    }
+    const { extension, analytics, safari } = normalizeOptions(options)
 
-    // --- extport.config.json: fully generated here, at setup, so a plain
-    // `pnpm install` (wxt prepare) leaves the file in its final state —
-    // no fields appearing later at build time. Authored values win;
-    // everything else (apiUrl, CLI-written history) passes through.
+    // --- extport.config.json: generated here, at setup, so a plain
+    // `pnpm install` (wxt prepare) leaves the file in its final state.
+    // Authored values win; everything else (apiUrl, CLI-written history)
+    // passes through. projectPath is the one exception — see below.
+    // wxt resolves `manifest` per browser before modules run, so this is
+    // already the Safari-specific name on a safari build — which is exactly
+    // what the converter names the Xcode project directory.
     const projectName =
-      safari?.projectName ??
       wxt.config.manifest.name ??
       (await fs
         .readFile(`${wxt.config.root}/package.json`, 'utf-8')
         .then((data) => JSON.parse(data).name as string | undefined)
         .catch(() => undefined))
-    const outputPath = safari?.outputPath ?? (projectName ? `.output/${projectName}` : undefined)
+    const outputPath = projectName ? `.output/${projectName}` : undefined
 
     if (extension || safari) {
       const existing = await loadProjectConfig(wxt.config.root)
       const { config, changed } = generateProjectConfig(existing, {
         extension,
         safari: safari
-          ? { projectPath: outputPath, teamId: safari.developmentTeam, issuerId: safari.issuerId, keyId: safari.keyId }
+          ? {
+              // Only a safari run may write projectPath. Extensions routinely
+              // rename themselves for Safari (`manifest.name = 'Clean for
+              // Twitter'`), so a chrome run resolves a different name and
+              // would record a directory that never gets created — leaving
+              // `extport safari-build` pointed at nothing. Omitting it here
+              // preserves whatever a previous safari run wrote.
+              ...(wxt.config.browser === 'safari' ? { projectPath: outputPath } : {}),
+              teamId: safari.developmentTeam,
+              issuerId: safari.issuerId,
+              keyId: safari.keyId,
+            }
           : undefined,
       })
       if (changed) {
@@ -196,10 +176,12 @@ export default defineWxtModule<ExtportWxtOptions>({
     if (!safari) return
 
     const { appCategory, bundleIdentifier, developmentTeam } = safari
-    if (!projectName || !appCategory || !bundleIdentifier) {
-      wxt.logger.warn(
-        '@extport/wxt is not configured properly. Please provide projectName, appCategory and bundleIdentifier under the "extport.safari" key.',
-      )
+    if (!appCategory || !bundleIdentifier) {
+      wxt.logger.warn('@extport/wxt is not configured properly. Please provide appCategory and bundleIdentifier under the "extport.safari" key.')
+      return
+    }
+    if (!projectName) {
+      wxt.logger.warn('@extport/wxt: cannot name the Xcode project — set `manifest.name` in wxt.config.ts, or "name" in package.json.')
       return
     }
 
@@ -211,7 +193,9 @@ export default defineWxtModule<ExtportWxtOptions>({
     }
 
     const projectType = safari.projectType ?? 'both'
-    const openProject = safari.openProject ?? true
+    // Opening Xcode is only useful the first time (signing setup); on every
+    // subsequent build it's noise, so it stays off unless asked for.
+    const openProject = safari.openProject ?? false
 
     wxt.hook('build:done', async (wxt) => {
       if (process.platform !== 'darwin') {
@@ -227,7 +211,6 @@ export default defineWxtModule<ExtportWxtOptions>({
           appCategory,
           bundleIdentifier,
           developmentTeam,
-          outputPath: outputPath!,
           projectType,
           openProject,
           rootPath: wxt.config.root,
