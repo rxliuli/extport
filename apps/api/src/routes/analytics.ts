@@ -71,6 +71,10 @@ analyticsPublicRoutes.post(
     // that may be torn down mid-request (and Workers can be cancelled with
     // it) — the install row and its ping must land together or not at all,
     // or aborts leave phantom installs that never pinged.
+    const os = parseOs(ua)
+    const country = cf?.country?.toLowerCase() ?? null
+    const language = body.language?.toLowerCase() || null
+
     await db.batch([
       db
         .insert(analyticsInstalls)
@@ -98,11 +102,16 @@ analyticsPublicRoutes.post(
         date: today,
         browser,
         version: body.version,
-        os: parseOs(ua),
-        country: cf?.country?.toLowerCase() ?? null,
-        language: body.language?.toLowerCase() || null,
+        os,
+        country,
+        language,
       }),
     ])
+
+    c.env.ANALYTICS.writeDataPoint({
+      indexes: [extension.id],
+      blobs: [body.installId, extension.tenantId, browser, body.version, os, country, language],
+    })
 
     return c.body(null, 204)
   },
@@ -190,8 +199,7 @@ analyticsTenantRoutes.get(
     if (!latest) return c.json({ weeklyActives: 0, allTimeInstalls: 0, versions: [] })
 
     // WAU is the only activity figure any surface shows — one metric, the
-    // same one the chart plots, exact from raw pings. (mau is still rolled
-    // up nightly as a permanent record, just not displayed.)
+    // same one the chart plots, exact from raw pings.
     const [active] = await db
       .select({ weeklyActives: sql<number>`sum(${analyticsDaily.wau})` })
       .from(analyticsDaily)

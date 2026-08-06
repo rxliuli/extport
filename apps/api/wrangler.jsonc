@@ -51,6 +51,12 @@
       "bucket_name": "extport-artifacts"
     }
   ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "ANALYTICS",
+      "dataset": "extport_analytics"
+    }
+  ],
   "triggers": {
     // Reconciliation loop (spec §3.1) — every 30 minutes; nightly analytics
     // rollup at 00:15 UTC (the expression is matched verbatim in index.ts).
