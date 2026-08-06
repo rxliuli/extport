@@ -5,12 +5,14 @@ Per-product progress tracker. The procedure is
 product actually stands. **Update this file as steps complete** — future
 migration work resumes from here.
 
-Last updated: 2026-08-05. **The license-kit → extport payment/licensing
+Last updated: 2026-08-06. **The license-kit → extport payment/licensing
 migration is complete for every product** — every legacy code is
 imported, every storefront buy button points at its extport Payment
-Link. Paddle's checkout/webhook backend hasn't been formally shut down
-yet, but has received zero live traffic since the last flip — a
-residual decommission task, not a blocker on anything (see below).
+Link. **license-kit's entire server backend has now been retired**
+(routes/services/middleware/utils, D1 schema/migrations, KV, the
+`main` Worker script all deleted; `@rxliuli/activation-client` deleted
+and deprecated on npm) — see below; this closes out what used to be a
+someday-task.
 
 Separately — a different axis from this file's payment/licensing
 tracking, noted here only because it overlaps the same product list:
@@ -59,13 +61,35 @@ instead of opening store.rxliuli.com.
 No further code-import runs are needed — every buy button is flipped,
 so there's nothing new landing in Paddle to catch up on.
 
-## Paddle backend — dormant, not yet formally retired
+## license-kit backend — retired (2026-08-06)
 
-Every storefront buy button has been flipped and every legacy code is
-imported, so Paddle's checkout/webhook endpoints see no live traffic in
-practice. They haven't been explicitly shut down — no urgency, since
-nothing depends on them continuing to run; do it whenever it's
-convenient (retirement sequence below covers what that involves).
+Every storefront buy button had already been flipped and every legacy
+code imported, so license-kit's checkout/webhook/activation endpoints
+were seeing no live traffic before this — the actual deletion was a
+formality, not a cutover. Done:
+
+- All server-side code deleted: routes, services, middleware, utils,
+  D1 schema/migrations/drizzle tooling, KV namespaces, the `main`
+  Worker script itself. `wrangler.jsonc` now carries only `assets` +
+  `routes` — Cloudflare's assets-only deployment mode, zero Worker
+  script, zero request-time server logic.
+- `@rxliuli/activation-client` (the pre-SDK client) deleted locally and
+  deprecated on npm — confirmed via `npm view` on all three published
+  versions.
+- store.rxliuli.com's login now redirects straight to
+  `portal.extport.dev` instead of a local auth page.
+- The frontend was also rewritten from TanStack Start to Astro (a
+  separate, unrelated axis — the site is fully static content either
+  way, TanStack's SSR/hydration machinery was never needed). Zero
+  client JS ships except the header nav and one page's copy-to-clipboard
+  widget.
+
+**Not yet done, low urgency:** if license-kit had its own registered
+webhook endpoint(s) in Paddle's and/or Stripe's dashboards (separate
+from extport's own, which are unaffected), those endpoints now point at
+a dead route — worth explicitly deleting the registration in the
+provider dashboard to stop failed-delivery noise, but nothing depends
+on it and old clients fail open regardless (see below).
 
 ## productName → extensionId unfreezing — deliberately still deferred
 
@@ -75,32 +99,35 @@ check, unconditional while `licensingEnabled`) rather than unfreeze it.
 No product has actually needed a rename since the SDK migration;
 revisit only if one comes up for real.
 
-## Retirement sequence, when it's worth doing
+## Retirement — done; post-retirement SDK release still deferred
 
 Licensing.md § Fleet migration step 4: license-kit webhook + checkout
 endpoints retire → post-retirement SDK release finishes dropping the
 cascade support and switches the identity key `productName` →
 `extensionId` fleet-wide, unfreezing extension names.
 
-**The gate for this is already met** (every product's codes imported,
-every product's sales flipped) — it just hasn't been executed, because
-nothing is currently blocked on it. **Retirement is gentler than it
-looks whenever it does happen — old clients fail open.** The pre-SDK
-hand-rolled clients treat any non-2xx from license-kit as a thrown
-error that callers swallow, keeping the local cached entitlement. So
-devices that never update past the license-kit era degrade to "checks
-fail forever, paid features never turn off" — the documented failure
-mode, not a cliff.
+**The retirement half of step 4 is done** (2026-08-06, see above). The
+**post-retirement SDK release is now unblocked but still deliberately
+not scheduled** — same reasoning as the "productName → extensionId
+unfreezing" section above: no product has actually needed a rename,
+revisit only if one comes up for real. Until that release ships, a
+mistyped code degrades from "invalid" to a retryable error (cosmetic,
+typo path only) — **old clients fail open more broadly too**: the
+pre-SDK hand-rolled clients treat any non-2xx from license-kit as a
+thrown error that callers swallow, keeping the local cached
+entitlement. So devices that never updated past the license-kit era
+degrade to "checks fail forever, paid features never turn off" — the
+documented failure mode, not a cliff.
 
 ### store.rxliuli.com endgame
 
 | Component | Status |
 |---|---|
 | checkout endpoint | retired for every product (buttons are static Payment Link hrefs now) |
-| Stripe/Paddle webhooks | Paddle's still running but dormant (see above); retires whenever the sequence above gets executed |
-| login + "my codes" pages | imports are done fleet-wide, so the precondition is met; whether the site itself swapped the sign-in button for a portal.extport.dev link isn't something this repo can confirm |
-| activation endpoints | retires alongside the sequence above (old clients fail open, see above) |
-| product marketing pages | **kept forever** (SEO + buy links); the worker eventually shrinks to a static site |
+| Stripe/Paddle webhooks | endpoint code deleted (2026-08-06); any provider-side webhook registration still pointed at license-kit is dead but not yet explicitly removed (see above) |
+| login + "my codes" pages | confirmed done — login redirects straight to portal.extport.dev |
+| activation endpoints | deleted (2026-08-06) — old clients fail open, see above |
+| product marketing pages | **kept forever** (SEO + buy links); now a fully static Astro site, zero server code, zero client JS beyond the header nav and one interactive widget |
 
 ## Known caveats carried forward
 

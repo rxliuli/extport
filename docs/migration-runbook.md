@@ -86,8 +86,11 @@ multi-tier uses static per-tier links in the plan dialog.
   extension release needed).
 - Deploy: `pnpm build && pnpm deploy:server` from
   `license-kit/packages/store` — **build first**; wrangler uploads
-  `dist/client` as the site assets, deploying stale/empty output nukes
-  the live storefront.
+  `dist` as the site assets, deploying stale/empty output nukes
+  the live storefront. (Historical note: this repo's backend has since
+  retired and the frontend migrated to Astro — see
+  [`migration-status.md`](migration-status.md) — but the two-step
+  build-then-deploy shape is unchanged.)
 
 ### 5. Verify with a $0 live purchase
 
