@@ -141,11 +141,15 @@ function buildMessage(row: JoinedRow, kind: NotifyKind, payload: Record<string, 
         : ''
       return { subject: `❌ ${ext} rejected on ${store}`, text: `${ext} v${payload.version} was rejected on ${store}.\n\n${reason}${pausedNote}\n\nStore page: ${link}` }
     }
-    case 'error':
+    case 'error': {
+      const ver = typeof payload.version === 'string' && payload.version ? payload.version : null
       return {
-        subject: `⚠️ ${ext} publishing error on ${store}`,
-        text: `${ext} hit an error while reconciling ${store}:\n\n${payload.message ?? 'unknown error'}\n\nStore page: ${link}`,
+        subject: ver ? `⚠️ ${ext} v${ver} publishing error on ${store}` : `⚠️ ${ext} publishing error on ${store}`,
+        text: ver
+          ? `${ext} v${ver} hit an error while reconciling ${store}:\n\n${payload.message ?? 'unknown error'}\n\nStore page: ${link}`
+          : `${ext} hit an error while reconciling ${store}:\n\n${payload.message ?? 'unknown error'}\n\nStore page: ${link}`,
       }
+    }
   }
 }
 
@@ -191,7 +195,7 @@ async function maybeAutoPause(db: Db, row: JoinedRow, justRejected: DeploymentVe
   return true
 }
 
-async function persistError(db: Db, notifier: Notifier, row: JoinedRow, message: string, credentials: unknown = undefined): Promise<void> {
+async function persistError(db: Db, notifier: Notifier, row: JoinedRow, message: string, credentials: unknown = undefined, version?: string): Promise<void> {
   const detail = truncate(message)
   // The event and the email mark the healthy → erroring TRANSITION, not every
   // failing tick — a credential left broken for a week must not produce 48
@@ -215,9 +219,9 @@ async function persistError(db: Db, notifier: Notifier, row: JoinedRow, message:
     extensionId: row.extension.id,
     store: row.target.store,
     type: 'error',
-    payload: { message: detail },
+    payload: { message: detail, version },
   })
-  await notify(notifier, row, 'error', { message: detail }, credentials)
+  await notify(notifier, row, 'error', { message: detail, version }, credentials)
 }
 
 function staleReviewThresholdDays(tenant: Tenant, store: Store): number {
@@ -607,10 +611,12 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
     for (const row of group) {
       const outcome = await withTargetLock(db, row.target.id, async () => {
         const key = `${row.target.extensionId}:${row.target.store}`
+        const vRows = versionsByExtStore.get(key) ?? []
         try {
-          return await reconcileOne(env, db, notifier, row, credentials, versionsByExtStore.get(key) ?? [])
+          return await reconcileOne(env, db, notifier, row, credentials, vRows)
         } catch (err) {
-          await persistError(db, notifier, row, (err as Error).message, credentials)
+          const queuedVersion = vRows.find((v) => v.status === 'queued')?.version
+          await persistError(db, notifier, row, (err as Error).message, credentials, queuedVersion)
           return 'error' as const
         }
       })

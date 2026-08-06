@@ -58,19 +58,25 @@ async function submit(
   poll: PollOptions,
 ): Promise<SubmissionResult> {
   const headers = edgeHeaders(credentials)
+  const tag = `[edge ${productId.slice(0, 8)}]`
 
+  console.log(`${tag} uploading package (${artifact.byteLength} bytes)`)
   const uploadRes = await fetchImpl(`${API_BASE}/v1/products/${productId}/submissions/draft/package`, {
     method: 'POST',
     headers: { ...headers, 'content-type': 'application/zip' },
     body: artifact,
   })
   if (uploadRes.status !== 202) {
-    return { submitted: false, detail: `package upload rejected (${uploadRes.status}): ${truncate(await uploadRes.text())}` }
+    const body = await uploadRes.text()
+    console.log(`${tag} upload rejected (${uploadRes.status}): ${body}`)
+    return { submitted: false, detail: `package upload rejected (${uploadRes.status}): ${truncate(body)}` }
   }
   const uploadOperationId = operationIdFromLocation(uploadRes)
   if (!uploadOperationId) {
+    console.log(`${tag} upload 202 but no operation id in Location header`)
     return { submitted: false, detail: 'edge did not return an operation id for the package upload' }
   }
+  console.log(`${tag} upload accepted, validation operation ${uploadOperationId}`)
 
   const validated = await pollOperation(
     `${API_BASE}/v1/products/${productId}/submissions/draft/package/operations/${uploadOperationId}`,
@@ -79,13 +85,16 @@ async function submit(
     poll,
   )
   if (!validated) {
+    console.log(`${tag} validation poll timed out after ${poll.attempts} attempts`)
     // Not a failure — validation just outlasted our poll window. `waiting`
     // keeps the version queued without recording a target error each tick.
     return { submitted: false, waiting: true, detail: 'package validation still in progress after the poll window — will retry next reconcile' }
   }
   if (validated.status !== 'Succeeded') {
+    console.log(`${tag} validation failed: ${JSON.stringify(validated)}`)
     return { submitted: false, detail: `package validation failed: ${validated.errorCode ?? ''} ${truncate(validated.message ?? '')}`.trim() }
   }
+  console.log(`${tag} validation succeeded, submitting for review`)
 
   const submitRes = await fetchImpl(`${API_BASE}/v1/products/${productId}/submissions`, {
     method: 'POST',
@@ -93,12 +102,16 @@ async function submit(
     body: JSON.stringify({ notes: 'Submitted automatically by extport.' }),
   })
   if (submitRes.status !== 202) {
-    return { submitted: false, detail: `submission rejected (${submitRes.status}): ${truncate(await submitRes.text())}` }
+    const body = await submitRes.text()
+    console.log(`${tag} submission rejected (${submitRes.status}): ${body}`)
+    return { submitted: false, detail: `submission rejected (${submitRes.status}): ${truncate(body)}` }
   }
   const submitOperationId = operationIdFromLocation(submitRes)
   if (!submitOperationId) {
+    console.log(`${tag} submission 202 but no operation id in Location header`)
     return { submitted: false, detail: 'edge did not return an operation id for the submission' }
   }
+  console.log(`${tag} submission 202 accepted, polling operation ${submitOperationId}`)
 
   // This 202 only means the request was accepted, not that the submission
   // actually left draft — same async shape as the upload above, and the
@@ -113,6 +126,7 @@ async function submit(
     poll,
   )
   if (!submitted) {
+    console.log(`${tag} submission poll timed out after ${poll.attempts} attempts — treating 202 as submitted`)
     // Unlike the upload-validation timeout above, retrying here is NOT
     // safe: re-calling POST .../submissions while this exact operation is
     // still processing gets rejected with "InProgressSubmission" — a real
@@ -127,6 +141,7 @@ async function submit(
     return { submitted: true }
   }
   if (submitted.status !== 'Succeeded') {
+    console.log(`${tag} submission operation not Succeeded: ${JSON.stringify(submitted)}`)
     return { submitted: false, detail: `submission failed: ${submitted.errorCode ?? ''} ${truncate(submitted.message ?? '')}`.trim() }
   }
   // Once this operation itself reports Succeeded, Edge exposes no further
@@ -137,6 +152,7 @@ async function submit(
   // point, is invisible to any endpoint we have. Requested a status endpoint
   // upstream — microsoft/MicrosoftEdge-Extensions#696 — closed 2026-08-05,
   // "not on the current roadmap." Permanent limitation, not a pending fix.)
+  console.log(`${tag} submission confirmed succeeded`)
   return { submitted: true }
 }
 
