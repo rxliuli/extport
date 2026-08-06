@@ -132,7 +132,7 @@ describe('analytics rollup', () => {
       { installId: 'i2', browser: 'chrome', firstSeen: day(-29), lastSeen: day(-1), lastVersion: '1.0.1' },
       // Departed: last seen exactly 31 days ago — confirmed today.
       { installId: 'i3', browser: 'chrome', firstSeen: day(-60), lastSeen: day(-31), lastVersion: '1.0.0' },
-      // In the MAU window but quiet yesterday.
+      // Active this week but quiet yesterday.
       { installId: 'i4', browser: 'firefox', firstSeen: day(-10), lastSeen: day(-5), lastVersion: '1.0.0' },
     ]
     for (const row of installRows) {
@@ -165,12 +165,12 @@ describe('analytics rollup', () => {
       rows.find((r) => r.date === date && r.browser === browser && r.dim === dim && r.dimValue === dimValue)
 
     // Headline, chrome: dau counts distinct installs (raced duplicate
-    // ignored), installs from first_seen, MAU covers i1+i2 but not the
-    // departed i3. WAU equals dau here — both actives pinged yesterday.
-    expect(find(day(-1), 'chrome', 'total', '')).toMatchObject({ dau: 2, wau: 2, installs: 1, mau: 2, departures: 0 })
+    // ignored), installs from first_seen. WAU equals dau here — both
+    // actives pinged yesterday. MAU is no longer computed (column default 0).
+    expect(find(day(-1), 'chrome', 'total', '')).toMatchObject({ dau: 2, wau: 2, installs: 1, mau: 0, departures: 0 })
     // Firefox had no pings yesterday but pinged within the week — exactly
     // the running-but-idle install WAU exists to keep counting.
-    expect(find(day(-1), 'firefox', 'total', '')).toMatchObject({ dau: 0, wau: 1, installs: 0, mau: 1 })
+    expect(find(day(-1), 'firefox', 'total', '')).toMatchObject({ dau: 0, wau: 1, installs: 0, mau: 0 })
     // Departure confirmed today, written into the historical last-seen row.
     expect(find(day(-31), 'chrome', 'total', '')).toMatchObject({ departures: 1, dau: 0 })
 
