@@ -95,6 +95,48 @@ describe('chrome adapter — getState', () => {
     const state = await createChromeAdapter(fetch).getState(await creds(), { storeItemId: ITEM })
     expect(state).toEqual({ live: { known: true }, inReview: { known: true } })
   })
+
+  it('falls back to the submission version when state is PUBLISHED but distributionChannels has not caught up yet', async () => {
+    // Regression: Google's fetchStatus schema gives distributionChannels[]
+    // no channel-identity field, and in practice it can be briefly empty
+    // right as a revision finishes review even though `state` already reads
+    // PUBLISHED — the old code inferred "live" purely from
+    // distributionChannels[0].crxVersion and silently never advanced,
+    // leaving the row stuck at in_review forever (real incident: Scrub
+    // 0.0.17 on Chrome, confirmed live on the store, still in_review after a
+    // fresh error-free reconcile).
+    const { fetch } = queueFetch([
+      { status: 200, body: { access_token: 'at' } },
+      {
+        status: 200,
+        body: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [] },
+          submittedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '0.0.17' }] },
+        },
+      },
+    ])
+    const state = await createChromeAdapter(fetch).getState(await creds(), { storeItemId: ITEM })
+    expect(state.live).toEqual({ known: true, version: '0.0.17' })
+    expect(state.inReview).toEqual({ known: true })
+  })
+
+  it('reports the live version as unknown rather than falsely confirming nothing is live, when PUBLISHED but no version is available anywhere', async () => {
+    const { fetch } = queueFetch([
+      { status: 200, body: { access_token: 'at' } },
+      { status: 200, body: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [] } } },
+    ])
+    const state = await createChromeAdapter(fetch).getState(await creds(), { storeItemId: ITEM })
+    expect(state.live).toEqual({ known: false })
+  })
+
+  it('still reports "confirmed nothing live" for a genuinely never-published item (not PUBLISHED at all)', async () => {
+    const { fetch } = queueFetch([
+      { status: 200, body: { access_token: 'at' } },
+      { status: 200, body: { submittedItemRevisionStatus: { state: 'STAGED', distributionChannels: [{ crxVersion: '0.1.0' }] } } },
+    ])
+    const state = await createChromeAdapter(fetch).getState(await creds(), { storeItemId: ITEM })
+    expect(state.live).toEqual({ known: true, version: undefined })
+  })
 })
 
 describe('chrome adapter — submit', () => {
