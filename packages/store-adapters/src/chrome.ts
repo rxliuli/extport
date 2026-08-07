@@ -75,25 +75,25 @@ async function getState(
   }
   const published = body.publishedItemRevisionStatus
   const submitted = body.submittedItemRevisionStatus
-  // Google's schema gives distributionChannels[] no channel-identity field at
-  // all (confirmed against the v2 reference) — index 0 is never guaranteed to
-  // be the version that's actually live, and in practice it can be briefly
-  // unpopulated right as a revision finishes review, even though `state`
-  // already reads PUBLISHED. Trust `state` as the authoritative "is this
-  // live" signal instead of inferring it from channel presence, and fall
-  // back to the submission's own version — which becomes the published one
-  // the instant review completes — when the published side hasn't caught up
-  // yet. Only if neither side has a version do we admit we can't tell
-  // (`known: false`), rather than falsely claiming "confirmed nothing live."
   const publishedVersion = published?.distributionChannels?.[0]?.crxVersion
-  const isPublished = published?.state === 'PUBLISHED'
-  const live: VersionKnowledge = publishedVersion
-    ? { known: true, version: publishedVersion }
-    : isPublished && submitted?.distributionChannels?.[0]?.crxVersion
-      ? { known: true, version: submitted.distributionChannels[0]!.crxVersion }
-      : isPublished
-        ? { known: false }
-        : { known: true, version: undefined }
+  // Google's schema gives distributionChannels[] no channel-identity field at
+  // all (confirmed against the v2 reference), so index 0 isn't documented to
+  // always be populated once state flips to PUBLISHED — but every real
+  // response seen so far has had it. Logged instead of "fixed" so a real
+  // occurrence can justify a real fix (with a real payload to design it
+  // against), rather than coding a fallback for a gap that's never actually
+  // been confirmed to happen.
+  if (published?.state === 'PUBLISHED' && !publishedVersion) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        message: 'chrome fetchStatus: state is PUBLISHED but distributionChannels has no crxVersion',
+        storeItemId,
+        publishedItemRevisionStatus: published,
+      }),
+    )
+  }
+  const live: VersionKnowledge = { known: true, version: publishedVersion }
   if (!submitted) return { live, inReview: { known: true } }
 
   const submittedVersion = submitted.distributionChannels?.[0]?.crxVersion

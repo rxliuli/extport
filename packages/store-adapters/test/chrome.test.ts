@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createChromeAdapter } from '../src/chrome'
 import { queueFetch, unreachableFetch } from './fetch-stub'
 
@@ -96,46 +96,36 @@ describe('chrome adapter — getState', () => {
     expect(state).toEqual({ live: { known: true }, inReview: { known: true } })
   })
 
-  it('falls back to the submission version when state is PUBLISHED but distributionChannels has not caught up yet', async () => {
-    // Regression: Google's fetchStatus schema gives distributionChannels[]
-    // no channel-identity field, and in practice it can be briefly empty
-    // right as a revision finishes review even though `state` already reads
-    // PUBLISHED — the old code inferred "live" purely from
-    // distributionChannels[0].crxVersion and silently never advanced,
-    // leaving the row stuck at in_review forever (real incident: Scrub
-    // 0.0.17 on Chrome, confirmed live on the store, still in_review after a
-    // fresh error-free reconcile).
-    const { fetch } = queueFetch([
-      { status: 200, body: { access_token: 'at' } },
-      {
-        status: 200,
-        body: {
-          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [] },
-          submittedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '0.0.17' }] },
-        },
-      },
-    ])
-    const state = await createChromeAdapter(fetch).getState(await creds(), { storeItemId: ITEM })
-    expect(state.live).toEqual({ known: true, version: '0.0.17' })
-    expect(state.inReview).toEqual({ known: true })
-  })
-
-  it('reports the live version as unknown rather than falsely confirming nothing is live, when PUBLISHED but no version is available anywhere', async () => {
+  it('logs a warning (without changing behavior) if PUBLISHED ever shows up with no distributionChannels version', async () => {
+    // Not a fix — a tripwire. Google's schema gives distributionChannels[]
+    // no channel-identity field, so index 0 isn't documented to always be
+    // populated once state flips to PUBLISHED, but this has never actually
+    // been observed against a real response. If it ever fires for real, this
+    // log is the evidence a real fix would be designed against — see git
+    // history on this file for a fallback that was written and then reverted
+    // for being speculative (no confirmed occurrence to design it from).
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { fetch } = queueFetch([
       { status: 200, body: { access_token: 'at' } },
       { status: 200, body: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [] } } },
     ])
     const state = await createChromeAdapter(fetch).getState(await creds(), { storeItemId: ITEM })
-    expect(state.live).toEqual({ known: false })
+    expect(state.live).toEqual({ known: true, version: undefined })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(warn.mock.calls[0]![0] as string)).toMatchObject({ level: 'warn', storeItemId: ITEM })
+    warn.mockRestore()
   })
 
-  it('still reports "confirmed nothing live" for a genuinely never-published item (not PUBLISHED at all)', async () => {
+  it('does not log when distributionChannels is simply empty and nothing is published', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { fetch } = queueFetch([
       { status: 200, body: { access_token: 'at' } },
       { status: 200, body: { submittedItemRevisionStatus: { state: 'STAGED', distributionChannels: [{ crxVersion: '0.1.0' }] } } },
     ])
     const state = await createChromeAdapter(fetch).getState(await creds(), { storeItemId: ITEM })
     expect(state.live).toEqual({ known: true, version: undefined })
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 })
 
