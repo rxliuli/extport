@@ -374,9 +374,30 @@ async function reconcileLifecycle(
   const inReviewReport = actual.inReview
   if (!inReview && inReviewReport.known && inReviewReport.version) {
     const inReviewVersion = inReviewReport.version
-    if (queued && queued.version === inReviewVersion) {
+    // The store reporting a version as "in review" that we already have a
+    // confirmed online row for is not a legitimate new submission — creating
+    // one here would occupy the one in_review slot permanently, since
+    // nothing else ever re-examines an inReview row once it exists. Real
+    // incident this guards against: Scrub v0.0.17 on Chrome, blocked from
+    // ever clearing after a duplicate in_review row for an already-online
+    // version was created this way. Logged rather than silently dropped —
+    // why the store reported it at all isn't confirmed.
+    const alreadyOnline = lifecycleRows.some((v) => v.status === 'online' && v.version === inReviewVersion)
+    if (alreadyOnline) {
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          message: 'reconcile: store reports in-review version that already has an online row — not creating a duplicate',
+          extensionId: target.extensionId,
+          store: target.store,
+          platform: platform ?? null,
+          version: inReviewVersion,
+        }),
+      )
+    } else if (queued && queued.version === inReviewVersion) {
       await db.update(deploymentVersions).set({ status: 'in_review', submittedAt: null }).where(eq(deploymentVersions.id, queued.id))
       queued = null
+      inReview = { version: inReviewVersion, submittedAt: null } as DeploymentVersion
     } else {
       await db.insert(deploymentVersions).values({
         id: newId('deploymentVersion'),
@@ -388,8 +409,8 @@ async function reconcileLifecycle(
         artifactId: null,
         status: 'in_review',
       })
+      inReview = { version: inReviewVersion, submittedAt: null } as DeploymentVersion
     }
-    inReview = { version: inReviewVersion, submittedAt: null } as DeploymentVersion
   }
 
   await maybeEmitStaleReview(db, notifier, row, inReview, credentials)

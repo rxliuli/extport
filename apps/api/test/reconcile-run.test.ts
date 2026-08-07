@@ -278,6 +278,41 @@ describe('runReconciliation — baseline discovery', () => {
       { version: '1.1.0', status: 'in_review' },
     ])
   })
+
+  it('does not create a duplicate in_review row when the store reports an already-online version as in-review, and still submits the queued one behind it', async () => {
+    // Real incident this guards against: Scrub v0.0.17 on Chrome had a
+    // confirmed online row, but the store's fetchStatus also echoed it back
+    // as "in review" on a later tick. The old code had no baseline row to
+    // match it against (nothing was locally in_review at the time), so it
+    // inserted a brand-new in_review row for a version that had already
+    // shipped — permanently occupying the one in_review slot and blocking
+    // every subsequent version from ever being submitted.
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      artifacts: [{ version: '1.1.0' }],
+      versions: [
+        { version: '1.0.0', status: 'online' },
+        { version: '1.1.0', status: 'queued' },
+      ],
+    })
+    const { fetch, calls } = routedFetch(
+      chromeRoutes({
+        fetchStatus: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] },
+          submittedItemRevisionStatus: { state: 'PENDING_REVIEW', distributionChannels: [{ crxVersion: '1.0.0' }] },
+        },
+      }),
+    )
+    globalThis.fetch = fetch
+
+    const summary = await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
+    expect(summary).toEqual({ processed: 1, submitted: 1, blocked: 0, errors: 0, skipped: 0 })
+    const rows = await versionsFor(db, extensionId)
+    expect(rows).toMatchObject([
+      { version: '1.0.0', status: 'online' },
+      { version: '1.1.0', status: 'in_review' },
+    ])
+    expect(calls.some((c) => c.url.endsWith(':publish'))).toBe(true)
+  })
 })
 
 describe('runReconciliation — waiting on the exact version already in review', () => {
