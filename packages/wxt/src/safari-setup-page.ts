@@ -39,7 +39,6 @@ export function setupPageHtml(projectName: string): string {
     </header>
 
     <section class="status platform-mac">
-        <p class="state-unknown badge">Checking extension status…</p>
         <p class="state-on badge on">Extension is enabled</p>
         <p class="state-off badge off">Extension is disabled</p>
     </section>
@@ -120,11 +119,15 @@ body:not(.platform-mac, .platform-ios) :is(.platform-mac, .platform-ios) {
 body.platform-mac .platform-ios { display: none; }
 body.platform-ios .platform-mac { display: none; }
 
-body:not(.state-on, .state-off) :is(.state-on, .state-off) {
+/* Until the state is actually known the badge is absent, not pending. A
+   single-platform project's ViewController gives up silently when the
+   extension-state lookup fails, so a "checking…" placeholder would sit there
+   forever and read as a hang. */
+body:not(.state-on, .state-off) .status {
     display: none;
 }
-body.state-on :is(.state-off, .state-unknown) { display: none; }
-body.state-off :is(.state-on, .state-unknown) { display: none; }
+body.state-on .state-off { display: none; }
+body.state-off .state-on { display: none; }
 
 header {
     display: flex;
@@ -249,6 +252,15 @@ function openPreferences() {
 
 var openButton = document.querySelector('button.open-preferences');
 if (openButton) openButton.addEventListener('click', openPreferences);
+
+// A single-platform project's generated ViewController only calls show() if
+// the extension-state lookup succeeds — it bails out on error without telling
+// the page anything. Since the instructions are hidden until a platform is
+// known, that left the window showing nothing but the icon. Seed the platform
+// here so content always renders; a later show() from native still refines it.
+if (!/platform-(mac|ios)/.test(document.body.className)) {
+    show(/iPhone|iPad|iPod/.test(navigator.userAgent) ? 'ios' : 'mac');
+}
 `
 }
 

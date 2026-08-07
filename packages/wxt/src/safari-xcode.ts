@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { run } from './exec'
+import { capture, run } from './exec'
 import { writeSetupPage } from './safari-setup-page'
 
 export type SafariProjectType = 'macos' | 'ios' | 'both'
@@ -67,7 +67,8 @@ async function updateProjectConfig(options: PostBuildOptions): Promise<void> {
   const packageJsonModule = await import(path.resolve(options.rootPath, 'package.json'), { with: { type: 'json' } })
   const packageJson = packageJsonModule.default as { version: string }
   const content = await fs.readFile(projectConfigPath, 'utf-8')
-  const newContent = normaliseBundleIds(content, options.bundleIdentifier)
+  const desired = resolveBundleIds(await readPbxObjects(projectConfigPath), options.bundleIdentifier)
+  const newContent = applyBundleIds(content, desired)
     .replaceAll('MARKETING_VERSION = 1.0;', `MARKETING_VERSION = ${packageJson.version};`)
     .replace(
       new RegExp(`INFOPLIST_KEY_CFBundleDisplayName = ("?${options.projectName}"?);`, 'g'),
@@ -111,43 +112,92 @@ export function parseProjectVersion(version: string): number {
   return major! * 10000 + minor! * 100 + patch!
 }
 
-const BUNDLE_ID_REGEX = /PRODUCT_BUNDLE_IDENTIFIER = ("[^"]*"|[^;]+);/g
-
-function unwrap(raw: string): string {
-  return raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw
-}
-
 function quote(value: string): string {
   return /^[A-Za-z0-9._]+$/.test(value) ? value : `"${value}"`
 }
 
+const PRODUCT_TYPE_APPLICATION = 'com.apple.product-type.application'
+const PRODUCT_TYPE_APP_EXTENSION = 'com.apple.product-type.app-extension'
+/** What the converter itself uses, and what it writes into ViewController.swift. */
+const EXTENSION_SUFFIX = '.Extension'
+
+/** One entry of a pbxproj's flat `objects` map, as plutil hands it back. */
+interface PbxObject {
+  isa?: string
+  productType?: string
+  buildConfigurationList?: string
+  buildConfigurations?: string[]
+}
+
+/** A `};` at two tabs closes a top-level object; nested lists and dicts are deeper. */
+const BUILD_CONFIG_BLOCK = /([0-9A-Fa-f]{24}) \/\* \w+ \*\/ = \{\s*isa = XCBuildConfiguration;[\s\S]*?\n\t\t\};/g
+const SINGLE_BUNDLE_ID = /PRODUCT_BUNDLE_IDENTIFIER = ("[^"]*"|[^;]+);/
+
 /**
- * Normalise every PRODUCT_BUNDLE_IDENTIFIER so the parent app's id matches
- * the user-supplied bundleIdentifier and sub-targets share that prefix.
- *
- * Apple's `xcrun safari-web-extension-converter` sometimes mangles the
- * parent app's id (e.g. uppercasing the last segment to match the project
- * name) while leaving sub-target ids alone — or vice versa — depending on
- * Xcode version and which `--ios-only`/`--macos-only` flag was passed. The
- * resulting prefix mismatch makes Xcode refuse the build with "Embedded
- * binary's bundle identifier is not prefixed with the parent app's".
- *
- * Strategy: the shortest unique id in the pbxproj is the parent app's
- * (Apple-mangled) stem; sub-targets append a suffix to it. Replace that
- * stem everywhere with the user-supplied bundleIdentifier, preserving any
- * suffix (`.Extension`, ` Extension`, etc.).
+ * A pbxproj is an OpenStep property list, so Apple's own parser reads it
+ * natively. Going through plutil means the project's structure is never
+ * something we infer — if the format shifts, plutil shifts with it.
  */
-export function normaliseBundleIds(content: string, bundleIdentifier: string): string {
-  const ids = [...content.matchAll(BUNDLE_ID_REGEX)].map((m) => unwrap(m[1]!))
-  if (ids.length === 0) return content
+export async function readPbxObjects(pbxprojPath: string): Promise<Record<string, PbxObject>> {
+  const json = await capture('plutil', ['-convert', 'json', '-o', '-', pbxprojPath])
+  return (JSON.parse(json) as { objects?: Record<string, PbxObject> }).objects ?? {}
+}
 
-  const stem = [...new Set(ids)].sort((a, b) => a.length - b.length)[0]
-  if (!stem || stem === bundleIdentifier) return content
+/**
+ * Which bundle id each XCBuildConfiguration must end up with: the app's
+ * configurations get the configured bundleIdentifier, its extension's get that
+ * plus `.Extension`. Resolved by walking target -> configuration list ->
+ * configurations, all by object id.
+ *
+ * Deriving the suffix rather than preserving whatever is there is deliberate:
+ * a mangled id carries no suffix worth keeping, and `.Extension` is the
+ * converter's own convention — the same one it hardcodes into
+ * ViewController.swift's `extensionBundleIdentifier`, which is what makes the
+ * app's extension-state check line up.
+ */
+export function resolveBundleIds(objects: Record<string, PbxObject>, bundleIdentifier: string): Map<string, string> {
+  const desired = new Map<string, string>()
+  for (const target of Object.values(objects)) {
+    if (target.isa !== 'PBXNativeTarget' || !target.buildConfigurationList) continue
 
-  return content.replace(BUNDLE_ID_REGEX, (match, raw: string) => {
-    const id = unwrap(raw)
-    if (!id.startsWith(stem)) return match
-    const newId = bundleIdentifier + id.slice(stem.length)
-    return `PRODUCT_BUNDLE_IDENTIFIER = ${quote(newId)};`
+    const id =
+      target.productType === PRODUCT_TYPE_APPLICATION
+        ? bundleIdentifier
+        : target.productType === PRODUCT_TYPE_APP_EXTENSION
+          ? bundleIdentifier + EXTENSION_SUFFIX
+          : undefined
+    if (!id) continue
+
+    const list = objects[target.buildConfigurationList]
+    if (list?.isa !== 'XCConfigurationList') continue
+    for (const configId of list.buildConfigurations ?? []) desired.set(configId, id)
+  }
+  return desired
+}
+
+/**
+ * Rewrite only the configurations named in `desired`, in place. Editing the
+ * text rather than re-serialising the whole plist keeps the file's comments
+ * and formatting — plutil can't emit OpenStep back anyway, and a full rewrite
+ * would turn every build into an unreviewable diff.
+ *
+ * Why this is needed at all: `xcrun safari-web-extension-converter` does not
+ * reliably honour `--bundle-identifier`. It renames targets after the
+ * *project*, and which ones it mangles varies with the Xcode version and the
+ * `--ios-only`/`--macos-only` flag. Observed on gmail-notifier (2026-08-07):
+ * the app became `com.rxliuli.Inbox-Notifier-for-Gmail` (from the display
+ * name) while the extension got the raw `--bundle-identifier` with no suffix,
+ * so Xcode refused to build — "Embedded binary's bundle identifier is not
+ * prefixed with the parent app's".
+ */
+export function applyBundleIds(content: string, desired: Map<string, string>): string {
+  // Nothing resolved means the structure didn't parse; leaving a working
+  // project alone beats rewriting ids on a guess.
+  if (desired.size === 0) return content
+
+  return content.replace(BUILD_CONFIG_BLOCK, (block, configId: string) => {
+    const want = desired.get(configId)
+    if (!want) return block
+    return block.replace(SINGLE_BUNDLE_ID, `PRODUCT_BUNDLE_IDENTIFIER = ${quote(want)};`)
   })
 }

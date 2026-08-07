@@ -31,8 +31,9 @@ describe('setupPageHtml', () => {
 
 describe('setupPageScript', () => {
   // The generated ViewController's call signature depends on the layout, so
-  // the script sniffs instead of assuming one.
-  const evaluate = (script: string) => {
+  // the script sniffs instead of assuming one. Running the script also runs
+  // its own trailing fallback, exactly as the page would.
+  const evaluate = (script: string, userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)') => {
     const classes = new Set<string>()
     const body = {
       classList: {
@@ -40,10 +41,13 @@ describe('setupPageScript', () => {
         remove: (c: string) => classes.delete(c),
         toggle: (c: string, on: boolean) => (on ? classes.add(c) : classes.delete(c)),
       },
+      get className() {
+        return [...classes].join(' ')
+      },
     }
     const document = { body, querySelectorAll: () => [], querySelector: () => null }
-    const fn = new Function('document', 'webkit', `${script}; return show`)
-    return { show: fn(document, {}) as (...args: unknown[]) => void, classes }
+    const fn = new Function('document', 'navigator', 'webkit', `${script}; return show`)
+    return { show: fn(document, { userAgent }, {}) as (...args: unknown[]) => void, classes }
   }
 
   it('reads the three-argument form a macOS/iOS project uses', () => {
@@ -66,6 +70,31 @@ describe('setupPageScript', () => {
     expect(classes).toContain('platform-ios')
     expect(classes).not.toContain('state-on')
     expect(classes).not.toContain('state-off')
+  })
+
+  // Regression: a macos-only project's ViewController returns early when the
+  // extension-state lookup fails, so show() is never called and the window
+  // rendered as just an icon and a title.
+  it('picks a platform on its own when native never calls show()', () => {
+    const { classes } = evaluate(setupPageScript())
+    expect(classes).toContain('platform-mac')
+    // No state was reported, so neither state class may be asserted.
+    expect(classes).not.toContain('state-on')
+    expect(classes).not.toContain('state-off')
+  })
+
+  it('falls back to iOS on an iOS user agent', () => {
+    const { classes } = evaluate(setupPageScript(), 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)')
+    expect(classes).toContain('platform-ios')
+    expect(classes).not.toContain('platform-mac')
+  })
+
+  it('lets a later native show() refine the state it seeded', () => {
+    const { show, classes } = evaluate(setupPageScript())
+    expect(classes).toContain('platform-mac')
+    show(true, true)
+    expect(classes).toContain('platform-mac')
+    expect(classes).toContain('state-on')
   })
 })
 

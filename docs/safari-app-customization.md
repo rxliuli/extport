@@ -127,11 +127,46 @@ badge, four steps and the button, with no hand-patching anywhere.
 
 ## Notes if you work on this again
 
+- **Read a pbxproj with `plutil`, never with regexes.** It's an OpenStep
+  property list, so `plutil -convert json -o - <path>` parses it natively —
+  Apple's own parser, no dependency, and it moves with the format. Writing
+  is a different matter: plutil can't emit OpenStep back, and a full rewrite
+  would drop the `/* … */` comments and turn every build into an
+  unreviewable diff. So `safari-xcode.ts` reads structure via plutil and
+  rewrites by pinpoint substitution on ids plutil handed it. Inferring
+  structure with regexes is what produced the bundle-id bug below.
+- **Bundle ids can't be told apart by their strings.** The converter does
+  not reliably honour `--bundle-identifier`: it renames targets after the
+  *project*, and which ones it mangles varies by Xcode version and by the
+  `--ios-only`/`--macos-only` flag. On gmail-notifier (2026-08-07,
+  macos-only, display name diverged from the bundle id) it renamed the *app*
+  and gave the extension the raw identifier with no suffix — the exact
+  inverse of the old "shortest id is the app's stem" heuristic, which then
+  saw `stem === bundleIdentifier`, concluded "already correct", and changed
+  nothing. Xcode refused the build. Target identity now comes from
+  `productType`, and the `.Extension` suffix is derived rather than
+  preserved.
+- **A bug-era build pollutes the machine's extension registry.** Archives
+  made before that fix registered the extension under the unsuffixed id;
+  those entries survive in `pluginkit` even after the DerivedData folder is
+  gone, and they shadow the correct id — which shows up as the status badge
+  never resolving and "Open Safari Settings…" silently quitting the app
+  (the generated handler calls `terminate` without checking the error).
+  Inspect with `pluginkit -m -p com.apple.Safari.web-extension -vvv` and
+  clear with `pluginkit -r <path-to.appex>`. Local dev only; shipped builds
+  are unaffected.
 - `pnpm build:safari` (`wxt zip -b safari`) rebuilds the output *and* runs
   the converter, so anything hand-edited under `.output/` is destroyed on
   every build. Files the extension itself needs go in `public/`; everything
   in the generated Xcode project has to be re-applied by a post-processing
   step — which is what `safari-setup-page.ts` now does.
+- **The generated ViewController isn't guaranteed to call `show()`.** A
+  single-platform project's only calls it if the extension-state lookup
+  succeeds, while a macOS+iOS one calls `show('mac')` unconditionally first.
+  The setup page therefore seeds the platform itself from the user agent —
+  without that, a failed lookup left the window showing nothing but an icon.
+  For the same reason the status badge is absent until a state is actually
+  known: a "checking…" placeholder would sit there forever and read as a hang.
 - **Don't debug the host app with `NSLog`.** Whether it reaches the unified
   log from a GUI launch is inconsistent, which made several probes here
   ambiguous and cost real time. Append to a file instead — and note the app
