@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { run } from './exec'
+import { writeSetupPage } from './safari-setup-page'
 
 export type SafariProjectType = 'macos' | 'ios' | 'both'
 
@@ -18,9 +19,10 @@ export interface ConvertToXcodeProjectOptions {
 /**
  * Runs `xcrun safari-web-extension-converter`, then patches the generated
  * project (version, category, team, bundle ids) to match what `extport
- * safari-build` expects to find.
+ * safari-build` expects to find, and replaces the placeholder host-app page
+ * with a real setup guide.
  */
-export async function convertToXcodeProject(opts: ConvertToXcodeProjectOptions): Promise<void> {
+export async function convertToXcodeProject(opts: ConvertToXcodeProjectOptions & { log?: (msg: string) => void }): Promise<void> {
   const flags = ['--force', '--no-prompt']
   if (opts.projectType === 'ios') flags.push('--ios-only')
   if (opts.projectType === 'macos') flags.push('--macos-only')
@@ -34,6 +36,13 @@ export async function convertToXcodeProject(opts: ConvertToXcodeProjectOptions):
 
   await updateProjectConfig(opts)
   await updateInfoPlist(opts)
+
+  // Cosmetic: a failure here must not fail an otherwise good build.
+  const wrote = await writeSetupPage({
+    projectName: opts.projectName,
+    projectRoot: path.resolve(opts.rootPath, projectDir(opts)),
+  })
+  if (!wrote) opts.log?.("couldn't find the host app's Resources directory — left the generated setup page in place")
 }
 
 interface PostBuildOptions {

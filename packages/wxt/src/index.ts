@@ -215,6 +215,7 @@ export default defineWxtModule<ExtportWxtOptions>({
           openProject,
           rootPath: wxt.config.root,
           manifestVersion: wxt.config.manifestVersion,
+          log: (msg) => wxt.logger.warn(`@extport/wxt: ${msg}`),
         })
         wxt.logger.success('Xcode project created successfully!')
       } catch (error) {

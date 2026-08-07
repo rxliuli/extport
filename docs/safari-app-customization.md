@@ -1,8 +1,9 @@
 # Safari app customization (design)
 
-Status: setup-instructions page **prototyped on twitter-blocker**
-(2026-08-06), macOS and iOS verified in simulator; not yet integrated into
-extport's build pipeline. Notifications polyfill **abandoned** — see §2.
+Status: setup-instructions page **shipped** in @extport/wxt 0.0.9
+(`src/safari-setup-page.ts`), applied automatically on every Safari
+conversion with no configuration. Notifications polyfill **abandoned** —
+see §2.
 
 ## Problem
 
@@ -13,40 +14,43 @@ on iOS where the flow is non-obvious (Settings → Apps → Safari → Extension
 
 ## Two features
 
-### 1. Setup instructions page (prototyped)
+### 1. Setup instructions page — SHIPPED
 
-Replace the generated `Main.html` / `Style.css` / `Script.js` with a
-template that shows step-by-step enabling instructions, platform-aware:
+`src/safari-setup-page.ts`, called from `convertToXcodeProject` after
+`updateProjectConfig`/`updateInfoPlist`. Replaces the generated
+`Main.html` / `Style.css` / `Script.js` with a platform-aware setup guide
+and widens the macOS window (325 → 480) so it isn't clipped.
 
-**macOS:**
-- Extension status badge (enabled/disabled, via existing `SFSafariExtensionManager` detection)
-- Four-step guide: Open Safari → Settings → Extensions → check the box → allow permissions
-- "Open Safari Settings…" button (existing `SFSafariApplication.showPreferencesForExtension`)
+**macOS:** status badge (via the generated `SFSafariExtensionManager`
+detection), four-step guide, and the "Open Safari Settings…" button —
+still the converter's own `showPreferencesForExtension` call.
 
-**iOS:**
-- Four-step guide: Open Settings → Apps → Safari → Extensions → toggle on → set permissions to Allow
-- Usage hint at the bottom (e.g., how to find the extension in Safari)
-- No status detection or deep-link button (no public API on iOS)
+**iOS:** four-step guide through Settings → Apps → Safari → Extensions,
+plus a closing hint about the extensions button in the address bar. No
+status badge or deep link — neither has a public API on iOS (§2 covers
+why that gap is structural).
 
-**Integration plan:**
-- In `convertToXcodeProject` post-processing (alongside `updateProjectConfig`
-  and `updateInfoPlist`), replace the three resource files with templated
-  versions — extension name substituted from `projectName`.
-- Increase macOS storyboard window height from 325 to 480 (sed on the XML).
-- The `Shared (App)/ViewController.swift` and storyboard files stay as
-  generated — they already handle platform detection and pass it to the
-  web view via `show('mac', enabled, useSettings)` / `show('ios')`.
+**Zero configuration.** The extension's name is the only variable and it
+comes from the same manifest the converter named the project after. An
+earlier draft had a `safari.setupHint` field for per-extension usage
+text; it was dropped because how-to-use is genuinely divergent (passive
+effect vs popup vs options page) and a single line couldn't serve it.
+A project that wants something else overwrites these three files from its
+own `build:done` hook — that escape hatch exists without extport adding a
+knob for it.
 
-**Config surface:**
-- `safari.setupHint` (optional string) — shown at the bottom of the iOS
-  instructions. If omitted, no hint is displayed. Keeps config minimal;
-  enabling steps are 100% standard across all extensions.
+**Two things worth knowing before touching this:**
 
-**Xcode project structure difference:**
-- `--macos-only`: flat layout (`ProjectName/`, `ProjectName Extension/`)
-- default (both): grouped layout (`Shared (App)/`, `macOS (App)/`, `iOS (App)/`, `Shared (Extension)/`, etc.)
-- Template files go into `Resources/` which is under the app directory
-  (flat) or `Shared (App)/` (grouped) — need to handle both paths.
+- **Two layouts.** A single-platform conversion lays sources out flat
+  under the project name; a macOS+iOS one groups them under `Shared
+  (App)`/`macOS (App)`. `resolveAppPaths` probes for the directory rather
+  than inferring it from `projectType`, so it stays right if the
+  converter's choice changes.
+- **Two `show()` signatures.** The generated `ViewController` calls
+  `show(platform, enabled, useSettings)` in a grouped project but
+  `show(enabled, useSettings)` in a flat one. The script sniffs its first
+  argument instead of requiring a matching ViewController, so one file
+  works with either — and the generated Swift is left untouched.
 
 ### 2. Notifications API polyfill — ABANDONED (2026-08-06)
 
@@ -108,27 +112,26 @@ be posted by the app (not the appex), which means an App Group, the appex
 waking the app, and the extension polling — an entitlement/signing burden on
 extport's automated pipeline, still broken on iOS.
 
-## Prototype files
+## Verification
 
-Tested on: `twitter-exporter/packages/twitter-blocker/.output/Blocker for Twitter/`
+Both features were prototyped against
+`twitter-exporter/packages/twitter-blocker` (macOS+iOS, and it uses the
+notifications API), with the setup page also checked on the iOS simulator.
+That working tree was reverted afterwards; nothing from the experiments
+remains committed there.
 
-Modified files (in `.output`, not committed — regenerated by converter):
-- `Shared (App)/Resources/Base.lproj/Main.html`
-- `Shared (App)/Resources/Style.css`
-- `Shared (App)/Resources/Script.js`
-- `macOS (App)/Base.lproj/Main.storyboard` (window height 325→480)
+The shipped §1 path was then re-verified end to end: `pnpm build:safari`
+with the local build → the generated project carries the new page and a
+480pt window → `xcodebuild` → the running app shows icon, title, status
+badge, four steps and the button, with no hand-patching anywhere.
 
-The twitter-blocker working tree was reverted after the experiment; nothing
-from it remains committed.
-
-## Notes for whoever integrates this
+## Notes if you work on this again
 
 - `pnpm build:safari` (`wxt zip -b safari`) rebuilds the output *and* runs
   the converter, so anything hand-edited under `.output/` is destroyed on
   every build. Files the extension itself needs go in `public/`; everything
   in the generated Xcode project has to be re-applied by a post-processing
-  step. A throwaway `scripts/patch-xcode.mjs` did this during the prototype
-  and is the shape the `@extport/wxt` step should take.
+  step — which is what `safari-setup-page.ts` now does.
 - **Don't debug the host app with `NSLog`.** Whether it reaches the unified
   log from a GUI launch is inconsistent, which made several probes here
   ambiguous and cost real time. Append to a file instead — and note the app
