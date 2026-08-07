@@ -1,10 +1,11 @@
 # Analytics (design)
 
-Status: **design settled, not scheduled** (2026-07-30). This document is
-the record of the scoping discussion — architecture, dimensions, the
-four-store comparison, and the explicit non-goals. Implementation should
-resume from here, and should not reopen the settled trade-offs without
-new information.
+Status: **shipped, live fleet-wide** (`@extport/sdk/analytics` +
+`@extport/wxt`'s `analytics: true` flag enabled across the fleet
+2026-08-05). This document is the record of the scoping discussion —
+architecture, dimensions, the four-store comparison, and the explicit
+non-goals. Kept as the design record; treat the trade-offs below as
+settled, not something to reopen without new information.
 
 ## The product in one sentence
 
@@ -279,14 +280,11 @@ Learned on the imp-translate canary (2026-07-30):
   attempt (revocation needs no listener) and `onAdded` triggers a
   same-day ping on grant — `attachAnalytics({ extensionId })` is the
   entire integration.
-- Next step, discussed but not built: `@extport/wxt` can collapse even
-  that to `extport: { analytics: true }` — a WXT plugin injecting
-  `attachAnalytics` with the id from extport.config.json (killing the
-  id duplication) plus a manifest hook merging the Firefox
-  data-collection declaration. Explicit opt-in only (a publishing
-  module must never inject telemetry silently), and it lands *after*
-  Redirector ships on the plain one-liner — the flagship test uses
-  boring machinery.
+- **Shipped**: `@extport/wxt`'s `analytics: true` option collapses this
+  to a single flag (`packages/wxt/src/index.ts`) — a WXT plugin
+  injecting the analytics attach with the id from `extport.config.json`
+  (no id duplication) plus a manifest hook merging the Firefox
+  data-collection declaration. Explicit opt-in only, defaults to false.
 - The Firefox install prompt shows the technicalAndInteraction toggle
   **checked by default** (verified on a real install) — opt-out, not
   the host_permissions default-deny pattern. Still unverified: whether
@@ -396,8 +394,9 @@ extport ships a provider as a subpath export
   declarations). Tenants wanting always-on anonymous counters opt in
   explicitly; that decision belongs to the tenant, never the library.
 - Distribution: Moderok entered the module's built-in provider list by
-  upstream PR; `providers/extport.ts` should take the same path once
-  the service is real.
+  upstream PR; `providers/extport.ts` followed the same path —
+  [wxt-dev/wxt#2578](https://github.com/wxt-dev/wxt/pull/2578), open
+  as of 2026-08-07, not yet merged.
 
 ## Rollout
 
@@ -412,9 +411,9 @@ extport ships a provider as a subpath export
   version-saturation stacked area with release markers. Default window
   30 days (CWS parity); a range picker (30/90/1y/all) joins once
   enough history exists to navigate.
-- **No dedicated fleet release wave.** `@extport/sdk/analytics` is a
-  separate subpath (zero cost to licensing-only users) and rides the
-  next natural SDK wave — likely the license-kit-retirement release
-  that drops the legacy cascade. The 11-product fleet is the first
-  data source and dogfood; its saturation charts then replace guesswork
-  for every future flip.
+- **No dedicated fleet release wave — as planned.** `@extport/sdk/analytics`
+  is a separate subpath (zero cost to licensing-only users) and rode the
+  SDK 0.0.7 release that dropped the legacy license-kit cascade; the
+  fleet was bumped and analytics enabled fleet-wide 2026-08-05. The
+  fleet is the first data source and dogfood; its saturation charts now
+  replace guesswork for every future flip.

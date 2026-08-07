@@ -50,12 +50,13 @@ builds by observation, same as it discovers review outcomes.
 One ASC app spans both platforms with independent version timelines.
 Platform is an **observed fact, not configuration**: still exactly one
 `safari` target (one credential, one app id), but `deployment_versions`
-gains a `platform` dimension and reconcile runs one lifecycle per platform
+has a `platform` dimension and reconcile runs one lifecycle per platform
 the app actually ships. The CLI builds/uploads both platform binaries in
-one run (the action's build mode already auto-detects platforms from Xcode
-schemes). The dashboard matrix grows `safari (macos)` / `safari (ios)`
-columns. Until this lands, `getState()` deliberately tracks macOS only
-(`filter[platform]=MAC_OS`) so mixed-platform responses can't flap.
+one run (the action's build mode auto-detects platforms from Xcode
+schemes). The dashboard matrix has `safari (macos)` / `safari (ios)`
+columns. **Shipped** — `getState()` requires an explicit platform and
+queries each independently (`filter[platform]=MAC_OS` / `IOS`), so the
+two never flap into each other.
 
 ## Boundaries deliberately kept out
 

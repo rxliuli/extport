@@ -1,13 +1,14 @@
 # Licensing (design)
 
-Status: **slices A + B accepted** (2026-07-28). A: real activation from
-substack-exporter's dev build against production. B: a Stripe test-mode
-Payment Link purchase fulfilled end-to-end — signature-verified webhook →
-issued license → emailed code that activates against the public wire
-protocol. Slice C implemented the same day (portal pages, tenant
-licensing UI, portal.extport.dev); its acceptance — a real
-checkout-redirect showing the code, and a magic-link round trip — is
-pending deploy.
+Status: **slices A + B + C accepted**. A: real activation from
+substack-exporter's dev build against production (2026-07-28). B: a
+Stripe test-mode Payment Link purchase fulfilled end-to-end —
+signature-verified webhook → issued license → emailed code that
+activates against the public wire protocol (2026-07-28). C: portal
+pages, tenant licensing UI, portal.extport.dev, deployed and accepted
+— checkout-redirect showing the code and the magic-link round trip
+both verified live; the whole fleet's payment/licensing migration is
+complete (`migration-status.md`).
 Predecessor: [license-kit](https://github.com/rxliuli/license-kit)
 (store.rxliuli.com), which has run this exact model in production for the
 author's paid extensions. Its data will be imported; its client storage
@@ -31,7 +32,7 @@ incident, which settles it empirically.
 
 Consequences: the `tenant_signing_keys` table is dropped, `@extport/sdk`
 is a thin fetch + storage client, and there is no WebCrypto compatibility
-question at all. The README's Phase 2 blurb gets rewritten when this lands.
+question at all. (Done — the README no longer carries a Phase 2 blurb.)
 
 ## What license-kit proves — and what it lacks
 
