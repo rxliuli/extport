@@ -1208,7 +1208,7 @@ describe('runReconciliation — concurrent-invocation locking', () => {
       artifacts: [{ version: '1.0.0' }],
       versions: [{ version: '1.0.0', status: 'queued' }],
     })
-    const staleSince = new Date(Date.now() - 3 * 60 * 1000).toISOString() // older than RECONCILE_LOCK_STALE_MS (2 min)
+    const staleSince = new Date(Date.now() - 11 * 60 * 1000).toISOString() // older than RECONCILE_LOCK_STALE_MS (10 min)
     await db.update(publishTargets).set({ reconcilingSince: staleSince }).where(eq(publishTargets.id, targetId))
     globalThis.fetch = routedFetch(chromeRoutes()).fetch
     const { notifier } = recordingNotifier()

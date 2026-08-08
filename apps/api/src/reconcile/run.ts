@@ -30,11 +30,22 @@ const GROUP_CONCURRENCY = 5
 // Slightly under 24h so a little cron-tick drift can't create a skipped day.
 const STALE_REVIEW_DEDUPE_MS = 20 * 60 * 60 * 1000
 
-// A single target's reconcile should never take anywhere near this long —
-// generous enough to never pre-empt a real in-flight reconcile, short enough
+// Generous enough to never pre-empt a real in-flight reconcile, short enough
 // that a lock left behind by a Worker that died mid-reconcile (timeout,
-// eviction) doesn't strand the target forever.
-const RECONCILE_LOCK_STALE_MS = 2 * 60 * 1000
+// eviction) doesn't strand the target forever. Was 2 minutes — too short:
+// Edge's submit() alone can run two sequential poll loops (upload
+// validation, then submission confirmation; DEFAULT_POLL is 10 attempts ×
+// 3s each, ~30s per stage) plus real network/processing time. Real incident
+// (BilingualTube v0.2.1, 2026-08-08): Edge's Partner Center ended up with
+// two separate submissions for the same version (one In review, one stuck
+// In draft) while extport's own deployment_versions row never left
+// `queued` — consistent with the push-triggered immediate reconcile still
+// being genuinely mid-submit when the next cron tick saw a 2-minute-old
+// lock as stale, reclaimed it, and ran a second independent submit(). Not
+// directly observed which invocation's DB write lost the race, but a
+// second concurrent submit() for the same target is exactly what the lock
+// exists to rule out.
+const RECONCILE_LOCK_STALE_MS = 10 * 60 * 1000
 
 // getState()'s two calls (addon detail, then /versions/) aren't one atomic
 // read — a store whose review is fast enough (Firefox's is "near-instant"
