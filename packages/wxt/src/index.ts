@@ -79,6 +79,28 @@ export function pluginSource(extensionId: string, analytics: boolean): string {
 }
 
 /**
+ * `analytics: true` requires the `storage` permission — browser.storage.local
+ * backs installId persistence in @extport/sdk/analytics. A hand-rolled
+ * IndexedDB open (the idb-keyval fallback used when `storage` isn't
+ * declared) has more that can go wrong at creation time than a plain
+ * key-value store, confirmed against a real incident: a corrupted
+ * keyval-store database silently stopped installId from ever persisting,
+ * so every ping minted a fresh one (87% of recorded "installs" were
+ * one-off, never a returning user) — and nobody noticed until someone
+ * happened to cross-check the numbers against the store console weeks
+ * later. Throws rather than warns: a warning that's easy to ignore is how
+ * this shipped silently the first time.
+ */
+export function assertStoragePermissionForAnalytics(manifest: Record<string, unknown>): void {
+  const permissions = (manifest.permissions as unknown[] | undefined) ?? []
+  if (!permissions.includes('storage')) {
+    throw new Error(
+      '@extport/wxt: `analytics: true` requires the "storage" permission — add \'storage\' to manifest.permissions in wxt.config.ts (browser.storage.local backs installId persistence; without it, analytics falls back to a less reliable store).',
+    )
+  }
+}
+
+/**
  * Merge the analytics data-collection declaration into a Firefox manifest.
  * technicalAndInteraction can only be `optional` (AMO rejects it in
  * required — user-declinable by design); existing declarations are
@@ -163,11 +185,14 @@ export default defineWxtModule<ExtportWxtOptions>({
       wxt.logger.warn('@extport/wxt: `analytics: true` requires `extension` — analytics not injected.')
     }
 
-    // --- analytics: Firefox's built-in data-collection consent declaration.
+    // --- analytics: requires the `storage` permission, and Firefox's
+    // built-in data-collection consent declaration.
     if (extension && analytics) {
       wxt.hook('build:manifestGenerated', (_wxt, manifest) => {
-        if (wxt.config.browser !== 'firefox') return
-        mergeDataCollectionPermissions(manifest as unknown as Record<string, unknown>)
+        assertStoragePermissionForAnalytics(manifest as unknown as Record<string, unknown>)
+        if (wxt.config.browser === 'firefox') {
+          mergeDataCollectionPermissions(manifest as unknown as Record<string, unknown>)
+        }
       })
     }
 

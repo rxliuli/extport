@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mergeDataCollectionPermissions, normalizeOptions, pluginSource } from './index'
+import { assertStoragePermissionForAnalytics, mergeDataCollectionPermissions, normalizeOptions, pluginSource } from './index'
 
 describe('normalizeOptions', () => {
   it('reads the nested shape', () => {
@@ -33,6 +33,20 @@ describe('pluginSource', () => {
     expect(source).toContain("import('@extport/sdk/analytics')")
     // The global is set before the attach so the SDK's resolution finds it.
     expect(source.indexOf('__EXTPORT__')).toBeLessThan(source.indexOf('@extport/sdk/analytics'))
+  })
+})
+
+describe('assertStoragePermissionForAnalytics', () => {
+  it('throws when the manifest has no storage permission', () => {
+    expect(() => assertStoragePermissionForAnalytics({ permissions: ['scripting'] })).toThrow(/requires the "storage" permission/)
+  })
+
+  it('throws when permissions is missing entirely', () => {
+    expect(() => assertStoragePermissionForAnalytics({})).toThrow(/requires the "storage" permission/)
+  })
+
+  it('does not throw when storage is declared', () => {
+    expect(() => assertStoragePermissionForAnalytics({ permissions: ['storage', 'scripting'] })).not.toThrow()
   })
 })
 

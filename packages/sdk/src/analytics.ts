@@ -1,6 +1,49 @@
 import { idbStorage, resolveExtensionId, type StorageAdapter } from './index'
 
 /**
+ * A hand-rolled IndexedDB open (idb-keyval's default) has more that can go
+ * wrong at creation time than a plain key-value store — confirmed against a
+ * real incident (BilingualTube: a corrupted `keyval-store` database made
+ * every read fail, so `installId` never persisted and every ping minted a
+ * fresh one — 87% of recorded "installs" were one-off). `browser.storage.local`
+ * has no such failure mode, but it requires the `storage` permission, which
+ * not every extension declares (the WXT module's build-time check pushes
+ * new integrations toward declaring it — see packages/wxt). Prefer it when
+ * present, fall back to idb-keyval when it's not, so an extension that
+ * hasn't added the permission yet keeps working exactly as before.
+ */
+interface StorageLocalApi {
+  get(keys: string[]): Promise<Record<string, unknown>>
+  set(items: Record<string, unknown>): Promise<void>
+}
+
+function getStorageLocal(): StorageLocalApi | undefined {
+  const g = globalThis as unknown as Record<string, { storage?: { local?: StorageLocalApi } } | undefined>
+  return g['browser']?.storage?.local ?? g['chrome']?.storage?.local
+}
+
+function browserStorageAdapter(local: StorageLocalApi): StorageAdapter {
+  return {
+    async get<T>(key: string): Promise<T | undefined> {
+      const result = await local.get([key])
+      return result[key] as T | undefined
+    },
+    async set(key: string, value: unknown): Promise<void> {
+      await local.set({ [key]: value })
+    },
+    // Analytics never deletes its record (setEnabled(false) just flips a
+    // flag) — del() is part of StorageAdapter's shape for licensing's sake,
+    // not something this module's callers ever invoke.
+    del: () => Promise.resolve(),
+  }
+}
+
+function resolveAnalyticsStorage(): StorageAdapter {
+  const local = getStorageLocal()
+  return local ? browserStorageAdapter(local) : idbStorage
+}
+
+/**
  * @extport/sdk/analytics — 每日 ping 客户端。线协议只有这一个事件:
  * install/update/active/departure 全部由服务端从 ping 流推断
  * (extport docs/analytics-design.md)。
@@ -97,7 +140,7 @@ async function browserConsentsToAnalytics(): Promise<boolean> {
 
 export function createAnalyticsPinger(options: AnalyticsOptions = {}): AnalyticsPinger {
   const apiBase = options.apiBase ?? 'https://api.extport.dev'
-  const storage = options.storage ?? idbStorage
+  const storage = options.storage ?? resolveAnalyticsStorage()
   const key = options.storageKey ?? 'extport-analytics'
   let inflight: Promise<void> | undefined
   let warnedMissingId = false

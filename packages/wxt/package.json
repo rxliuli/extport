@@ -1,6 +1,6 @@
 {
   "name": "@extport/wxt",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "WXT module for extport: converts Safari extensions to Xcode projects and keeps extport.config.json in sync",
   "keywords": [
     "wxt",

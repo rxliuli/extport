@@ -107,6 +107,51 @@ describe('createAnalyticsPinger', () => {
   })
 })
 
+describe('default storage — prefers browser.storage.local over idb-keyval', () => {
+  function stubStorageLocal(): { data: Map<string, unknown>; get: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn> } {
+    const data = new Map<string, unknown>()
+    const get = vi.fn(async (keys: string[]) => Object.fromEntries(keys.filter((k) => data.has(k)).map((k) => [k, data.get(k)])))
+    const set = vi.fn(async (items: Record<string, unknown>) => {
+      for (const [k, v] of Object.entries(items)) data.set(k, v)
+    })
+    vi.stubGlobal('browser', { storage: { local: { get, set } } })
+    return { data, get, set }
+  }
+
+  it('uses browser.storage.local when no explicit storage adapter is passed', async () => {
+    // Regression: idb-keyval's hand-rolled IndexedDB open has more that can
+    // go wrong at creation time than a plain key-value store — a real
+    // incident (BilingualTube) had a corrupted keyval-store database, so
+    // every read failed, installId never persisted, and every ping minted a
+    // fresh one (87% of recorded "installs" were one-off). storage.local has
+    // no such failure mode.
+    const local = stubStorageLocal()
+    const pinger = createAnalyticsPinger({ extensionId: 'ext_test', version: '1.0.0', apiBase: 'https://api.example.test' })
+
+    await pinger.maybePing()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(local.set).toHaveBeenCalled()
+
+    const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string) as { installId: string }
+    const record = local.data.get('extport-analytics') as { installId: string }
+    expect(record.installId).toBe(body.installId)
+
+    // A second pinger (next SW cold start) reads the same persisted record —
+    // the exact property that was broken for BilingualTube.
+    const second = createAnalyticsPinger({ extensionId: 'ext_test', version: '1.0.0', apiBase: 'https://api.example.test' })
+    await second.maybePing()
+    expect(fetchMock).toHaveBeenCalledTimes(1) // same day, same id — no second ping
+  })
+
+  it('an explicit storage option still wins over the ambient browser.storage.local', async () => {
+    stubStorageLocal()
+    const explicit = memoryStorage()
+    const pinger = createAnalyticsPinger({ ...OPTIONS, storage: explicit })
+    await pinger.maybePing()
+    expect(explicit.data.size).toBeGreaterThan(0)
+  })
+})
+
 describe('extensionId resolution', () => {
   it('falls back to the id injected by @extport/wxt', async () => {
     vi.stubGlobal('__EXTPORT__', { extensionId: 'ext_injected' })
