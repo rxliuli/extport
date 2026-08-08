@@ -415,9 +415,25 @@ async function reconcileLifecycle(
 
   await maybeEmitStaleReview(db, notifier, row, inReview, credentials)
 
-  const decision = decide({ hasQueued: !!queued, stillInReview: !!inReview })
+  // The store's own answer, not our ledger's. These agree for reviews extport
+  // started; they diverge when someone edits the listing by hand, which puts
+  // the item into review under a version we already have an online row for —
+  // the `alreadyOnline` branch above deliberately records nothing for that,
+  // so without this the tick would upload into a store that refuses it.
+  const storeBusy = actual.reviewStatus === 'pending'
+  const decision = decide({ hasQueued: !!queued, stillInReview: !!inReview, storeBusy })
   if (decision.action === 'noop') return 'noop'
-  if (decision.action === 'wait') return 'blocked'
+  if (decision.action === 'wait') {
+    // Say why the queued row isn't moving when the reason isn't visible from
+    // our own rows — otherwise the dashboard just shows it sitting there.
+    if (queued && storeBusy && !inReview) {
+      const detail = 'waiting — the store has another submission in review'
+      if (queued.statusDetail !== detail) {
+        await db.update(deploymentVersions).set({ statusDetail: detail }).where(eq(deploymentVersions.id, queued.id))
+      }
+    }
+    return 'blocked'
+  }
 
   if (!queued!.artifactId) throw new Error(`queued deployment_versions row ${queued!.id} has no pinned artifact`)
   const [artifactRow] = await db.select().from(artifacts).where(eq(artifacts.id, queued!.artifactId))

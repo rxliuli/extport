@@ -53,7 +53,7 @@ interface ScenarioOptions {
   settings?: TenantSettings
   credentialStatus?: 'active' | 'invalid'
   artifacts?: { version: string; store?: Store | null }[]
-  versions?: { version: string; status: DeploymentVersion['status']; submittedAt?: string }[]
+  versions?: { version: string; status: DeploymentVersion['status']; submittedAt?: string; statusDetail?: string }[]
 }
 
 async function setupChromeScenario(opts: ScenarioOptions = {}) {
@@ -133,6 +133,7 @@ async function setupChromeScenario(opts: ScenarioOptions = {}) {
       status: v.status,
       artifactId: v.status === 'queued' ? (artifactIdByVersion.get(v.version) ?? null) : null,
       submittedAt: v.submittedAt,
+      statusDetail: v.statusDetail,
     })
   }
 
@@ -279,14 +280,25 @@ describe('runReconciliation — baseline discovery', () => {
     ])
   })
 
-  it('does not create a duplicate in_review row when the store reports an already-online version as in-review, and still submits the queued one behind it', async () => {
-    // Real incident this guards against: Scrub v0.0.17 on Chrome had a
-    // confirmed online row, but the store's fetchStatus also echoed it back
-    // as "in review" on a later tick. The old code had no baseline row to
-    // match it against (nothing was locally in_review at the time), so it
-    // inserted a brand-new in_review row for a version that had already
-    // shipped — permanently occupying the one in_review slot and blocking
-    // every subsequent version from ever being submitted.
+  it('does not create a duplicate in_review row when the store reports an already-online version as in-review, and waits instead of uploading into it', async () => {
+    // Two real incidents meet here, and the store's API can't tell them apart —
+    // both look like PENDING_REVIEW carrying a version we already have online.
+    //
+    // Scrub v0.0.17 (Chrome): fetchStatus echoed an already-shipped version
+    // back as in-review. Inserting a row for it permanently occupied the one
+    // in_review slot, since nothing re-examines an in_review row once it
+    // exists — so no row is created for this, which is what the assertion on
+    // `rows` below pins.
+    //
+    // Gmail Notifier (Chrome, 2026-08-08): a listing edited by hand put the
+    // item into review under the live version. Uploading anyway earned
+    // `400 You may not edit or publish an item that is in review` on every
+    // single tick.
+    //
+    // Waiting is the safe side of that ambiguity: if the store really is busy
+    // an upload cannot succeed, and if the report is phantom this costs one
+    // tick, because storeBusy is re-derived from the store every time and
+    // never persisted.
     const { db, tenantId, extensionId } = await setupChromeScenario({
       artifacts: [{ version: '1.1.0' }],
       versions: [
@@ -305,13 +317,35 @@ describe('runReconciliation — baseline discovery', () => {
     globalThis.fetch = fetch
 
     const summary = await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
-    expect(summary).toEqual({ processed: 1, submitted: 1, blocked: 0, errors: 0, skipped: 0 })
+    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 1, errors: 0, skipped: 0 })
     const rows = await versionsFor(db, extensionId)
     expect(rows).toMatchObject([
       { version: '1.0.0', status: 'online' },
-      { version: '1.1.0', status: 'in_review' },
+      { version: '1.1.0', status: 'queued', statusDetail: 'waiting — the store has another submission in review' },
     ])
-    expect(calls.some((c) => c.url.endsWith(':publish'))).toBe(true)
+    expect(calls.some((c) => c.url.endsWith(':upload'))).toBe(false)
+    expect(calls.some((c) => c.url.endsWith(':publish'))).toBe(false)
+  })
+
+  it('submits the waiting row once the store stops reporting a review', async () => {
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      artifacts: [{ version: '1.1.0' }],
+      versions: [
+        { version: '1.0.0', status: 'online' },
+        { version: '1.1.0', status: 'queued', statusDetail: 'waiting — the store has another submission in review' },
+      ],
+    })
+    globalThis.fetch = routedFetch(
+      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] } } }),
+    ).fetch
+
+    const summary = await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
+    expect(summary).toEqual({ processed: 1, submitted: 1, blocked: 0, errors: 0, skipped: 0 })
+    // The waiting note clears itself on submit — it must not outlive its cause.
+    expect(await versionsFor(db, extensionId)).toMatchObject([
+      { version: '1.0.0', status: 'online' },
+      { version: '1.1.0', status: 'in_review', statusDetail: null },
+    ])
   })
 })
 
