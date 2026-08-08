@@ -152,6 +152,24 @@ async function submit(
   // point, is invisible to any endpoint we have. Requested a status endpoint
   // upstream — microsoft/MicrosoftEdge-Extensions#696 — closed 2026-08-05,
   // "not on the current roadmap." Permanent limitation, not a pending fix.)
+  //
+  // Worth being precise about what Succeeded does NOT cover, because it has
+  // now bitten twice in different ways. It means Microsoft accepted and
+  // finished processing the request — not that the version entered review.
+  // Edge validates listing completeness separately, and a version failing
+  // that check simply stays "In draft" in Partner Center while this returns
+  // submitted: true. Instagram Exporter (2026-08-08): v0.0.19 was pushed
+  // right after `notifications` and `declarativeNetRequestWithHostAccess`
+  // were added to the manifest, so Edge wanted a justification for each on
+  // the Privacy page and had none. It sat in draft 10 days with v0.0.21
+  // queued behind it, while extport reported in_review throughout.
+  //
+  // Nothing here can detect that, and nothing needs adding — there is no
+  // endpoint to ask. The 10-day stale-review reminder (vs 3 elsewhere) is
+  // the only backstop, and diagnosis means reading Partner Center's own
+  // per-version status. Documented for tenants in
+  // apps/docs/src/content/docs/stores/edge.md, since the fix is theirs to
+  // make: fill in the justification when a release adds a permission.
   console.log(`${tag} submission confirmed succeeded`)
   return { submitted: true }
 }
