@@ -1,6 +1,6 @@
 import { encryptJson, newId, type Store, type TenantSettings } from '@extport/shared'
 import { env } from 'cloudflare:test'
-import { eq } from 'drizzle-orm'
+import { eq, ne } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   artifacts,
@@ -241,6 +241,102 @@ describe('runReconciliation — already synced', () => {
     expect(calls.some((c) => c.url.endsWith(':upload') || c.url.endsWith(':publish'))).toBe(false)
     expect(await eventsFor(db, extensionId)).toHaveLength(0)
     expect(sent).toHaveLength(0)
+  })
+})
+
+describe('runReconciliation — routine sweep leaves settled targets alone', () => {
+  // D1 state persists across tests in this file, and these tests run the
+  // sweep (no filter) — disable every target except the scenario's own so
+  // earlier tests' leftovers can't join the run.
+  async function soloTarget(db: ReturnType<typeof createDb>, targetId: string) {
+    await db.update(publishTargets).set({ enabled: false }).where(ne(publishTargets.id, targetId))
+  }
+
+  it('makes zero store API calls for a settled target and does not touch lastReconciledAt', async () => {
+    const { db, extensionId, targetId } = await setupChromeScenario({
+      versions: [{ version: '1.0.0', status: 'online' }],
+    })
+    await soloTarget(db, targetId)
+    const { fetch, calls } = routedFetch(chromeRoutes())
+    globalThis.fetch = fetch
+    const { notifier, sent } = recordingNotifier()
+
+    // No filter — this is the cron sweep, not a scoped request.
+    const summary = await runReconciliation(env, db, {}, notifier)
+    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 0, skipped: 0 })
+    expect(calls).toHaveLength(0)
+    expect((await targetFor(db, extensionId)).lastReconciledAt).toBeNull()
+    expect(await eventsFor(db, extensionId)).toHaveLength(0)
+    expect(sent).toHaveLength(0)
+  })
+
+  it('still polls a settled target with an error pending re-check, so recovery can be recorded', async () => {
+    const { db, extensionId, targetId } = await setupChromeScenario({
+      versions: [{ version: '1.0.0', status: 'online' }],
+    })
+    await soloTarget(db, targetId)
+    await db
+      .update(publishTargets)
+      .set({ lastErrorDetail: 'addon lookup failed (503): store outage', lastErrorAt: new Date().toISOString() })
+      .where(eq(publishTargets.id, targetId))
+    const { fetch, calls } = routedFetch(
+      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] } } }),
+    )
+    globalThis.fetch = fetch
+    const { notifier, sent } = recordingNotifier()
+
+    await runReconciliation(env, db, {}, notifier)
+    expect(calls.some((c) => c.url.endsWith(':fetchStatus'))).toBe(true)
+    expect((await targetFor(db, extensionId)).lastErrorDetail).toBeNull()
+    expect(await eventsFor(db, extensionId)).toMatchObject([{ type: 'recovered' }])
+    expect(sent).toHaveLength(0)
+  })
+
+  it('still polls a lifecycle with no rows at all — the first tick must baseline what is already live', async () => {
+    const { db, extensionId, targetId } = await setupChromeScenario({})
+    await soloTarget(db, targetId)
+    const { fetch, calls } = routedFetch(
+      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] } } }),
+    )
+    globalThis.fetch = fetch
+    const { notifier } = recordingNotifier()
+
+    await runReconciliation(env, db, {}, notifier)
+    expect(calls.some((c) => c.url.endsWith(':fetchStatus'))).toBe(true)
+    expect(await versionsFor(db, extensionId)).toMatchObject([{ version: '1.0.0', status: 'online' }])
+  })
+
+  it('still submits queued work on the sweep', async () => {
+    const { db, targetId } = await setupChromeScenario({
+      artifacts: [{ version: '1.1.0' }],
+      versions: [
+        { version: '1.0.0', status: 'online' },
+        { version: '1.1.0', status: 'queued' },
+      ],
+    })
+    await soloTarget(db, targetId)
+    const { fetch, calls } = routedFetch(chromeRoutes())
+    globalThis.fetch = fetch
+    const { notifier } = recordingNotifier()
+
+    const summary = await runReconciliation(env, db, {}, notifier)
+    expect(summary.submitted).toBe(1)
+    expect(calls.some((c) => c.url.endsWith(':publish'))).toBe(true)
+  })
+
+  it('a scoped run (post-push, dashboard button) always hits the store even when settled', async () => {
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      versions: [{ version: '1.0.0', status: 'online' }],
+    })
+    const { fetch, calls } = routedFetch(
+      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] } } }),
+    )
+    globalThis.fetch = fetch
+    const { notifier } = recordingNotifier()
+
+    await runReconciliation(env, db, { tenantId }, notifier)
+    expect(calls.some((c) => c.url.endsWith(':fetchStatus'))).toBe(true)
+    expect((await targetFor(db, extensionId)).lastReconciledAt).not.toBeNull()
   })
 })
 

@@ -508,10 +508,30 @@ export function resolveTargetPlatforms(target: Pick<PublishTarget, 'platforms'>,
  * collected failures at the end — the caller catches per-target and persists
  * the error uniformly, so a bad target never takes its siblings down with it.
  */
-async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow, credentials: unknown, versionRows: DeploymentVersion[]): Promise<'noop' | 'submitted' | 'blocked'> {
+async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow, credentials: unknown, versionRows: DeploymentVersion[], sweep: boolean): Promise<'noop' | 'submitted' | 'blocked'> {
   const { target } = row
   const adapter = getAdapter(target.store)
   const platforms = resolveTargetPlatforms(target, adapter)
+
+  // The half-hourly sweep leaves settled targets alone entirely — no store
+  // round-trip, no lastReconciledAt update. A target is settled when every
+  // lifecycle has at least one row (a lifecycle with none still needs its
+  // first getState to baseline what's already live), nothing is queued or in
+  // review, and no error is pending re-check. Extport only drives state it
+  // initiated; drift created behind its back (a takedown, a hand-upload on
+  // the store console) is the tenant's own doing and stays their
+  // responsibility — the dashboard's manual reconcile fetches ground truth
+  // on demand when they want it. What this buys: idle polling was the noise
+  // source — every store-side outage (ASC 500s 2026-07/08, AMO 503s
+  // 2026-08-09) crossed N settled targets and fanned out N transition
+  // emails about work that didn't exist, and 48 idle calls/day/target burned
+  // the rate-limit budget real submissions need (AMO 429, 2026-07-30).
+  // Scoped runs (post-push, target-added, dashboard button) always poll.
+  if (sweep && target.lastErrorDetail === null) {
+    const active = versionRows.some((v) => v.status === 'queued' || v.status === 'in_review')
+    const baselined = platforms.every((p) => versionRows.some((v) => (v.platform ?? null) === (p ?? null)))
+    if (!active && baselined) return 'noop'
+  }
 
   let submitted = false
   let blocked = false
@@ -591,9 +611,12 @@ async function withTargetLock<T>(db: Db, targetId: string, fn: () => Promise<T>)
  * filter, scoped to one extension right after a push or a store target being
  * added, or scoped to one tenant/extension from the dashboard's manual
  * "reconcile now" button — see claimTarget for why those four don't step on
- * each other.
+ * each other. An unfiltered run is the routine sweep and skips settled
+ * targets (see reconcileOne); the scoped entry points are all explicit
+ * requests about a specific extension and always hit the store.
  */
 export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilter = {}, notifier: Notifier = createEmailNotifier(env)): Promise<ReconcileSummary> {
+  const sweep = !filter.tenantId && !filter.extensionId
   const conditions = [eq(publishTargets.enabled, true)]
   if (filter.tenantId) conditions.push(eq(extensions.tenantId, filter.tenantId))
   if (filter.extensionId) conditions.push(eq(publishTargets.extensionId, filter.extensionId))
@@ -661,7 +684,7 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
         const key = `${row.target.extensionId}:${row.target.store}`
         const vRows = versionsByExtStore.get(key) ?? []
         try {
-          return await reconcileOne(env, db, notifier, row, credentials, vRows)
+          return await reconcileOne(env, db, notifier, row, credentials, vRows, sweep)
         } catch (err) {
           const queuedVersion = vRows.find((v) => v.status === 'queued')?.version
           await persistError(db, notifier, row, (err as Error).message, credentials, queuedVersion)
