@@ -12,3 +12,9 @@ DASHBOARD_URL=http://localhost:5173
 
 # Enables the temporary /auth/dev-login route (local development only).
 DEV_LOGIN_ENABLED=false
+
+# Reads Analytics Engine for the nightly rollup (the ANALYTICS binding is
+# write-only). Create at Cloudflare → My Profile → API Tokens → Custom token
+# with a single permission: Account → Account Analytics → Read. Only needed to
+# run the rollup locally; leaving it empty just skips that cron.
+ANALYTICS_API_TOKEN=""

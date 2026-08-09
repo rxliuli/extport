@@ -76,6 +76,10 @@
     "CURRENT_KEK_VERSION": "1",
     "DASHBOARD_URL": "https://dash.extport.dev",
     "PORTAL_URL": "https://portal.extport.dev",
+    // Which account the nightly rollup queries Analytics Engine under. Not a
+    // credential — useless without ANALYTICS_API_TOKEN — so it lives here
+    // rather than in secrets, where local and production can't drift apart.
+    "CLOUDFLARE_ACCOUNT_ID": "f9592092c1e8cfe4a09f5c4cf8188ecc",
     // The production GitHub OAuth App's client id (public, fine to commit) —
     // callback URL must be https://dash.extport.dev/api/auth/github/callback.
     "GITHUB_CLIENT_ID": "Ov23lidxVa6vp0AA8Mpf",

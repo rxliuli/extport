@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { openAPIRouteHandler } from 'hono-openapi'
 import { runAnalyticsRollup } from './analytics/rollup'
+import { createWaeQuery } from './analytics/wae'
 import { createDb } from './db'
 import { createEmailNotifier } from './lib/notify'
 import { checkCredentialExpiry } from './reconcile/expiry'
@@ -143,8 +144,17 @@ export default {
     // The nightly trigger only rolls up analytics; the half-hourly one
     // only reconciles. Dispatch on the cron expression itself.
     if (controller.cron === ANALYTICS_ROLLUP_CRON) {
+      // DAU/WAU are read from Analytics Engine, which — unlike the write-only
+      // ANALYTICS binding — is only reachable over the SQL API with an
+      // account-scoped token. Without it the rollup would quietly record zero
+      // activity for every extension, so refuse to run instead.
+      if (!env.ANALYTICS_API_TOKEN || !env.CLOUDFLARE_ACCOUNT_ID) {
+        console.error(JSON.stringify({ level: 'error', message: 'analytics rollup skipped: ANALYTICS_API_TOKEN or CLOUDFLARE_ACCOUNT_ID not configured' }))
+        return
+      }
+      const waeQuery = createWaeQuery({ accountId: env.CLOUDFLARE_ACCOUNT_ID, apiToken: env.ANALYTICS_API_TOKEN })
       ctx.waitUntil(
-        runAnalyticsRollup(db).then(({ day }) => {
+        runAnalyticsRollup(db, new Date(), waeQuery).then(({ day }) => {
           console.log(JSON.stringify({ level: 'info', message: 'analytics rollup complete', day }))
         }),
       )
