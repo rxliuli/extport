@@ -60,15 +60,28 @@ enforces the same idempotency independently — a ping only counts if
 the install's `last_seen` predates today — so a misbehaving client
 cannot inflate anything.
 
-## Storage: three D1 tables, no second system
+## Storage: raw pings in Analytics Engine, state and aggregates in D1
 
-| Table | Contents | Retention |
+| Store | Contents | Retention |
 |---|---|---|
-| `pings_raw` | one row per accepted ping, all dimensions resolved | **90 days, pruned by our own cron** |
-| `installs` | one row per install: `first_seen, last_seen, last_version` | permanent (prunable after long idle) |
-| `analytics_daily` | single-dimension time series: headline (dau/wau/mau/installs/departures) plus per-version, per-country, per-language, per-OS daily+weekly actives | **permanent** |
+| `extport_analytics` (WAE) | one data point per accepted ping, all dimensions resolved | **90 days, capped by the platform** |
+| `installs` (D1) | one row per install: `first_seen, last_seen, last_version` | permanent (prunable after long idle) |
+| `analytics_daily` (D1) | single-dimension time series: headline (dau/wau/mau/installs/departures) plus per-version, per-country, per-language, per-OS daily+weekly actives | **permanent** |
 
-Ingest is insert-only: one `pings_raw` insert plus one `installs`
+The raw layer moved to Workers Analytics Engine on 2026-08-09 — see
+"Moving raw pings to WAE" below for what changed since this document
+twice rejected exactly that. `pings_raw` still exists in D1 and is still
+written while the dual-write runs; it retires once a cron cycle confirms
+the rollup's numbers.
+
+The split follows the shape of the data. Pings are high-frequency,
+immutable, and only ever read in aggregate inside a 90-day window — the
+one workload WAE is built for. Install state is mutable
+(`first_seen`/`last_seen` are updated in place) and `analytics_daily` is
+permanent and queried five years back; neither fits an append-only store
+with a hard retention cap.
+
+Ingest is insert-only: one WAE data point plus one `installs`
 upsert. A nightly cron aggregates yesterday's raw rows into
 `analytics_daily` (one GROUP BY per dimension), computes rolling 7-day
 WAU and 30-day MAU — both `count(DISTINCT install_id)` over raw pings,
@@ -105,13 +118,14 @@ Two designs were rejected here:
   — a week of misparsed User-Agents would be unrecoverable. Insert-only
   ingest costs the same and any rollup bug within the window is fixed
   by recompute.
-- **Workers Analytics Engine as the raw layer**: its 90-day cap means
-  every promised read hits D1 anyway, so it was never load-bearing;
-  its one real job — ad-hoc cross-dimension slicing — fell out of
-  scope under the console razor (no store console offers crosses); and
-  it samples at volume. This design knowingly rebuilds WAE's shape
-  inside D1, gaining full SQL, exact counts, a retention policy we own
-  rather than inherit, and one fewer storage system.
+- **Workers Analytics Engine as the raw layer** (rejected twice, then
+  adopted in narrowed form on 2026-08-09 — see below): its 90-day cap
+  means every promised read hits D1 anyway, so it was never
+  load-bearing; its one real job — ad-hoc cross-dimension slicing —
+  fell out of scope under the console razor (no store console offers
+  crosses); and it samples at volume. This design knowingly rebuilds
+  WAE's shape inside D1, gaining full SQL, exact counts, a retention
+  policy we own rather than inherit, and one fewer storage system.
 
 Scale ceiling, honestly: D1 is a single writer and the raw table grows
 with DAU — 50k DAU ≈ 4.5M rows at 90 days (comfortable); a 1M-DAU
@@ -154,6 +168,59 @@ audit on `analytics_installs` (indexes are most of its 4.5× write
 multiplier), then the raw-buffer escape hatch — paired, if it's a
 single whale tenant, with a DAU-tiered pricing plan introduced at the
 same moment. Engineering and pricing move together; neither moves now.
+
+### Moving raw pings to WAE (2026-08-09)
+
+The trigger above fired on the read side rather than the write side.
+The rollup scans `pings_raw` ten times a night — once for the day, once
+for the 7-day window, times five dimensions — and at fleet volume that
+became the dominant D1 cost. Reads were dismissed above as "three orders
+of magnitude from mattering"; that estimate counted ingest and missed
+what the rollup's own scans add.
+
+**What changed versus the two rejections.** Both assumed WAE would
+*replace* the raw layer wholesale, taking the read path with it. It
+doesn't. WAE holds only the ping stream; the rollup still runs nightly
+and still writes `analytics_daily` in D1, so every promised read is
+unchanged and still permanent. Read in that light, the original
+objections invert:
+
+- *"Its 90-day cap means every read hits D1 anyway"* — precisely why
+  the cap is harmless. The rollup converts pings into permanent rows
+  well inside the window; nothing ever needs a ping older than 7 days.
+  A convenient coincidence made this a clean swap: D1's raw window was
+  already 90 days, chosen as our own policy, the same figure WAE
+  enforces as a platform limit.
+- *"It samples at volume, which is incompatible with our exactness
+  guarantees"* — the strongest objection, and the one measurement
+  softened. Over the two complete days of dual-write, 58,172 of 58,215
+  rows carried `_sample_interval = 1` (unsampled); daily totals landed
+  within 0.07% of D1, and per extension 14 of 20 matched exactly, worst
+  case 0.42% on a 475-install extension. Every deviation was negative,
+  where HyperLogLog noise would scatter both ways — so the residue is
+  dropped writes (`writeDataPoint` is fire-and-forget and the Worker can
+  be torn down first), not estimation error. **This is a measurement at
+  current volume, not a guarantee.** Heavier sampling at much higher
+  traffic would widen it, and `count(DISTINCT)` cannot be
+  sample-weighted the way `sum()` can.
+- *"`installs` can't move to an append-only store anyway"* — still
+  true, and it didn't. `first_seen`/`last_seen` are mutable state; WAE
+  stores an immutable event stream. Installs and departures still read
+  D1, and that write cost is unchanged.
+
+**What this costs.** Reading WAE needs an account-scoped API token
+(`ANALYTICS_API_TOKEN`): the binding exposes `writeDataPoint` and
+nothing else, so queries go over the SQL API. That is a credential the
+rollup previously did not need — it can expire, and nothing else on this
+path can. Without it the rollup refuses to run rather than recording
+zero activity everywhere, which would read as a total user exodus rather
+than a config gap. All WAE queries also complete before the D1 batch
+opens, so a failed query aborts the run instead of leaving
+`analytics_daily` half-rewritten.
+
+If exactness ever matters more than the read cost, the way back is to
+point the rollup's DAU/WAU queries at `pings_raw` again — the read model
+never depended on where pings live.
 
 ## What the four consoles offer (surveyed 2026-07-30)
 
