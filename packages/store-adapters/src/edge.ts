@@ -104,6 +104,20 @@ async function submit(
   if (submitRes.status !== 202) {
     const body = await submitRes.text()
     console.log(`${tag} submission rejected (${submitRes.status}): ${body}`)
+    // "InProgressSubmission" is Edge's busy signal, not a failure: another
+    // submission for this product is still mid-certification. That can be a
+    // retry racing its own still-processing first attempt (Twitter Blocker,
+    // 2026-08-05) or a submission whose confirming DB write was lost, so the
+    // ledger doesn't even know it exists (Gemini Exporter, 2026-08-10:
+    // v0.0.7 accepted store-side, the invocation died before recording it,
+    // and — because getState() can never see Edge's in-review state — every
+    // later tick tried to submit v0.0.8 into the occupied slot). It clears
+    // by itself when that review resolves, and the queued row just needs to
+    // try again after — the same shape as the validation timeout above, so
+    // the same `waiting`, not a target error and an email.
+    if (body.includes('InProgressSubmission')) {
+      return { submitted: false, waiting: true, detail: 'Edge is still reviewing an earlier submission — will retry next reconcile' }
+    }
     return { submitted: false, detail: `submission rejected (${submitRes.status}): ${truncate(body)}` }
   }
   const submitOperationId = operationIdFromLocation(submitRes)
@@ -142,6 +156,11 @@ async function submit(
   }
   if (submitted.status !== 'Succeeded') {
     console.log(`${tag} submission operation not Succeeded: ${JSON.stringify(submitted)}`)
+    // Edge's busy signal surfaces here too — see the InProgressSubmission
+    // comment on the submission POST above.
+    if (submitted.errorCode === 'InProgressSubmission') {
+      return { submitted: false, waiting: true, detail: 'Edge is still reviewing an earlier submission — will retry next reconcile' }
+    }
     return { submitted: false, detail: `submission failed: ${submitted.errorCode ?? ''} ${truncate(submitted.message ?? '')}`.trim() }
   }
   // Once this operation itself reports Succeeded, Edge exposes no further

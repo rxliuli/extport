@@ -187,7 +187,7 @@ describe('edge adapter — submit', () => {
     expect(calls).toHaveLength(1)
   })
 
-  it('reports a rejected certification submission', async () => {
+  it('treats InProgressSubmission on the submit POST as waiting, not an error', async () => {
     const { fetch } = queueFetch([
       { status: 202, headers: OP_LOCATION },
       { status: 200, body: { status: 'Succeeded' } },
@@ -195,6 +195,32 @@ describe('edge adapter — submit', () => {
     ])
     const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
     expect(result.submitted).toBe(false)
+    expect(result.waiting).toBe(true)
+    expect(result.detail).toMatch(/earlier submission/)
+  })
+
+  it('treats an InProgressSubmission operation result as waiting, not an error', async () => {
+    const { fetch } = queueFetch([
+      { status: 202, headers: OP_LOCATION },
+      { status: 200, body: { status: 'Succeeded' } },
+      { status: 202, headers: OP_LOCATION },
+      { status: 200, body: { status: 'Failed', errorCode: 'InProgressSubmission', message: "Can't publish extension as your extension submission is in progress." } },
+    ])
+    const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
+    expect(result.submitted).toBe(false)
+    expect(result.waiting).toBe(true)
+  })
+
+  it('reports any other rejected certification submission as a real failure', async () => {
+    const { fetch } = queueFetch([
+      { status: 202, headers: OP_LOCATION },
+      { status: 200, body: { status: 'Succeeded' } },
+      { status: 400, body: 'NotAuthorized' },
+    ])
+    const result = await createEdgeAdapter(fetch).submit(creds, { storeItemId: PRODUCT }, new ArrayBuffer(8), '1.0.0')
+    expect(result.submitted).toBe(false)
+    expect(result.waiting).toBeUndefined()
+    expect(result.detail).toContain('NotAuthorized')
   })
 })
 
