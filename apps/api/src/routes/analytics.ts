@@ -57,6 +57,14 @@ analyticsPublicRoutes.post(
     // recorded was exactly that (a manual endpoint test). Drop silently.
     if (!ua) return c.body(null, 204)
     const browser = parseBrowser(ua)
+    // And the UA-carrying variant of the same thing: an extension background
+    // fetch always identifies its browser family in the UA, so a UA that
+    // parses to 'other' is not an extension — it's a script or an embedded
+    // WebView replaying the ping. Real incident (2026-08-09): a prober hit
+    // two extensions with a WebView-style iOS UA (iPhone token, no Safari/
+    // token) and a placeholder version "1.0", minting a phantom install and
+    // a "1.0" series in charts for an extension with no iOS build at all.
+    if (browser === 'other') return c.body(null, 204)
 
     // Server-side idempotency gate: the SDK already dedups per UTC day, but
     // a misbehaving client must not be able to inflate anything.
