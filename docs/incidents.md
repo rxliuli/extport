@@ -60,6 +60,16 @@ runs inside a Workers request. Newest first within each theme.
    browser token) — never on content being "unexpected" (an unknown
    version string is a signal, not junk). Publicly writable endpoints
    will be probed; make probes inert, not invisible.
+10. **An Edge review stuck past the 10-day reminder has exactly two
+    causes, and only Partner Center's own UI can tell them apart.**
+    "In draft" = the submit request was accepted but the version never
+    entered review (listing-completeness gap, e.g. missing permission
+    justifications): fix the listing, mark the row skipped, let the
+    queued successor submit. "In review" = Microsoft is genuinely slow:
+    wait or open a support ticket, and never cancel-and-resubmit — that
+    re-enters the queue at the back. extport cannot automate the triage
+    (invariant 8); the daily stale reminder's whole job is to prompt
+    this one human check.
 
 ## Incident log
 
@@ -81,6 +91,29 @@ Fixes: `647bd6d` (push reconciles via queue), `b3aea73`
 (`READY_FOR_REVIEW` is pre-submission), `9de799f` (include param +
 tolerate "already added" 409), `1d983a5` (`interrupted` event on stale
 lock reclaim).
+
+### 2026-08-13 — two Edge reviews past 10 days: one draft-stall, one genuinely slow
+
+The stale-review sweep surfaced both shapes of invariant 10 on the same
+day. Instagram Exporter v0.0.19: submitted 07-29, Edge accepted the
+request but the version sat "In draft" for 11 days because the release
+added two permissions (`notifications`,
+`declarativeNetRequestWithHostAccess`) whose Privacy-page
+justifications weren't filled — v0.0.21 was blocked behind the phantom
+the whole time. Resolution: fill the justifications in Partner Center,
+flip the row to skipped, reconcile — v0.0.21 uploaded over the draft
+and entered review in 30 seconds. Scrub v0.0.17: submitted 07-30, all
+listing checks green, Partner Center says "In review" — Microsoft
+simply blew through their 7-business-day claim; nothing for extport to
+do and the ledger was correct throughout.
+
+Two observations worth keeping: the daily stale reminders had been
+firing since 08-09 and went unnoticed inside that week's alarm-email
+noise — signal drowned by noise is the operational cost invariant 5's
+work exists to pay down. And the draft-stall is undetectable by API
+forever (Edge exposes no per-version status; request declined
+upstream), so the reminder → human Partner Center check → branch on
+"In draft" vs "In review" IS the designed runbook, not a workaround.
 
 ### 2026-08-10 — Gemini Exporter edge: superseded row vs. in-flight submit
 
