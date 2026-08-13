@@ -7,6 +7,7 @@ import { createWaeQuery } from './analytics/wae'
 import { createDb } from './db'
 import { createEmailNotifier } from './lib/notify'
 import { checkCredentialExpiry } from './reconcile/expiry'
+import type { ReconcileJob } from './reconcile/queue'
 import { runReconciliation } from './reconcile/run'
 import artifactsRoutes from './routes/artifacts'
 import authRoutes from './routes/auth'
@@ -172,4 +173,24 @@ export default {
       ]),
     )
   },
-} satisfies ExportedHandler<Env>
+  // Push-triggered reconciles land here (see enqueueReconcile and the
+  // "queues" block in wrangler.jsonc): a consumer invocation gets 15
+  // minutes of wall clock, where the old ctx.waitUntil path was killed ~30
+  // seconds after the HTTP response — mid-submit, when a store was slow.
+  async queue(batch, env) {
+    const db = createDb(env.DB)
+    const notifier = createEmailNotifier(env)
+    for (const message of batch.messages) {
+      try {
+        const summary = await runReconciliation(env, db, message.body, notifier)
+        console.log(JSON.stringify({ level: 'info', message: 'reconcile job complete', ...message.body, ...summary }))
+        message.ack()
+      } catch (err) {
+        // runReconciliation persists per-target errors itself — reaching
+        // here is an infrastructure-level failure; let the queue redeliver.
+        console.error(JSON.stringify({ level: 'error', message: `reconcile job failed: ${(err as Error).message}`, ...message.body }))
+        message.retry({ delaySeconds: 60 })
+      }
+    }
+  },
+} satisfies ExportedHandler<Env, ReconcileJob>

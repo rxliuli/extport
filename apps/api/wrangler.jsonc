@@ -62,6 +62,23 @@
     // rollup at 00:15 UTC (the expression is matched verbatim in index.ts).
     "crons": ["*/30 * * * *", "15 0 * * *"]
   },
+  // Push-triggered reconciles run through this queue, NOT ctx.waitUntil:
+  // waitUntil work is killed ~30 seconds after the HTTP response, and a
+  // reconcile that hits a store's bad day (ASC 500 storm + retry backoff,
+  // 2026-08-13) runs far longer than that — the invocation died mid-submit
+  // and stranded its target lock. A queue consumer gets 15 minutes of wall
+  // clock and redelivers on failure.
+  "queues": {
+    "producers": [{ "binding": "RECONCILE_QUEUE", "queue": "extport-reconcile" }],
+    "consumers": [
+      {
+        "queue": "extport-reconcile",
+        // Deliver promptly (a push wants its reconcile now); per-target
+        // locks make overlapping jobs for the same extension safe.
+        "max_batch_timeout": 1
+      }
+    ]
+  },
   "send_email": [
     {
       "name": "EMAIL"

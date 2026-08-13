@@ -3,6 +3,29 @@ import { getAdapter } from '@extport/store-adapters'
 import { and, eq, isNull, or } from 'drizzle-orm'
 import { artifacts, deploymentVersions, type Db, type DeploymentVersion } from '../db'
 
+/** One scoped reconcile handed to the queue consumer in index.ts. */
+export interface ReconcileJob {
+  tenantId: string
+  extensionId: string
+}
+
+/**
+ * Hands a scoped reconcile to the queue consumer instead of the request's
+ * own lifetime. ctx.waitUntil work is killed ~30 seconds after the response
+ * goes out — far less than a submit hitting a store's bad day needs (real
+ * death: Twitter Filter safari, 2026-08-13, ASC 500 storm + retry backoff) —
+ * while a queue consumer invocation gets 15 minutes and redelivery on
+ * failure. Enqueue failure is logged, not thrown: the request's own work
+ * already succeeded, and the half-hourly sweep picks queued rows up anyway.
+ */
+export async function enqueueReconcile(env: Env, job: ReconcileJob): Promise<void> {
+  try {
+    await env.RECONCILE_QUEUE.send(job)
+  } catch (err) {
+    console.error(JSON.stringify({ level: 'error', message: `reconcile enqueue failed: ${(err as Error).message}`, ...job }))
+  }
+}
+
 /**
  * The lifecycles a push can queue into for this store: [null] for
  * single-lifecycle stores, and for multi-platform stores (Safari) every

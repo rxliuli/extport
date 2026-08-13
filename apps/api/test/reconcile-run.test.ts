@@ -15,6 +15,7 @@ import {
 } from '../src/db'
 import { provisionTenantDek, tenantDek } from '../src/lib/kms'
 import type { Notification, Notifier } from '../src/lib/notify'
+import worker from '../src/index'
 import { isVersionRegression, queueLatestArtifact } from '../src/reconcile/queue'
 import { runReconciliation } from '../src/reconcile/run'
 import { createApiKey, createExtension, request, seedTenantWithUser } from './helpers'
@@ -1370,6 +1371,27 @@ describe('runReconciliation — concurrent-invocation locking', () => {
     expect(a.submitted + b.submitted).toBe(1)
     expect(a.skipped + b.skipped).toBe(1)
     expect(a.processed + b.processed).toBe(1)
+  })
+})
+
+describe('queue consumer — push-triggered reconcile jobs', () => {
+  it('runs the scoped reconcile for a job and acks the message', async () => {
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      artifacts: [{ version: '1.0.0' }],
+      versions: [{ version: '1.0.0', status: 'queued' }],
+    })
+    globalThis.fetch = routedFetch(chromeRoutes()).fetch
+
+    const outcomes: string[] = []
+    const batch = {
+      queue: 'extport-reconcile',
+      messages: [{ body: { tenantId, extensionId }, ack: () => outcomes.push('ack'), retry: () => outcomes.push('retry') }],
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- hand-built MessageBatch covers only what the handler reads
+    await worker.queue!(batch as any, env)
+
+    expect(outcomes).toEqual(['ack'])
+    expect(await versionsFor(db, extensionId)).toMatchObject([{ version: '1.0.0', status: 'in_review' }])
   })
 })
 

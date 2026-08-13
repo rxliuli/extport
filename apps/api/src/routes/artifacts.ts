@@ -8,8 +8,7 @@ import { artifacts, extensions, publishTargets, tenants, type Db, type Extension
 import { createEmailNotifier } from '../lib/notify'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
-import { isVersionRegression, queueLatestArtifact } from '../reconcile/queue'
-import { runReconciliation } from '../reconcile/run'
+import { enqueueReconcile, isVersionRegression, queueLatestArtifact } from '../reconcile/queue'
 
 const MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
 
@@ -260,7 +259,7 @@ route.post(
       await queueLatestArtifact(db, tenant.id, extension.id, s)
     }
     if (targetStores.length > 0) {
-      c.executionCtx.waitUntil(runReconciliation(c.env, db, { tenantId: tenant.id, extensionId: extension.id }))
+      await enqueueReconcile(c.env, { tenantId: tenant.id, extensionId: extension.id })
     }
 
     return c.json({ artifact: created, warning }, 201)

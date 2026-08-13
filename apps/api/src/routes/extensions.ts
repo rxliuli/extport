@@ -8,7 +8,7 @@ import { artifacts, deploymentVersions, extensions, licenses, plans, publishEven
 import { tenantDek } from '../lib/kms'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
-import { queueLatestArtifact } from '../reconcile/queue'
+import { enqueueReconcile, queueLatestArtifact } from '../reconcile/queue'
 import { resolveTargetPlatforms, runReconciliation } from '../reconcile/run'
 import { deriveTargetLifecycles } from '../reconcile/status'
 
@@ -470,7 +470,7 @@ route.post(
     // it, then reconcile in the background in case that's newer than what's
     // live/in-review above and can be submitted right away.
     await queueLatestArtifact(db, tenant.id, extension.id, store)
-    c.executionCtx.waitUntil(runReconciliation(c.env, db, { tenantId: tenant.id, extensionId: extension.id }))
+    await enqueueReconcile(c.env, { tenantId: tenant.id, extensionId: extension.id })
 
     return c.json({ target: created }, 201)
   },
@@ -555,7 +555,7 @@ route.patch(
     // recovery flow after an auto-pause is fix-at-the-store, then one click.
     if (body.enabled === true && !target.enabled) {
       await queueLatestArtifact(db, tenant.id, extension.id, target.store)
-      c.executionCtx.waitUntil(runReconciliation(c.env, db, { tenantId: tenant.id, extensionId: extension.id }))
+      await enqueueReconcile(c.env, { tenantId: tenant.id, extensionId: extension.id })
     }
     const [updated] = await db.select().from(publishTargets).where(eq(publishTargets.id, target.id))
     return c.json({ target: updated })
