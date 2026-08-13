@@ -1299,18 +1299,37 @@ describe('runReconciliation — concurrent-invocation locking', () => {
     expect(versions[0]!.status).toBe('queued')
   })
 
-  it('reclaims a stale lock (older than the staleness window) and processes normally', async () => {
-    const { db, tenantId, targetId } = await setupChromeScenario({
+  it('reclaims a stale lock (older than the staleness window), records the death as an interrupted event, and processes normally', async () => {
+    const { db, tenantId, extensionId, targetId } = await setupChromeScenario({
       artifacts: [{ version: '1.0.0' }],
       versions: [{ version: '1.0.0', status: 'queued' }],
     })
     const staleSince = new Date(Date.now() - 11 * 60 * 1000).toISOString() // older than RECONCILE_LOCK_STALE_MS (10 min)
     await db.update(publishTargets).set({ reconcilingSince: staleSince }).where(eq(publishTargets.id, targetId))
     globalThis.fetch = routedFetch(chromeRoutes()).fetch
-    const { notifier } = recordingNotifier()
+    const { notifier, sent } = recordingNotifier()
 
     const summary = await runReconciliation(env, db, { tenantId }, notifier)
     expect(summary).toEqual({ processed: 1, submitted: 1, blocked: 0, errors: 0, skipped: 0 })
+    // An abandoned lock is the only trace a died invocation leaves — the
+    // reclaimer files the post-mortem. Event only, never an email: the
+    // retry running right now is already the remedy.
+    const events = await eventsFor(db, extensionId)
+    expect(events).toMatchObject([{ type: 'interrupted', payload: { abandonedAt: staleSince } }])
+    expect(sent).toHaveLength(0)
+  })
+
+  it('a fresh, uncontended claim records no interrupted event', async () => {
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      versions: [{ version: '1.0.0', status: 'online' }],
+    })
+    globalThis.fetch = routedFetch(
+      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] } } }),
+    ).fetch
+    const { notifier } = recordingNotifier()
+
+    await runReconciliation(env, db, { tenantId }, notifier)
+    expect(await eventsFor(db, extensionId)).toHaveLength(0)
   })
 
   it('releases the lock after a successful tick, leaving the target claimable again', async () => {

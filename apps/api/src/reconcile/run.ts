@@ -1,6 +1,6 @@
 import { compareVersions, DEFAULT_STALE_REVIEW_DAYS, decryptJson, newId, type Store } from '@extport/shared'
 import { getAdapter, type StoreAdapter } from '@extport/store-adapters'
-import { and, desc, eq, gt, inArray, isNull, lt, or } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
 import {
   artifacts,
   deploymentVersions,
@@ -583,26 +583,62 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
  * claimed long enough ago to be stale) wins; the loser skips this target and
  * leaves it for a later tick.
  */
-async function claimTarget(db: Db, targetId: string): Promise<boolean> {
+type TargetClaim = { kind: 'fresh' } | { kind: 'reclaimed'; abandonedAt: string } | null
+
+async function claimTarget(db: Db, targetId: string): Promise<TargetClaim> {
   const now = new Date()
-  const staleBefore = new Date(now.getTime() - RECONCILE_LOCK_STALE_MS).toISOString()
-  const result = await db
+  const fresh = await db
     .update(publishTargets)
     .set({ reconcilingSince: now.toISOString() })
-    .where(and(eq(publishTargets.id, targetId), or(isNull(publishTargets.reconcilingSince), lt(publishTargets.reconcilingSince, staleBefore))))
-  return result.meta.changes > 0
+    .where(and(eq(publishTargets.id, targetId), isNull(publishTargets.reconcilingSince)))
+  if (fresh.meta.changes > 0) return { kind: 'fresh' }
+
+  // A lock is already held. Reclaim it only if it has gone stale, and only
+  // the exact lock we observed (compare-and-swap on the timestamp) so two
+  // reclaimers racing here can't both win. The stale timestamp travels back
+  // to the caller: an abandoned lock is the ONLY trace an invocation that
+  // died mid-reconcile leaves behind — a killed Worker never reaches
+  // persistError, so no event, no email, nothing. Real incident (Twitter
+  // Filter safari, 2026-08-13): a submit interrupted by death sat invisible
+  // for 19 minutes with the tenant staring at an event list that said
+  // nothing was wrong. The caller records it as an `interrupted` event so
+  // deaths are at least visible after the fact.
+  const staleBefore = new Date(now.getTime() - RECONCILE_LOCK_STALE_MS).toISOString()
+  const [held] = await db.select({ since: publishTargets.reconcilingSince }).from(publishTargets).where(eq(publishTargets.id, targetId))
+  const since = held?.since
+  if (!since || since >= staleBefore) return null
+  const reclaimed = await db
+    .update(publishTargets)
+    .set({ reconcilingSince: now.toISOString() })
+    .where(and(eq(publishTargets.id, targetId), eq(publishTargets.reconcilingSince, since)))
+  return reclaimed.meta.changes > 0 ? { kind: 'reclaimed', abandonedAt: since } : null
 }
 
 async function releaseTarget(db: Db, targetId: string): Promise<void> {
   await db.update(publishTargets).set({ reconcilingSince: null }).where(eq(publishTargets.id, targetId))
 }
 
-async function withTargetLock<T>(db: Db, targetId: string, fn: () => Promise<T>): Promise<T | 'skipped'> {
-  if (!(await claimTarget(db, targetId))) return 'skipped'
+async function withTargetLock<T>(db: Db, row: JoinedRow, fn: () => Promise<T>): Promise<T | 'skipped'> {
+  const claim = await claimTarget(db, row.target.id)
+  if (!claim) return 'skipped'
+  if (claim.kind === 'reclaimed') {
+    // Post-mortem for the invocation that abandoned this lock — no email
+    // (the retry happening right now is the remedy; if the work fails
+    // again, persistError alerts as usual), but the death becomes visible
+    // in the operational events list instead of vanishing entirely.
+    await db.insert(publishEvents).values({
+      id: newId('publishEvent'),
+      tenantId: row.extension.tenantId,
+      extensionId: row.extension.id,
+      store: row.target.store,
+      type: 'interrupted',
+      payload: { abandonedAt: claim.abandonedAt },
+    })
+  }
   try {
     return await fn()
   } finally {
-    await releaseTarget(db, targetId)
+    await releaseTarget(db, row.target.id)
   }
 }
 
@@ -649,7 +685,7 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
 
     if (credential.status === 'invalid') {
       for (const row of group) {
-        const outcome = await withTargetLock(db, row.target.id, () =>
+        const outcome = await withTargetLock(db, row, () =>
           persistError(db, notifier, row, `store credential "${credential.label}" failed verification — reverify it in Settings`),
         )
         if (outcome === 'skipped') {
@@ -668,7 +704,7 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
       credentials = await decryptJson(dek, credential.encryptedPayload)
     } catch (err) {
       for (const row of group) {
-        const outcome = await withTargetLock(db, row.target.id, () => persistError(db, notifier, row, `credential decryption failed: ${(err as Error).message}`))
+        const outcome = await withTargetLock(db, row, () => persistError(db, notifier, row, `credential decryption failed: ${(err as Error).message}`))
         if (outcome === 'skipped') {
           summary.skipped++
           continue
@@ -680,7 +716,7 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
     }
 
     for (const row of group) {
-      const outcome = await withTargetLock(db, row.target.id, async () => {
+      const outcome = await withTargetLock(db, row, async () => {
         const key = `${row.target.extensionId}:${row.target.store}`
         const vRows = versionsByExtStore.get(key) ?? []
         try {

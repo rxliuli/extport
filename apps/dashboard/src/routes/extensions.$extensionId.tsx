@@ -321,6 +321,7 @@ const OPS_EVENT: Record<PublishEvent['type'], { className: string; label: string
   recovered: { className: 'text-green-700 dark:text-green-500', label: 'recovered' },
   stale_review: { className: 'text-amber-600 dark:text-amber-400', label: 'stale review' },
   paused: { className: 'text-red-600 dark:text-red-400', label: 'paused' },
+  interrupted: { className: 'text-amber-600 dark:text-amber-400', label: 'interrupted' },
 }
 
 function opsEventDetail(event: PublishEvent): string | null {
@@ -328,6 +329,11 @@ function opsEventDetail(event: PublishEvent): string | null {
   if (event.type === 'error') return typeof payload.message === 'string' ? payload.message : null
   if (event.type === 'stale_review') return `in review for ${payload.ageDays}+ days`
   if (event.type === 'paused') return typeof payload.reason === 'string' ? payload.reason : null
+  if (event.type === 'interrupted') {
+    return typeof payload.abandonedAt === 'string'
+      ? `a reconcile died mid-flight — its lock sat abandoned from ${payload.abandonedAt.replace('T', ' ').slice(0, 19)} UTC until this retry reclaimed it`
+      : 'a reconcile died mid-flight — retried'
+  }
   return null
 }
 

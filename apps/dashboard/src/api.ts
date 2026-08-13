@@ -90,7 +90,7 @@ export interface DeploymentVersion {
 export interface PublishEvent {
   id: string
   store: Store
-  type: 'error' | 'recovered' | 'stale_review' | 'paused'
+  type: 'error' | 'recovered' | 'stale_review' | 'paused' | 'interrupted'
   payload: Record<string, unknown>
   /** ISO date string (Date -> JSON) */
   createdAt: string
