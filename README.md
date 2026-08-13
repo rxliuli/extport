@@ -24,6 +24,10 @@ Three independent per-extension modules, plus build tooling that feeds into the 
   Chrome / Firefox / Edge / Safari from day one, bound to a real extension record before
   you write a line of code.
 
+Before changing the reconcile loop, a store adapter, or anything that runs inside a
+Workers request, read `docs/incidents.md` — every production incident, its root cause,
+and the invariant it taught.
+
 ## License
 
 The platform (`apps/*`, `packages/shared`, `packages/store-adapters`) is
