@@ -1,10 +1,9 @@
-import { newId } from '@extport/shared'
 import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
-import { analyticsDaily, analyticsInstalls, analyticsPings, extensions } from '../db'
+import { analyticsDaily, analyticsInstalls, extensions } from '../db'
 import { isoDay } from '../lib/dates'
 import { parseBrowser, parseOs } from '../lib/user-agent'
 import { badRequest } from '../lib/validation'
@@ -75,46 +74,37 @@ analyticsPublicRoutes.post(
     if (install?.lastSeen === today) return c.body(null, 204)
 
     const cf = (c.req.raw as Request & { cf?: { country?: string } }).cf
-    // One batch = one D1 transaction. The client is an extension background
-    // that may be torn down mid-request (and Workers can be cancelled with
-    // it) — the install row and its ping must land together or not at all,
-    // or aborts leave phantom installs that never pinged.
     const os = parseOs(ua)
     const country = cf?.country?.toLowerCase() ?? null
     const language = body.language?.toLowerCase() || null
 
-    await db.batch([
-      db
-        .insert(analyticsInstalls)
-        .values({
-          extensionId: extension.id,
-          installId: body.installId,
-          tenantId: extension.tenantId,
-          browser,
-          firstSeen: today,
-          lastSeen: today,
-          lastVersion: body.version,
-        })
-        // Two same-day pings racing past the gate resolve here; the raw
-        // duplicate they leave behind is neutralized by the rollup's
-        // count(distinct install_id).
-        .onConflictDoUpdate({
-          target: [analyticsInstalls.extensionId, analyticsInstalls.installId],
-          set: { lastSeen: today, lastVersion: body.version },
-        }),
-      db.insert(analyticsPings).values({
-        id: newId('analyticsPing'),
-        tenantId: extension.tenantId,
+    // The install row is the only thing D1 still stores per ping: mutable
+    // state (first_seen/last_seen) that an append-only event store can't
+    // hold. The ping itself goes to WAE below.
+    //
+    // These two writes are deliberately not atomic, and can't be — they're
+    // different systems. A torn-down Worker can leave an install row whose
+    // ping never reached WAE, which undercounts that day's DAU by one while
+    // installs stays right. That is the same ~0.07% drift measured across the
+    // dual-write period, and the reason DAU/WAU are described as approximate.
+    await db
+      .insert(analyticsInstalls)
+      .values({
         extensionId: extension.id,
         installId: body.installId,
-        date: today,
+        tenantId: extension.tenantId,
         browser,
-        version: body.version,
-        os,
-        country,
-        language,
-      }),
-    ])
+        firstSeen: today,
+        lastSeen: today,
+        lastVersion: body.version,
+      })
+      // Two same-day pings racing past the gate resolve here; the duplicate
+      // data point they leave in WAE is neutralized by the rollup's
+      // count(DISTINCT install_id).
+      .onConflictDoUpdate({
+        target: [analyticsInstalls.extensionId, analyticsInstalls.installId],
+        set: { lastSeen: today, lastVersion: body.version },
+      })
 
     c.env.ANALYTICS.writeDataPoint({
       indexes: [extension.id],

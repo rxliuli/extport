@@ -1,4 +1,5 @@
 import { newId } from '@extport/shared'
+import { env } from 'cloudflare:test'
 import { and, eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { runAnalyticsRollup } from '../src/analytics/rollup'
@@ -26,14 +27,30 @@ async function setup() {
 }
 
 describe('POST /v1/analytics/ping', () => {
-  it('records the install state and a raw ping with derived dimensions', async () => {
+  /**
+   * Pings land in Analytics Engine, which has no read side to assert against
+   * (the binding is write-only), so capture what the handler emits. Column
+   * order is the contract the rollup's queries depend on — blob4 really does
+   * have to be version, or every per-version chart silently reads the wrong
+   * field.
+   */
+  function captureDataPoints() {
+    const points: { indexes?: unknown[]; blobs?: unknown[] }[] = []
+    const original = env.ANALYTICS.writeDataPoint
+    env.ANALYTICS.writeDataPoint = (point) => void points.push(point as never)
+    return { points, restore: () => void (env.ANALYTICS.writeDataPoint = original) }
+  }
+
+  it('records the install state and emits a ping with derived dimensions', async () => {
     const { db, extension } = await setup()
+    const { points, restore } = captureDataPoints()
     const res = await ping({
       installId: 'aaaaaaaa-1111-2222-3333-444444444444',
       extensionId: extension.id,
       version: '1.2.3',
       language: 'en-US',
     })
+    restore()
     expect(res.status).toBe(204)
 
     const today = isoDay(new Date())
@@ -48,17 +65,24 @@ describe('POST /v1/analytics/ping', () => {
       browser: 'chrome',
     })
 
-    const [raw] = await db.select().from(analyticsPings).where(eq(analyticsPings.extensionId, extension.id))
-    expect(raw).toMatchObject({ date: today, browser: 'chrome', os: 'macos', version: '1.2.3', language: 'en-us' })
+    expect(points).toHaveLength(1)
+    expect(points[0]!.indexes).toEqual([extension.id])
+    // [installId, tenantId, browser, version, os, country, language] — country
+    // comes from the CF request object, absent in tests.
+    const blobs = points[0]!.blobs!
+    expect(blobs[0]).toBe('aaaaaaaa-1111-2222-3333-444444444444')
+    expect(blobs.slice(2)).toEqual(['chrome', '1.2.3', 'macos', null, 'en-us'])
   })
 
   it('counts at most one ping per install per day, but a stale install re-pings fine', async () => {
     const { db, extension } = await setup()
     const installId = 'bbbbbbbb-1111-2222-3333-444444444444'
+    const { points, restore } = captureDataPoints()
     await ping({ installId, extensionId: extension.id, version: '1.0.0' })
     const second = await ping({ installId, extensionId: extension.id, version: '1.0.0' })
     expect(second.status).toBe(204)
-    expect(await db.select().from(analyticsPings).where(eq(analyticsPings.installId, installId))).toHaveLength(1)
+    // The gate returns before the write, so the repeat emits nothing at all.
+    expect(points).toHaveLength(1)
 
     // A day later (simulated by backdating), the same install pings with a
     // newer version — the update inference is last_version moving.
@@ -68,8 +92,9 @@ describe('POST /v1/analytics/ping', () => {
       .set({ lastSeen: yesterday })
       .where(and(eq(analyticsInstalls.extensionId, extension.id), eq(analyticsInstalls.installId, installId)))
     await ping({ installId, extensionId: extension.id, version: '1.0.1' }, FIREFOX_UA)
+    restore()
 
-    expect(await db.select().from(analyticsPings).where(eq(analyticsPings.installId, installId))).toHaveLength(2)
+    expect(points).toHaveLength(2)
     const [install] = await db
       .select()
       .from(analyticsInstalls)
@@ -95,13 +120,15 @@ describe('POST /v1/analytics/ping', () => {
     const { db, extension } = await setup()
     // The 2026-08-09 prober's shape: an embedded-WebView iOS UA — iPhone
     // token but no Safari/ token — carrying a placeholder version.
+    const { points, restore } = captureDataPoints()
     const res = await ping(
       { installId: 'ffffffff-1111-2222-3333-444444444444', extensionId: extension.id, version: '1.0' },
       'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
     )
+    restore()
     expect(res.status).toBe(204)
     expect(await db.select().from(analyticsInstalls).where(eq(analyticsInstalls.extensionId, extension.id))).toHaveLength(0)
-    expect(await db.select().from(analyticsPings).where(eq(analyticsPings.extensionId, extension.id))).toHaveLength(0)
+    expect(points).toHaveLength(0)
   })
 
   it('silently drops UA-less pings — curl tests must not mint installs either', async () => {
@@ -116,10 +143,12 @@ describe('POST /v1/analytics/ping', () => {
   })
 
   it('answers 204 for unknown extensions without writing anything, 400 for bad bodies, and is CORS-open', async () => {
-    const { db } = await setup()
+    await setup()
+    const { points, restore } = captureDataPoints()
     const unknown = await ping({ installId: 'cccccccc-1111-2222-3333-444444444444', extensionId: 'ext_nope', version: '1' })
+    restore()
     expect(unknown.status).toBe(204)
-    expect(await db.select().from(analyticsPings).where(eq(analyticsPings.extensionId, 'ext_nope'))).toHaveLength(0)
+    expect(points).toHaveLength(0)
 
     const bad = await ping({ installId: 'short', extensionId: 'ext_nope', version: '1' })
     expect(bad.status).toBe(400)

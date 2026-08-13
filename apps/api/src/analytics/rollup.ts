@@ -160,9 +160,11 @@ export async function runAnalyticsRollup(db: Db, now: Date = new Date(), waeQuer
         DO UPDATE SET departures = excluded.departures
       `,
     ),
-    // The 90-day raw window is our own policy, enforced by us, not a platform.
-    // Kept while the dual-write runs so the two sources stay comparable; it
-    // goes away with the analytics_pings write itself.
+    // analytics_pings is no longer written — pings go to WAE. This prune is
+    // what retires the table: with nothing arriving, it empties itself 90 days
+    // after the last write and can then be dropped. Kept rather than dropped
+    // now because those rows are the only way to recompute a day WAE has aged
+    // out of, and the only remaining cross-check against it.
     toD1(db, db.delete(analyticsPings).where(lt(analyticsPings.date, pruneBefore))),
   ]
 
