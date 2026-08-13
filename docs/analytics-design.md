@@ -68,11 +68,11 @@ cannot inflate anything.
 | `installs` (D1) | one row per install: `first_seen, last_seen, last_version` | permanent (prunable after long idle) |
 | `analytics_daily` (D1) | single-dimension time series: headline (dau/wau/mau/installs/departures) plus per-version, per-country, per-language, per-OS daily+weekly actives | **permanent** |
 
-The raw layer moved to Workers Analytics Engine on 2026-08-09 — see
-"Moving raw pings to WAE" below for what changed since this document
-twice rejected exactly that. `pings_raw` still exists in D1 and is still
-written while the dual-write runs; it retires once a cron cycle confirms
-the rollup's numbers.
+The raw layer moved to Workers Analytics Engine over 2026-08-06..13 —
+see "Moving raw pings to WAE" below for what changed since this document
+twice rejected exactly that. `analytics_pings` still exists in D1 but is
+no longer written; its 90-day prune empties it on its own, after which
+it can be dropped.
 
 The split follows the shape of the data. Pings are high-frequency,
 immutable, and only ever read in aggregate inside a 90-day window — the
@@ -82,18 +82,28 @@ permanent and queried five years back; neither fits an append-only store
 with a hard retention cap.
 
 Ingest is insert-only: one WAE data point plus one `installs`
-upsert. A nightly cron aggregates yesterday's raw rows into
-`analytics_daily` (one GROUP BY per dimension), computes rolling 7-day
-WAU and 30-day MAU — both `count(DISTINCT install_id)` over raw pings,
-exact, since both windows sit inside the 90-day raw window; the nightly
-write is what makes them permanent, because cross-day uniques can't be
-recomputed after raw data ages out — counts newly confirmed departures
-(written into the row of the day the install was last seen, 30 days
-back; see below), and prunes raw rows past 90 days. An earlier
-iteration snapshotted MAU from `installs.last_seen`; the pointer's
-forward drift between midnight and the cron silently dropped same-day
-actives (day-one extensions showed MAU < DAU), which is why everything
-now derives from raw pings.
+upsert — deliberately not atomic, since they are different systems (see
+below). A nightly cron aggregates yesterday's pings into
+`analytics_daily` (one GROUP BY per dimension) and computes rolling
+7-day WAU as `count(DISTINCT install_id)`, whose window sits inside
+WAE's 90-day retention; the nightly write is what makes it permanent,
+because cross-day uniques can't be recomputed once pings age out. It
+also counts newly confirmed departures (written into the row of the day
+the install was last seen, 30 days back; see below), which reads
+`installs` rather than pings.
+
+Those distinct counts are now **approximate** — WAE answers
+`count(DISTINCT)` with HyperLogLog, and a small fraction of
+fire-and-forget writes never land. Measured at ~0.1–0.2% for DAU and
+0.05% for WAU; the accuracy discussion is under "Moving raw pings to
+WAE". Before that move they were exact, computed over D1 rows. Nothing
+in the product depends on exactness at that resolution, but the claim
+itself changed and is worth not repeating carelessly.
+
+An earlier iteration snapshotted MAU from `installs.last_seen`; the
+pointer's forward drift between midnight and the cron silently dropped
+same-day actives (day-one extensions showed MAU < DAU), which is why
+everything now derives from pings rather than that pointer.
 
 **WAU is the headline activity metric** — every displayed figure and
 the Active users chart read it; dau stays in the rollup (and drives
@@ -172,7 +182,7 @@ same moment. Engineering and pricing move together; neither moves now.
 ### Moving raw pings to WAE (2026-08-09)
 
 The trigger above fired on the read side rather than the write side.
-The rollup scans `pings_raw` ten times a night — once for the day, once
+The rollup scanned `analytics_pings` ten times a night — once for the day, once
 for the 7-day window, times five dimensions — and at fleet volume that
 became the dominant D1 cost. Reads were dismissed above as "three orders
 of magnitude from mattering"; that estimate counted ingest and missed
@@ -193,16 +203,28 @@ objections invert:
   enforces as a platform limit.
 - *"It samples at volume, which is incompatible with our exactness
   guarantees"* — the strongest objection, and the one measurement
-  softened. Over the two complete days of dual-write, 58,172 of 58,215
-  rows carried `_sample_interval = 1` (unsampled); daily totals landed
-  within 0.07% of D1, and per extension 14 of 20 matched exactly, worst
-  case 0.42% on a 475-install extension. Every deviation was negative,
-  where HyperLogLog noise would scatter both ways — so the residue is
-  dropped writes (`writeDataPoint` is fire-and-forget and the Worker can
-  be torn down first), not estimation error. **This is a measurement at
-  current volume, not a guarantee.** Heavier sampling at much higher
-  traffic would widen it, and `count(DISTINCT)` cannot be
-  sample-weighted the way `sum()` can.
+  softened. Sampling itself turned out to be negligible: 58,172 of
+  58,215 rows carried `_sample_interval = 1` (unsampled), and it has not
+  trended upward since. Daily DAU landed within 0.10–0.21% of D1.
+
+  That figure has two distinct causes, worth separating because they
+  behave differently. Comparing WAE's own sample-weighted row count
+  against its `count(DISTINCT)` splits them: **0.01–0.07% is genuinely
+  dropped writes** (`writeDataPoint` is fire-and-forget and the Worker
+  can be torn down first), and **the larger half is HyperLogLog
+  understating the distinct count**. An earlier revision of this section
+  attributed all of it to dropped writes, reasoning that every deviation
+  was negative while HLL noise would scatter both ways. The direction
+  was right; the attribution was not — this HLL implementation
+  undercounts consistently rather than symmetrically.
+
+  The open question was whether the estimate degrades as cardinality
+  grows, since WAU spans seven days. It does not: measured over
+  2026-08-07..12 — a window lying entirely inside WAE — WAU came within
+  **0.05%**, tighter than daily DAU. **Still a measurement at current
+  volume, not a guarantee.** Heavier sampling at much higher traffic
+  would widen it, and `count(DISTINCT)` cannot be sample-weighted the
+  way `sum()` can.
 - *"`installs` can't move to an append-only store anyway"* — still
   true, and it didn't. `first_seen`/`last_seen` are mutable state; WAE
   stores an immutable event stream. Installs and departures still read
@@ -218,9 +240,36 @@ than a config gap. All WAE queries also complete before the D1 batch
 opens, so a failed query aborts the run instead of leaving
 `analytics_daily` half-rewritten.
 
+**How it was rolled out.** Three steps, deliberately separated so each
+could be verified before the next removed the means of verifying it:
+
+1. **Dual-write** (2026-08-06). Pings to both stores, nothing else
+   changed — this is what produced the measurements above.
+2. **Switch the reader** (2026-08-09). The rollup's DAU/WAU moved to
+   WAE while `analytics_pings` kept being written, so D1 stayed a live
+   control group and reverting cost one line.
+3. **Stop writing pings to D1** (2026-08-13), after three cron cycles
+   confirmed the numbers.
+
+Between 2 and 3 came a repair that had to happen in that order. WAU is
+a 7-day window, so the rows for 2026-08-09..12 covered days predating
+the cutover, which WAE does not have — the worst day understated WAU by
+16.7%, shrinking daily as the window filled. Those are permanent rows,
+and recomputing them needs raw pings, so they were backfilled from
+`analytics_pings` *before* the write stopped. A useful shape to
+remember: **when a rolling window crosses a data-source cutover, the
+rows it produces are wrong for exactly the window length, and only the
+old source can fix them.**
+
+`analytics_pings` still exists and is still pruned at 90 days. With
+nothing arriving, that prune empties it on its own and the table can be
+dropped afterward; until then those rows are the only way to recompute a
+day WAE has aged out of, and the only remaining cross-check against it.
+
 If exactness ever matters more than the read cost, the way back is to
-point the rollup's DAU/WAU queries at `pings_raw` again — the read model
-never depended on where pings live.
+point the rollup's DAU/WAU queries at `analytics_pings` again — the read
+model never depended on where pings live. That escape hatch expires when
+the table does.
 
 ## What the four consoles offer (surveyed 2026-07-30)
 
