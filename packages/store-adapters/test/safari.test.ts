@@ -221,6 +221,31 @@ describe('safari adapter — submit (review orchestration, binary uploaded out-o
     // No POST /appStoreVersions, /reviewSubmissions, or /reviewSubmissionItems creations happened.
     const posts = calls.filter((c) => c.init?.method === 'POST')
     expect(posts).toHaveLength(0)
+    // Without include, ASC omits relationships.appStoreVersion.data from the
+    // items list entirely and the already-added check can never match
+    // (Twitter Filter macOS v0.0.66, 2026-08-13).
+    expect(calls[5]!.url).toContain('include=appStoreVersion')
+  })
+
+  it("treats ASC's own \"already added\" 409 on the item add as the step succeeding", async () => {
+    // The pre-check can still miss (response-shape drift, an item past the
+    // page limit) — ASC saying the item is already in this submission is
+    // exactly what step 5 set out to make true, so the flow continues to
+    // the final confirm instead of stalling the release.
+    const { fetch, calls } = queueFetch([
+      { status: 200, body: { data: [{ id: 'build-1' }] } }, // builds lookup
+      { status: 200, body: { data: [{ id: 'ver-1' }] } }, // version exists
+      { status: 200, body: {} }, // attach build
+      { status: 200, body: { data: [{ id: 'loc-1', attributes: { whatsNew: 'Bug fixes and improvements.' } }] } },
+      { status: 200, body: { data: [{ id: 'sub-1' }] } }, // open draft submission
+      { status: 200, body: { data: [{ relationships: {} }] } }, // items list missing relationship data
+      { status: 409, body: '{"errors":[{"status":"409","code":"ENTITY_ERROR.RELATIONSHIP.INVALID.NOT_ALLOWED","title":"appStoreVersion with id ver-1 was already added to this reviewSubmission."}]}' },
+      { status: 200, body: {} }, // PATCH submitted:true
+    ])
+    const result = await createSafariAdapter(fetch).submit(await creds(), { storeItemId: APP_ID }, zip, '1.2.0', 'macos')
+    expect(result.submitted).toBe(true)
+    const patch = JSON.parse(String(calls[7]!.init?.body))
+    expect(patch.data.attributes.submitted).toBe(true)
   })
 
   it('surfaces a definite ASC rejection as a failure detail (not waiting)', async () => {

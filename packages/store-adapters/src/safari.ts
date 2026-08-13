@@ -228,7 +228,14 @@ async function submit(
   }
 
   // 5. Add the version as a submission item (skip if a retry already did).
-  const itemsRes = await fetchImpl(`${API_BASE}/v1/reviewSubmissions/${submission.id}/items?limit=50`, {
+  //    `include=appStoreVersion` is load-bearing: without it ASC omits
+  //    `relationships.appStoreVersion.data` entirely from the items list, so
+  //    the already-added check silently never matched and a resumed submit
+  //    re-added the item — a 409 "was already added to this
+  //    reviewSubmission" that stalled a real release (Twitter Filter macOS
+  //    v0.0.66, 2026-08-13: the first attempt died after this step, and
+  //    every resume then tripped over its own leftover item).
+  const itemsRes = await fetchImpl(`${API_BASE}/v1/reviewSubmissions/${submission.id}/items?limit=50&include=appStoreVersion`, {
     headers: { authorization },
   })
   if (!itemsRes.ok) return fail('submission items lookup', itemsRes)
@@ -248,7 +255,15 @@ async function submit(
         },
       }),
     })
-    if (!addItemRes.ok) return fail('submission item add', addItemRes)
+    // ASC's own "already added to this reviewSubmission" 409 IS the outcome
+    // step 5 wants — belt for the case where the pre-check misses again
+    // (response-shape drift, >50 items). Any other add failure is real.
+    if (!addItemRes.ok) {
+      const body = await addItemRes.text()
+      if (!(addItemRes.status === 409 && body.includes('already added'))) {
+        return { submitted: false, detail: `submission item add failed (${addItemRes.status}): ${truncate(body)}` }
+      }
+    }
   }
 
   // 6. Submit for review.
