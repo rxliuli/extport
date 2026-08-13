@@ -91,6 +91,19 @@ describe('safari adapter — getState', () => {
     expect(state).toEqual({ live: { known: true, version: '1.0.0' }, inReview: { known: true, version: undefined }, reviewStatus: undefined, rejectionReason: undefined })
     expect(calls[0]!.url).not.toContain('PREPARE_FOR_SUBMISSION')
   })
+
+  it('does not report a READY_FOR_REVIEW version as in review — the submission has not been confirmed yet', async () => {
+    // The state a submit() that died between build-attach and the final
+    // confirm leaves behind (Twitter Filter macOS v0.0.66, 2026-08-13).
+    // Reporting it as in-review deadlocks the queued row: decide() waits
+    // forever for a review Apple was never asked to start.
+    const { fetch, calls } = queueFetch([
+      { status: 200, body: { data: [version('1.1.0', 'READY_FOR_REVIEW'), version('1.0.0', 'READY_FOR_DISTRIBUTION')] } },
+    ])
+    const state = await createSafariAdapter(fetch).getState(await creds(), { storeItemId: APP_ID })
+    expect(state).toEqual({ live: { known: true, version: '1.0.0' }, inReview: { known: true, version: undefined }, reviewStatus: undefined, rejectionReason: undefined })
+    expect(calls[0]!.url).not.toContain('READY_FOR_REVIEW')
+  })
 })
 
 describe('safari adapter — withdraw', () => {

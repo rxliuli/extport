@@ -4,13 +4,19 @@ import { DEFAULT_RETRY, fetchWithRetry, truncate, type FetchLike, type RetryOpti
 
 const API_BASE = 'https://api.appstoreconnect.apple.com'
 
-// PREPARE_FOR_SUBMISSION is deliberately excluded — it's just an editable
-// draft (exactly what our own submit() creates before a reviewSubmission
-// succeeds), not a genuine Apple review in progress. Bucketing it as
-// "in review" would make the very draft a failed submit() leaves behind
-// look like a success on the next tick — decide() would then stop
-// retrying forever while the version sits untouched at Apple.
-const IN_REVIEW_STATES = new Set(['READY_FOR_REVIEW', 'WAITING_FOR_REVIEW', 'IN_REVIEW', 'WAITING_FOR_EXPORT_COMPLIANCE'])
+// PREPARE_FOR_SUBMISSION and READY_FOR_REVIEW are deliberately excluded —
+// both are editable pre-submission states (exactly what our own submit()
+// passes through before step 6 confirms the reviewSubmission), not a
+// genuine Apple review in progress. Bucketing either as "in review" would
+// make the very draft a failed submit() leaves behind look like a success
+// on the next tick — decide() would then stop retrying forever while the
+// version sits untouched at Apple. Confirmed for READY_FOR_REVIEW against
+// a real incident (Twitter Filter macOS v0.0.66, 2026-08-13): a submit()
+// died mid-flight after attaching the build but before confirming the
+// submission, ASC showed the version "Ready for Review" indefinitely, and
+// the next tick recorded it as in_review instead of resuming the submit —
+// a deadlock only a manual row flip could exit.
+const IN_REVIEW_STATES = new Set(['WAITING_FOR_REVIEW', 'IN_REVIEW', 'WAITING_FOR_EXPORT_COMPLIANCE'])
 const REJECTED_STATES = new Set(['REJECTED', 'METADATA_REJECTED', 'INVALID_BINARY', 'DEVELOPER_REJECTED'])
 const LIVE_STATES = new Set([
   'READY_FOR_DISTRIBUTION',
