@@ -95,9 +95,20 @@ function safeKey(version: string): string {
   return `v_${version.replace(/[^a-zA-Z0-9]/g, '_')}`
 }
 
-/** Per-domain-day dau per version (top N by latest-day usage, the tail as "other"), 0-filled. */
+/**
+ * Per-domain-day dau per version (top N by latest-day usage, the tail as
+ * "other"). Each series is drawn only across its own lifespan — from its
+ * first nonzero day to its last: before that span the version didn't exist
+ * yet, after it the version is fully superseded, and painting a zero
+ * stroke along the baseline for either reads as data where there is none.
+ * Days outside the span are null (recharts draws nothing and its
+ * tooltip's default filterNull drops them); days INSIDE the span are
+ * 0-filled so a mid-life quiet day stays an honest dip and the area
+ * geometry stays continuous. The trim self-corrects daily: a version that
+ * pings again tomorrow just extends its own span.
+ */
 function versionSeries(rows: AnalyticsSeriesRow[], domain: string[]): {
-  data: Record<string, string | number>[]
+  data: Record<string, string | number | null>[]
   series: { key: string; label: string }[]
 } {
   // Series membership must match the plotted metric. This chart draws dau,
@@ -131,10 +142,34 @@ function versionSeries(rows: AnalyticsSeriesRow[], domain: string[]): {
   const series = [...top].sort(compareVersions).map((version) => ({ key: safeKey(version), label: version }))
   if (hasOther) series.unshift({ key: 'other', label: 'other' })
 
-  const days = new Map<string, Record<string, string | number>>(
-    domain.map((date) => [date, { date, ...Object.fromEntries(series.map(({ key }) => [key, 0])) }]),
+  const firstActive = new Map<string, string>()
+  const lastActive = new Map<string, string>()
+  for (const row of rows) {
+    if (row.dau <= 0) continue
+    const key = top.includes(row.dimValue) ? safeKey(row.dimValue) : 'other'
+    const first = firstActive.get(key)
+    if (first === undefined || row.date < first) firstActive.set(key, row.date)
+    const last = lastActive.get(key)
+    if (last === undefined || row.date > last) lastActive.set(key, row.date)
+  }
+
+  const days = new Map<string, Record<string, string | number | null>>(
+    domain.map((date) => [
+      date,
+      {
+        date,
+        ...Object.fromEntries(
+          series.map(({ key }) => {
+            const first = firstActive.get(key)
+            const last = lastActive.get(key)
+            return [key, first !== undefined && date >= first && date <= last! ? 0 : null]
+          }),
+        ),
+      },
+    ]),
   )
   for (const row of rows) {
+    if (row.dau <= 0) continue
     const day = days.get(row.date)
     if (!day) continue
     const key = top.includes(row.dimValue) ? safeKey(row.dimValue) : 'other'
