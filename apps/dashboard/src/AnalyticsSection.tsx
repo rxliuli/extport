@@ -260,7 +260,7 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
               <CartesianGrid vertical={false} />
               <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={shortDate} minTickGap={32} />
               <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} />
-              <ChartTooltip content={<ChartTooltipContent />} />
+              <ChartTooltip content={<ChartTooltipContent hideZero />} />
               <ChartLegend content={<ChartLegendContent />} />
               {activity.browsers.map((browser) => (
                 <Line
@@ -330,7 +330,7 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
               <CartesianGrid vertical={false} />
               <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={shortDate} minTickGap={32} />
               <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} />
-              <ChartTooltip content={<ChartTooltipContent />} />
+              <ChartTooltip content={<ChartTooltipContent hideZero />} />
               {versions.series.map(({ key }) => (
                 <Area
                   key={key}
