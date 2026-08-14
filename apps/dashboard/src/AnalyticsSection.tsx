@@ -11,27 +11,12 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { analyticsOverviewQuery, analyticsSeriesQuery } from '@/queries'
 import { useQuery } from '@tanstack/react-query'
-import type { ComponentProps } from 'react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, Line, LineChart, XAxis, YAxis } from 'recharts'
 
 // The cross-store usage view — daily pings from @extport/sdk/analytics,
 // rolled up server-side. Departures live on the last-seen day and are only
 // written once confirmed (30 days of silence), so that chart's trailing
 // month is legitimately empty. See docs/analytics-design.md.
-
-// For the entity-series charts (versions, browsers): they zero-fill so the
-// line/area geometry stays continuous, and recharts passes those fill
-// values straight into the tooltip — every dead version occupied a
-// permanent "0" row on every hovered day. The tooltip answers "who is
-// active on this date", so drop the zero rows before delegating; a
-// series' full history stays readable on the days it was alive. Metric
-// charts (installs/departures) keep the plain tooltip — "0 installs
-// today" is information, not filler. Deliberately a wrapper here rather
-// than a patch inside ui/chart.tsx: that file is shadcn-generated and any
-// component update would overwrite it.
-function ZeroFilteredTooltipContent(props: ComponentProps<typeof ChartTooltipContent>) {
-  return <ChartTooltipContent {...props} payload={props.payload?.filter((item) => item.value !== 0)} />
-}
 
 // Every chart below sets isAnimationActive={false}. daily/dauByBrowser/
 // versions are recomputed fresh on every render (not memoized), so any
@@ -115,6 +100,18 @@ function versionSeries(rows: AnalyticsSeriesRow[], domain: string[]): {
   data: Record<string, string | number>[]
   series: { key: string; label: string }[]
 } {
+  // Series membership must match the plotted metric. This chart draws dau,
+  // but rollup rows also exist for wau-only days (the 7-day tail after a
+  // version's last active day) — "any row in window" would admit a version
+  // whose dau is zero across the entire window, rendering a permanently
+  // flat baseline series that spends a top-N slot and a legend row on
+  // nothing. Real case: a probe ping's wau echo kept a version ("1.0") no
+  // user ever ran in the chart for weeks. Versions with dau somewhere in
+  // the window keep their zero-filled dead days below — that fill is what
+  // lets the area geometry collapse continuously to the baseline.
+  const windowDau = new Map<string, number>()
+  for (const row of rows) windowDau.set(row.dimValue, (windowDau.get(row.dimValue) ?? 0) + row.dau)
+  rows = rows.filter((r) => (windowDau.get(r.dimValue) ?? 0) > 0)
   if (rows.length === 0) return { data: [], series: [] }
   const lastDate = rows.reduce((max, r) => (r.date > max ? r.date : max), '')
   const latestUsage = new Map<string, number>()
@@ -275,7 +272,7 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
               <CartesianGrid vertical={false} />
               <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={shortDate} minTickGap={32} />
               <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} />
-              <ChartTooltip content={<ZeroFilteredTooltipContent />} />
+              <ChartTooltip content={<ChartTooltipContent />} />
               <ChartLegend content={<ChartLegendContent />} />
               {activity.browsers.map((browser) => (
                 <Line
@@ -345,7 +342,7 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
               <CartesianGrid vertical={false} />
               <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={shortDate} minTickGap={32} />
               <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} />
-              <ChartTooltip content={<ZeroFilteredTooltipContent />} />
+              <ChartTooltip content={<ChartTooltipContent />} />
               {versions.series.map(({ key }) => (
                 <Area
                   key={key}
