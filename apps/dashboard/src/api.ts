@@ -184,11 +184,22 @@ export interface AnalyticsSeriesRow {
   mau: number
 }
 
+/** One breakdown slice; `value: null` is the folded "Other" tail. */
+export interface DimensionShare {
+  value: string | null
+  wau: number
+  share: number
+}
+
 export interface AnalyticsOverview {
   /** Latest-day rolling 7-day actives — the one activity figure every surface shows. */
   weeklyActives: number
   allTimeInstalls: number
   versions: { version: string; weeklyUsers: number }[]
+  /** Ranked server-side off the same latest day as the figures above, so the cards can't disagree with them. */
+  country: DimensionShare[]
+  language: DimensionShare[]
+  os: DimensionShare[]
 }
 
 /** Same idea as AnalyticsOverview but summed across every extension — no version breakdown, see the API's /v1/analytics/fleet/overview. */

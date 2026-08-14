@@ -308,6 +308,9 @@ describe('analytics rollup', () => {
       weeklyActives: number
       allTimeInstalls: number
       versions: { version: string; weeklyUsers: number }[]
+      country: { value: string | null; wau: number; share: number }[]
+      language: { value: string | null; wau: number; share: number }[]
+      os: { value: string | null; wau: number; share: number }[]
     }
     // Derived from analytics_daily (the rollup), not live install state —
     // see the "fleet-wide analytics" describe block below for the case
@@ -323,6 +326,20 @@ describe('analytics rollup', () => {
     // never the >100% the old dau-over-mau-snapshot math could produce.
     expect(overview.versions.find((v) => v.version === '1.0.1')).toMatchObject({ weeklyUsers: 2 })
     expect(overview.versions.find((v) => v.version === '1.0.0')).toMatchObject({ weeklyUsers: 1 })
+
+    // The breakdown cards read these instead of three /series requests, and
+    // they rank off the same latest day as the figures above — so the shares
+    // are over that day's wau, not the whole window.
+    expect(overview.country).toEqual([
+      { value: 'de', wau: 1, share: 1 / 3 },
+      { value: 'fr', wau: 1, share: 1 / 3 },
+      { value: 'us', wau: 1, share: 1 / 3 },
+    ])
+    expect(overview.os.map((s) => s.value).sort()).toEqual(['linux', 'macos', 'windows'])
+    // Shares are within a dimension, so each set sums to 1.
+    for (const dim of [overview.country, overview.language, overview.os]) {
+      expect(dim.reduce((sum, s) => sum + s.share, 0)).toBeCloseTo(1)
+    }
 
     // Auth + scoping.
     expect((await request(`/api/v1/analytics/series?extension=${extension.id}`)).status).toBe(401)

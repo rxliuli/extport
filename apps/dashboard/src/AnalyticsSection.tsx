@@ -1,4 +1,4 @@
-import type { AnalyticsSeriesRow, Extension } from '@/api'
+import type { AnalyticsSeriesRow, DimensionShare, Extension } from '@/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/extra/card'
 import {
   ChartContainer,
@@ -191,28 +191,6 @@ function versionSeries(rows: AnalyticsSeriesRow[], domain: string[]): {
 
 export const shortDate = (value: string) => value.slice(5)
 
-/**
- * Latest-day WAU per dimension value, top N with the tail folded into an
- * Other row (value: null). Reads wau, not dau, so a value active this week
- * but quiet yesterday still shows — same semantics as the CWS console's
- * "weekly users by" charts.
- */
-export function dimensionShares(rows: AnalyticsSeriesRow[], topN = 5): { value: string | null; wau: number; share: number }[] {
-  const lastDate = rows.reduce((max, r) => (r.date > max ? r.date : max), '')
-  const byValue = new Map<string, number>()
-  for (const row of rows) {
-    if (row.date === lastDate && row.wau > 0) byValue.set(row.dimValue, (byValue.get(row.dimValue) ?? 0) + row.wau)
-  }
-  const ranked = [...byValue.entries()].sort((a, b) => b[1] - a[1])
-  const total = ranked.reduce((sum, [, wau]) => sum + wau, 0)
-  if (total === 0) return []
-  const top = ranked.slice(0, topN)
-  const otherWau = total - top.reduce((sum, [, wau]) => sum + wau, 0)
-  const shares: { value: string | null; wau: number; share: number }[] = top.map(([value, wau]) => ({ value, wau, share: wau / total }))
-  if (otherWau > 0) shares.push({ value: null, wau: otherWau, share: otherWau / total })
-  return shares
-}
-
 // Human labels via Intl.DisplayNames — the codes themselves stay raw in
 // the rollup ('us', 'en-us'); presentation is the only place names live.
 const regionNames = new Intl.DisplayNames(['en'], { type: 'region' })
@@ -251,9 +229,6 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
   const { data: overview } = useQuery(analyticsOverviewQuery(extension.id))
   const { data: totalRows = [], isPending } = useQuery(analyticsSeriesQuery(extension.id, 'total'))
   const { data: versionRows = [] } = useQuery(analyticsSeriesQuery(extension.id, 'version'))
-  const { data: countryRows = [] } = useQuery(analyticsSeriesQuery(extension.id, 'country', 7))
-  const { data: languageRows = [] } = useQuery(analyticsSeriesQuery(extension.id, 'language', 7))
-  const { data: osRows = [] } = useQuery(analyticsSeriesQuery(extension.id, 'os', 7))
 
   const domain = lastNDays(30)
   const daily = byDate(totalRows, domain)
@@ -336,9 +311,9 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
       </Card>
 
       <div className="grid gap-6 *:min-w-0 lg:grid-cols-3">
-        <BreakdownCard title="Weekly users by country" rows={countryRows} format={countryLabel} />
-        <BreakdownCard title="Weekly users by language" rows={languageRows} format={languageLabel} />
-        <BreakdownCard title="Weekly users by OS" rows={osRows} format={osLabel} />
+        <BreakdownCard title="Weekly users by country" shares={overview?.country ?? []} format={countryLabel} />
+        <BreakdownCard title="Weekly users by language" shares={overview?.language ?? []} format={languageLabel} />
+        <BreakdownCard title="Weekly users by OS" shares={overview?.os ?? []} format={osLabel} />
       </div>
 
       <Card>
@@ -411,14 +386,14 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
 
 function BreakdownCard({
   title,
-  rows,
+  shares,
   format,
 }: {
   title: string
-  rows: AnalyticsSeriesRow[]
+  shares: DimensionShare[]
   format: (value: string) => string
 }) {
-  const data = dimensionShares(rows).map((s) => ({
+  const data = shares.map((s) => ({
     name: s.value === null ? 'Other' : format(s.value),
     wau: s.wau,
     share: `${Math.round(s.share * 100)}%`,

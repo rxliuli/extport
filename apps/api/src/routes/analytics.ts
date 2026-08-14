@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import { describeRoute, validator } from 'hono-openapi'
@@ -120,6 +120,40 @@ analyticsPublicRoutes.post(
 export const analyticsTenantRoutes = new Hono<AppEnv>()
 analyticsTenantRoutes.use('*', requireAuth, requireActiveTenant)
 
+interface DimensionRow {
+  value: string
+  wau: number
+}
+
+/**
+ * Top values by weekly actives, with the tail folded into a single `null`
+ * entry — the shape the breakdown cards render. Shares are computed within
+ * the dimension, so they always sum to 1 even though a value can appear in
+ * several dimensions.
+ *
+ * Zero-wau rows are dropped rather than ranked: a dimension value seen
+ * earlier in the week but not in the current window still has a row (the
+ * rollup upserts wau onto rows whose dau is 0), and listing it at 0% would
+ * imply the card is showing something it isn't.
+ */
+export interface DimensionShare {
+  /** null is the folded tail ("Other"), never a real dimension value. */
+  value: string | null
+  wau: number
+  share: number
+}
+
+export function topShares(rows: DimensionRow[], topN = 5): DimensionShare[] {
+  const ranked = rows.filter((r) => r.wau > 0).sort((a, b) => b.wau - a.wau)
+  const total = ranked.reduce((sum, r) => sum + r.wau, 0)
+  if (total === 0) return []
+  const top = ranked.slice(0, topN)
+  const otherWau = total - top.reduce((sum, r) => sum + r.wau, 0)
+  const shares: DimensionShare[] = top.map((r) => ({ value: r.value, wau: r.wau, share: r.wau / total }))
+  if (otherWau > 0) shares.push({ value: null, wau: otherWau, share: otherWau / total })
+  return shares
+}
+
 async function ownedExtension(c: Context<AppEnv>) {
   const db = c.get('db')
   const tenant = c.get('tenant')
@@ -218,10 +252,38 @@ analyticsTenantRoutes.get(
       .groupBy(analyticsDaily.dimValue)
       .orderBy(sql`sum(${analyticsDaily.wau}) desc`)
 
+    // The breakdown cards are a snapshot, not a series: each shows the share
+    // of weekly actives per value on the latest day, because wau is already a
+    // rolling 7-day figure. They used to be three /series?dim= reads of a
+    // week each — ~3,500 rows over the wire for ~18 that survived, since the
+    // client kept only the last day. Ranking here also pins all three cards
+    // and the headline to one `latest.date`, which separate requests couldn't
+    // guarantee across a rollup.
+    const breakdownRows = await db
+      .select({ dim: analyticsDaily.dim, value: analyticsDaily.dimValue, wau: sql<number>`sum(${analyticsDaily.wau})` })
+      .from(analyticsDaily)
+      .where(
+        and(
+          eq(analyticsDaily.extensionId, extension.id),
+          inArray(analyticsDaily.dim, ['country', 'language', 'os']),
+          eq(analyticsDaily.date, latest.date),
+        ),
+      )
+      .groupBy(analyticsDaily.dim, analyticsDaily.dimValue)
+
+    const grouped = { country: [] as DimensionRow[], language: [] as DimensionRow[], os: [] as DimensionRow[] }
+    for (const row of breakdownRows) {
+      const bucket = grouped[row.dim as keyof typeof grouped]
+      if (bucket) bucket.push({ value: row.value, wau: row.wau })
+    }
+
     return c.json({
       weeklyActives: active?.weeklyActives ?? 0,
       allTimeInstalls: allTime?.allTimeInstalls ?? 0,
       versions,
+      country: topShares(grouped.country),
+      language: topShares(grouped.language),
+      os: topShares(grouped.os),
     })
   },
 )
