@@ -120,6 +120,37 @@ analyticsPublicRoutes.post(
 export const analyticsTenantRoutes = new Hono<AppEnv>()
 analyticsTenantRoutes.use('*', requireAuth, requireActiveTenant)
 
+/**
+ * Seconds until safely past the next nightly rollup — everything these
+ * endpoints read comes from analytics_daily, which changes only when that
+ * cron runs (00:15 UTC, ANALYTICS_ROLLUP_CRON), so a response stays correct
+ * until then.
+ *
+ * The margin past 00:15 is the point. Expiring exactly at 00:15 means a
+ * request landing while the rollup is still running re-reads yesterday's
+ * numbers and caches them for another full day — turning a one-minute delay
+ * into a day-long staleness. Between midnight and 00:30 the answer is
+ * deliberately short-lived instead, since whether the rollup has finished is
+ * unknowable from here.
+ */
+export function secondsUntilNextRollup(now: Date = new Date()): number {
+  const next = new Date(now)
+  next.setUTCHours(0, 30, 0, 0)
+  if (next <= now) next.setUTCDate(next.getUTCDate() + 1)
+  return Math.ceil((next.getTime() - now.getTime()) / 1000)
+}
+
+// `private` is load-bearing: these are per-tenant figures, and a shared
+// cache holding them would serve one tenant's numbers to another.
+analyticsTenantRoutes.use('*', async (c, next) => {
+  await next()
+  // Only successful reads are cacheable — a 401/404 must not be remembered,
+  // least of all for a day.
+  if (c.res.status === 200) {
+    c.res.headers.set('cache-control', `private, max-age=${secondsUntilNextRollup()}`)
+  }
+})
+
 interface DimensionRow {
   value: string
   wau: number

@@ -3,6 +3,7 @@ import { env } from 'cloudflare:test'
 import { and, eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { runAnalyticsRollup } from '../src/analytics/rollup'
+import { secondsUntilNextRollup, topShares } from '../src/routes/analytics'
 import type { WaeQuery } from '../src/analytics/wae'
 import { analyticsDaily, analyticsInstalls, analyticsPings } from '../src/db'
 import { addDays, isoDay } from '../src/lib/dates'
@@ -451,5 +452,53 @@ describe('fleet-wide analytics', () => {
       await request('/api/v1/analytics/fleet/extensions', { headers: { cookie: sessionCookie } })
     ).json()) as { extensions: unknown[] }
     expect(list.extensions).toEqual([])
+  })
+})
+
+describe('analytics caching', () => {
+  // The rollup writes at 00:15 UTC; responses stay valid until then.
+  it('caches until safely past the next rollup', () => {
+    const midMorning = new Date('2026-08-14T11:00:00Z')
+    // 13h30m to tomorrow 00:30.
+    expect(secondsUntilNextRollup(midMorning)).toBe(13 * 3600 + 30 * 60)
+  })
+
+  // Between midnight and 00:30 it is unknowable from here whether the rollup
+  // has finished, so the answer expires quickly instead of pinning possibly
+  // pre-rollup numbers for a whole day.
+  it('keeps the answer short-lived while the rollup may still be running', () => {
+    expect(secondsUntilNextRollup(new Date('2026-08-14T00:20:00Z'))).toBe(10 * 60)
+    expect(secondsUntilNextRollup(new Date('2026-08-14T00:31:00Z'))).toBe(24 * 3600 - 60)
+  })
+
+  it('marks tenant analytics private and never caches an error', async () => {
+    const { sessionCookie, extension } = await setup()
+    const ok = await request(`/api/v1/analytics/overview?extension=${extension.id}`, { headers: { cookie: sessionCookie } })
+    expect(ok.status).toBe(200)
+    expect(ok.headers.get('cache-control')).toMatch(/^private, max-age=\d+$/)
+
+    // Per-tenant figures must never reach a shared cache.
+    expect(ok.headers.get('cache-control')).not.toContain('public')
+
+    const unauthorized = await request(`/api/v1/analytics/overview?extension=${extension.id}`)
+    expect(unauthorized.status).toBe(401)
+    expect(unauthorized.headers.get('cache-control')).toBeNull()
+  })
+})
+
+describe('topShares', () => {
+  it('folds everything past the top N into a single Other entry', () => {
+    const rows = [1, 2, 3, 4, 5, 6, 7].map((n) => ({ value: `v${n}`, wau: n }))
+    const shares = topShares(rows, 5)
+    expect(shares.map((s) => s.value)).toEqual(['v7', 'v6', 'v5', 'v4', 'v3', null])
+    // 1 + 2 = the tail; shares are within the dimension, so they sum to 1.
+    expect(shares.at(-1)).toMatchObject({ value: null, wau: 3 })
+    expect(shares.reduce((sum, s) => sum + s.share, 0)).toBeCloseTo(1)
+  })
+
+  it('leaves out values with no weekly actives rather than ranking them at 0%', () => {
+    // The rollup upserts wau onto rows whose dau is 0, so these rows exist.
+    expect(topShares([{ value: 'a', wau: 3 }, { value: 'b', wau: 0 }])).toEqual([{ value: 'a', wau: 3, share: 1 }])
+    expect(topShares([{ value: 'a', wau: 0 }])).toEqual([])
   })
 })
