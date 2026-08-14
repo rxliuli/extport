@@ -128,7 +128,6 @@ function ChartTooltipContent({
   color,
   nameKey,
   labelKey,
-  hideZero = false,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
   React.ComponentProps<"div"> & {
     hideLabel?: boolean
@@ -136,12 +135,6 @@ function ChartTooltipContent({
     indicator?: "line" | "dot" | "dashed"
     nameKey?: string
     labelKey?: string
-    // For charts whose series are entities (versions, browsers) rather than
-    // metrics: the tooltip answers "who is active on this date", and a
-    // zero-filled series isn't part of that answer — the zeros exist only so
-    // the line/area geometry stays continuous. Metric charts (installs,
-    // departures) keep their zeros: "0 installs today" is information.
-    hideZero?: boolean
   } & Omit<
     RechartsPrimitive.DefaultTooltipContentProps<
       TooltipValueType,
@@ -191,12 +184,7 @@ function ChartTooltipContent({
     return null
   }
 
-  const visiblePayload = hideZero ? payload.filter((item) => item.value !== 0) : payload
-  if (!visiblePayload.length) {
-    return null
-  }
-
-  const nestLabel = visiblePayload.length === 1 && indicator !== "dot"
+  const nestLabel = payload.length === 1 && indicator !== "dot"
 
   return (
     <div
@@ -207,7 +195,7 @@ function ChartTooltipContent({
     >
       {!nestLabel ? tooltipLabel : null}
       <div className="grid gap-1.5">
-        {visiblePayload
+        {payload
           .filter((item) => item.type !== "none")
           .map((item, index) => {
             const key = `${nameKey ?? item.name ?? item.dataKey ?? "value"}`

@@ -11,12 +11,27 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { analyticsOverviewQuery, analyticsSeriesQuery } from '@/queries'
 import { useQuery } from '@tanstack/react-query'
+import type { ComponentProps } from 'react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, Line, LineChart, XAxis, YAxis } from 'recharts'
 
 // The cross-store usage view — daily pings from @extport/sdk/analytics,
 // rolled up server-side. Departures live on the last-seen day and are only
 // written once confirmed (30 days of silence), so that chart's trailing
 // month is legitimately empty. See docs/analytics-design.md.
+
+// For the entity-series charts (versions, browsers): they zero-fill so the
+// line/area geometry stays continuous, and recharts passes those fill
+// values straight into the tooltip — every dead version occupied a
+// permanent "0" row on every hovered day. The tooltip answers "who is
+// active on this date", so drop the zero rows before delegating; a
+// series' full history stays readable on the days it was alive. Metric
+// charts (installs/departures) keep the plain tooltip — "0 installs
+// today" is information, not filler. Deliberately a wrapper here rather
+// than a patch inside ui/chart.tsx: that file is shadcn-generated and any
+// component update would overwrite it.
+function ZeroFilteredTooltipContent(props: ComponentProps<typeof ChartTooltipContent>) {
+  return <ChartTooltipContent {...props} payload={props.payload?.filter((item) => item.value !== 0)} />
+}
 
 // Every chart below sets isAnimationActive={false}. daily/dauByBrowser/
 // versions are recomputed fresh on every render (not memoized), so any
@@ -260,7 +275,7 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
               <CartesianGrid vertical={false} />
               <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={shortDate} minTickGap={32} />
               <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} />
-              <ChartTooltip content={<ChartTooltipContent hideZero />} />
+              <ChartTooltip content={<ZeroFilteredTooltipContent />} />
               <ChartLegend content={<ChartLegendContent />} />
               {activity.browsers.map((browser) => (
                 <Line
@@ -330,7 +345,7 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
               <CartesianGrid vertical={false} />
               <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={shortDate} minTickGap={32} />
               <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} />
-              <ChartTooltip content={<ChartTooltipContent hideZero />} />
+              <ChartTooltip content={<ZeroFilteredTooltipContent />} />
               {versions.series.map(({ key }) => (
                 <Area
                   key={key}
