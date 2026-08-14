@@ -1,6 +1,6 @@
 import { ApiError, api } from '@/api'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/extra/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PortalShell } from '@/PortalShell'
 import { useQuery } from '@tanstack/react-query'

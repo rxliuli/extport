@@ -1,3 +1,9 @@
+// Forked from components/ui/card (shadcn) and customized: mobile-first
+// responsive padding (px-4/gap-4/py-4 below sm). Customized components
+// live in extra/ precisely so shadcn updates can never overwrite them —
+// ui/ stays byte-identical with its generated form and regenerable at
+// any time. A ui/card.tsx reappearing there (pulled in by some future
+// `shadcn add`) is dead stock code; imports must keep pointing here.
 import * as React from "react"
 
 import { cn } from "@/lib/utils"

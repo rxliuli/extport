@@ -1,5 +1,5 @@
 import type { AnalyticsSeriesRow, Extension } from '@/api'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/extra/card'
 import {
   ChartContainer,
   ChartLegend,
