@@ -97,10 +97,11 @@ function safeKey(version: string): string {
 
 /**
  * Per-domain-day dau per version (top N by latest-day usage, the tail as
- * "other"). Each series is drawn only across its own lifespan — from its
- * first nonzero day to its last: before that span the version didn't exist
- * yet, after it the version is fully superseded, and painting a zero
- * stroke along the baseline for either reads as data where there is none.
+ * "other"). Each series is drawn only across its own lifespan — one day
+ * before its first nonzero day to one day after its last: before that the
+ * version didn't exist yet, after it the version is fully superseded, and
+ * painting a zero stroke along the baseline for either reads as data where
+ * there is none.
  * Days outside the span are null (recharts draws nothing and its
  * tooltip's default filterNull drops them); days INSIDE the span are
  * 0-filled so a mid-life quiet day stays an honest dip and the area
@@ -142,27 +143,37 @@ function versionSeries(rows: AnalyticsSeriesRow[], domain: string[]): {
   const series = [...top].sort(compareVersions).map((version) => ({ key: safeKey(version), label: version }))
   if (hasOther) series.unshift({ key: 'other', label: 'other' })
 
-  const firstActive = new Map<string, string>()
-  const lastActive = new Map<string, string>()
+  // The span is padded one day on each side: a version born yesterday has a
+  // single data day, and an unpadded single-point series has nothing to
+  // connect — recharts renders a floating dot (the exact failure the
+  // zero-fill's "never a floating point" rule exists to prevent; shipped
+  // unpadded once, and the first release day of BilingualTube v0.0.66
+  // rendered as a lone dot at the window edge). The leading zero gives every
+  // birth a visible ramp up from the baseline, the trailing zero closes a
+  // dead version's band down to it instead of cutting off mid-air.
+  const domainIndex = new Map(domain.map((date, i) => [date, i]))
+  const spanStart = new Map<string, number>()
+  const spanEnd = new Map<string, number>()
   for (const row of rows) {
     if (row.dau <= 0) continue
+    const idx = domainIndex.get(row.date)
+    if (idx === undefined) continue
     const key = top.includes(row.dimValue) ? safeKey(row.dimValue) : 'other'
-    const first = firstActive.get(key)
-    if (first === undefined || row.date < first) firstActive.set(key, row.date)
-    const last = lastActive.get(key)
-    if (last === undefined || row.date > last) lastActive.set(key, row.date)
+    const start = spanStart.get(key)
+    if (start === undefined || idx - 1 < start) spanStart.set(key, Math.max(0, idx - 1))
+    const end = spanEnd.get(key)
+    if (end === undefined || idx + 1 > end) spanEnd.set(key, Math.min(domain.length - 1, idx + 1))
   }
 
   const days = new Map<string, Record<string, string | number | null>>(
-    domain.map((date) => [
+    domain.map((date, i) => [
       date,
       {
         date,
         ...Object.fromEntries(
           series.map(({ key }) => {
-            const first = firstActive.get(key)
-            const last = lastActive.get(key)
-            return [key, first !== undefined && date >= first && date <= last! ? 0 : null]
+            const start = spanStart.get(key)
+            return [key, start !== undefined && i >= start && i <= spanEnd.get(key)! ? 0 : null]
           }),
         ),
       },
