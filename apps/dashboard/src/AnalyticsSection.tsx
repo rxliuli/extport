@@ -11,6 +11,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { analyticsOverviewQuery, analyticsSeriesQuery } from '@/queries'
 import { useQuery } from '@tanstack/react-query'
+import type { ComponentProps } from 'react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, Line, LineChart, XAxis, YAxis } from 'recharts'
 
 // The cross-store usage view — daily pings from @extport/sdk/analytics,
@@ -39,6 +40,22 @@ export function lastNDays(n: number): string[] {
     days.push(new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10))
   }
   return days
+}
+
+// The installs/departures chart stacks its two bars into one centered
+// diverging column (installs up, departures negated downward). Two separate
+// <Bar>s would split each day's slot side by side — and since departures
+// are zero for the trailing month by design, the visible installs bar sat
+// permanently in the left half of its slot, misaligned under the hover
+// cursor. The negation is presentation-only, so the tooltip maps values
+// back through abs before delegating.
+function AbsTooltipContent(props: ComponentProps<typeof ChartTooltipContent>) {
+  return (
+    <ChartTooltipContent
+      {...props}
+      payload={props.payload?.map((item) => (typeof item.value === 'number' ? { ...item, value: Math.abs(item.value) } : item))}
+    />
+  )
 }
 
 /** Collapse per-browser rows into one point per domain day (installs/departures bars). */
@@ -191,6 +208,30 @@ function versionSeries(rows: AnalyticsSeriesRow[], domain: string[]): {
 
 export const shortDate = (value: string) => value.slice(5)
 
+// Recharts needs the YAxis width as a number before layout — it cannot size
+// the axis to its tick content, which is why the breakdown cards used to
+// pin the label column to 104px and ellipsize at 15 characters ("English
+// (Unite…"). Measure the strings that will actually render instead, with
+// the font the ticks use (text-xs on the app's default sans stack), and
+// size the axis to the widest. The char cap keeps a pathological label
+// from eating the whole chart; anything under it now displays in full.
+const TICK_FONT = '12px -apple-system, system-ui, "Segoe UI", Roboto, sans-serif'
+const truncateTick = (value: string) => (value.length > 24 ? `${value.slice(0, 23)}…` : value)
+let tickCanvas: CanvasRenderingContext2D | null = null
+function yAxisWidth(labels: string[]): number {
+  tickCanvas ??= document.createElement('canvas').getContext('2d')
+  if (!tickCanvas) return 104
+  tickCanvas.font = TICK_FONT
+  const widest = labels.reduce((max, label) => Math.max(max, tickCanvas!.measureText(label).width), 0)
+  // Two corrections, both required to keep the longest label on one line:
+  // canvas measurement runs a few percent narrow of the real SVG text at
+  // this size (hence the multiplier), and recharts spends ~25px of the
+  // axis width on tick offset/margin before the text gets any of it
+  // (hence the constant). Overshooting costs nothing — labels are
+  // right-aligned, so slack disappears into the left edge.
+  return Math.ceil(widest * 1.05) + 30
+}
+
 // Human labels via Intl.DisplayNames — the codes themselves stay raw in
 // the rollup ('us', 'en-us'); presentation is the only place names live.
 const regionNames = new Intl.DisplayNames(['en'], { type: 'region' })
@@ -332,13 +373,13 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
             } satisfies ChartConfig}
             className="h-56 w-full"
           >
-            <BarChart data={daily} margin={{ left: 4, right: 4 }}>
+            <BarChart data={daily.map((d) => ({ ...d, departures: -d.departures }))} stackOffset="sign" margin={{ left: 4, right: 4 }}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={shortDate} minTickGap={32} />
-              <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} />
-              <ChartTooltip content={<ChartTooltipContent />} />
-              <Bar dataKey="installs" fill="var(--color-installs)" radius={2} maxBarSize={40} isAnimationActive={false} />
-              <Bar dataKey="departures" fill="var(--color-departures)" radius={2} maxBarSize={40} isAnimationActive={false} />
+              <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} tickFormatter={(value: number) => String(Math.abs(value))} />
+              <ChartTooltip content={<AbsTooltipContent />} />
+              <Bar dataKey="installs" stackId="flow" fill="var(--color-installs)" radius={2} maxBarSize={40} isAnimationActive={false} />
+              <Bar dataKey="departures" stackId="flow" fill="var(--color-departures)" radius={2} maxBarSize={40} isAnimationActive={false} />
             </BarChart>
           </ChartContainer>
         </CardContent>
@@ -398,6 +439,7 @@ function BreakdownCard({
     wau: s.wau,
     share: `${Math.round(s.share * 100)}%`,
   }))
+  const axisWidth = yAxisWidth(data.map((d) => truncateTick(d.name)))
   return (
     <Card>
       <CardHeader>
@@ -414,14 +456,14 @@ function BreakdownCard({
           >
             <BarChart data={data} layout="vertical" margin={{ left: 0, right: 32 }}>
               <XAxis type="number" hide />
-              <YAxis
-                dataKey="name"
-                type="category"
-                tickLine={false}
-                axisLine={false}
-                width={104}
-                tickFormatter={(value: string) => (value.length > 15 ? `${value.slice(0, 14)}…` : value)}
-              />
+              {/* tick width disables recharts' own line-wrapping: its hidden
+                  measurement span doesn't see the container's text-xs (12px
+                  arrives via CSS class, not props), so it measured labels at
+                  the 16px default and wrapped ones that actually fit. The
+                  axis column is already sized to the text by yAxisWidth
+                  above — wrapping has no job here, so give the tick a width
+                  its 16px math can never exceed with the 24-char cap. */}
+              <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tick={{ width: 300 }} width={axisWidth} tickFormatter={truncateTick} />
               <ChartTooltip content={<ChartTooltipContent />} cursor={false} />
               <Bar dataKey="wau" fill="var(--color-wau)" radius={4} maxBarSize={20} isAnimationActive={false}>
                 <LabelList dataKey="share" position="right" className="fill-foreground text-xs" />
