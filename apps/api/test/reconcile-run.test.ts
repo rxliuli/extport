@@ -245,6 +245,40 @@ describe('runReconciliation — already synced', () => {
   })
 })
 
+describe('runReconciliation — a queued version the store already reports live', () => {
+  it('flips the queued row to online instead of resubmitting it', async () => {
+    // The lost-write endgame: a submit succeeded store-side, the invocation
+    // died before recording it, the store approved and published. The
+    // queued row must be reconciled to reality — not resubmitted on top of
+    // its own published version.
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      artifacts: [{ version: '1.1.0' }],
+      versions: [
+        { version: '1.0.0', status: 'online' },
+        { version: '1.1.0', status: 'queued' },
+      ],
+    })
+    const { fetch, calls } = routedFetch(
+      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.1.0' }] } } }),
+    )
+    globalThis.fetch = fetch
+    const { notifier, sent } = recordingNotifier()
+
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
+    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 0, skipped: 0 })
+
+    const rows = await versionsFor(db, extensionId)
+    expect(rows).toMatchObject([
+      { version: '1.0.0', status: 'online' },
+      { version: '1.1.0', status: 'online' },
+    ])
+    // No duplicate baseline row, no upload/publish, no email.
+    expect(rows).toHaveLength(2)
+    expect(calls.some((c) => c.url.endsWith(':upload') || c.url.endsWith(':publish'))).toBe(false)
+    expect(sent).toHaveLength(0)
+  })
+})
+
 describe('runReconciliation — routine sweep leaves settled targets alone', () => {
   // D1 state persists across tests in this file, and these tests run the
   // sweep (no filter) — disable every target except the scenario's own so

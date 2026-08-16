@@ -314,6 +314,19 @@ async function reconcileLifecycle(
       if (inReview && inReview.version === liveVersion) {
         await db.update(deploymentVersions).set({ status: 'online', statusDetail: null }).where(eq(deploymentVersions.id, inReview.id))
         inReview = null
+      } else if (queued && queued.version === liveVersion) {
+        // The queued version is already live: a submit succeeded store-side
+        // but the write recording it never landed (an invocation killed
+        // mid-submit — Twitter Filter edge v0.0.66, 2026-08-13/16: Edge
+        // reviewed and would eventually publish a submission the ledger
+        // never knew about). Without this branch the baseline insert below
+        // would record the live version AND leave the queued row standing,
+        // and decide() would resubmit a version that is already published —
+        // a duplicate store submission or a version-validation error, every
+        // tick. Same shape as the in_review flip above, one lost write
+        // earlier in the lifecycle.
+        await db.update(deploymentVersions).set({ status: 'online', statusDetail: null }).where(eq(deploymentVersions.id, queued.id))
+        queued = null
       } else {
         // First-ever baseline (target just added, nothing pushed through extport
         // yet) or a manual publish that happened outside extport entirely —

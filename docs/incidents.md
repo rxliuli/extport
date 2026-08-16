@@ -92,6 +92,28 @@ Fixes: `647bd6d` (push reconciles via queue), `b3aea73`
 tolerate "already added" 409), `1d983a5` (`interrupted` event on stale
 lock reclaim).
 
+### 2026-08-16 — the ledger-blind Edge submission, second act
+
+The 2026-08-13 waitUntil death left one more orphan: its Edge submit had
+been accepted by Microsoft before the kill, so Partner Center carried a
+real 0.0.66 review the ledger never knew about (the InProgressSubmission
+that every later tick's waiting hit was its echo). Three days on it
+surfaced as a scary-looking error email — actually a transient D1 write
+failure whose failed-query text embedded the perfectly healthy waiting
+message — plus a Partner Center view the tenant read as "submitted
+twice": one real In review block and the staged draft the half-hourly
+retry's re-upload kept refreshing (Edge always displays the draft as a
+separate UPDATE block; same dual display as the BilingualTube incident).
+
+Resolution: the row flipped queued → in_review by hand to match the
+store. The class fix closes the endgame that was still coming: at
+approval, getState reports the version live, and the resolve step used
+to baseline-insert an online row while LEAVING the queued row standing —
+decide() would then resubmit an already-published version every tick.
+resolve now flips a queued row whose version equals the live one to
+online (invariant 6's missing corner — the same reconciliation the
+in_review flip already did, one lost write earlier in the lifecycle).
+
 ### 2026-08-13 — two Edge reviews past 10 days: one draft-stall, one genuinely slow
 
 The stale-review sweep surfaced both shapes of invariant 10 on the same
