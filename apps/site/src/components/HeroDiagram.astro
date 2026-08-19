@@ -1,0 +1,362 @@
+---
+/**
+ * The hero's "one push, four stores" diagram: a terminal card on the left
+ * (`extport push`), four wires fanning out, four store rows on the right whose
+ * status flips queued → in review → live, mirroring the dashboard's own status
+ * vocabulary and colors (apps/dashboard/src/routes/extensions.$extensionId.tsx).
+ *
+ * The markup's default state is the *finished* picture — every line printed,
+ * every wire lit, every store live — so no-JS and reduced-motion viewers get a
+ * complete static diagram. The inline script only runs the loop when motion is
+ * allowed; it drives everything by flipping data-attributes and lets CSS
+ * transitions do the drawing.
+ */
+// Row order matches the dashboard's columns. Go-live order in the timeline
+// below is deliberately different — it follows real-world review speed:
+// Firefox, then Chrome, then Safari, with Edge slowest.
+const STORES = [
+  { key: 'chrome', label: 'Chrome' },
+  { key: 'firefox', label: 'Firefox' },
+  { key: 'edge', label: 'Edge' },
+  { key: 'safari', label: 'Safari' },
+]
+
+// Row geometry shared with the wire SVG: 48px rows, 10px gaps → centers below.
+const ROW_CENTERS = [24, 82, 140, 198]
+const HEIGHT = 222
+const WIDTH = 56
+const wire = (y: number) => `M0 ${HEIGHT / 2} C${WIDTH / 2} ${HEIGHT / 2} ${WIDTH / 2} ${y} ${WIDTH} ${y}`
+---
+
+<div class="hero-diagram" data-phase="done" role="img" aria-label="extport push submitting one extension to four stores">
+  <div class="hd-source" data-lines="3">
+    <div class="hd-titlebar" aria-hidden="true"><i></i><i></i><i></i></div>
+    <pre class="hd-term"><span class="hd-line hd-line-1"><span class="hd-prompt">$</span> extport push</span><span class="hd-line hd-line-2">pushing → my-extension@<span class="hd-version">1.8.3</span></span><span class="hd-line hd-line-3"><span class="hd-ok">✓</span> uploaded · 4 store targets</span></pre>
+  </div>
+
+  <svg class="hd-wires" width={WIDTH} height={HEIGHT} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} fill="none" aria-hidden="true">
+    {ROW_CENTERS.map((y) => <path class="hd-track" d={wire(y)} />)}
+    {ROW_CENTERS.map((y, i) => <path class="hd-wire" data-i={i} d={wire(y)} pathLength="1" />)}
+  </svg>
+
+  <ul class="hd-stores">
+    {
+      STORES.map(({ key, label }) => (
+        <li class="hd-store" data-store={key} data-status="live">
+          <span class="hd-icon" aria-hidden="true">
+            <svg class="hd-ic hd-ic-queued" viewBox="0 0 24 24">
+              <path d="M10.1 2.182a10 10 0 0 1 3.8 0M13.9 21.818a10 10 0 0 1-3.8 0M17.609 3.721a10 10 0 0 1 2.69 2.7M2.182 13.9a10 10 0 0 1 0-3.8M20.279 17.609a10 10 0 0 1-2.7 2.69M21.818 10.1a10 10 0 0 1 0 3.8M3.721 6.391a10 10 0 0 1 2.7-2.69M6.391 20.279a10 10 0 0 1-2.69-2.7" />
+            </svg>
+            <svg class="hd-ic hd-ic-review" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 6v6l4 2" />
+            </svg>
+            <svg class="hd-ic hd-ic-live" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <path d="m9 12 2 2 4-4" />
+            </svg>
+          </span>
+          <span class="hd-name">{label}</span>
+          <span class="hd-status">
+            <span class="hd-st hd-st-idle">—</span>
+            <span class="hd-st hd-st-queued">queued</span>
+            <span class="hd-st hd-st-review">in review</span>
+            <span class="hd-st hd-st-live">live</span>
+          </span>
+        </li>
+      ))
+    }
+  </ul>
+</div>
+
+<style>
+  .hero-diagram {
+    /* Tailwind's amber-600/green-700 (light) and amber-400/green-500 (dark) —
+       the dashboard's status colors, spelled out because Tailwind v4 only emits
+       theme variables that utilities actually use. */
+    --hd-amber: oklch(0.666 0.179 58.318);
+    --hd-green: oklch(0.527 0.154 150.069);
+    display: grid;
+    grid-template-columns: auto 56px minmax(0, 1fr);
+    align-items: center;
+    width: 100%;
+    max-width: 32rem;
+    font-size: 0.875rem;
+    line-height: 1.25;
+    transition: opacity 300ms ease;
+  }
+  @media (prefers-color-scheme: dark) {
+    .hero-diagram {
+      --hd-amber: oklch(0.828 0.189 84.429);
+      --hd-green: oklch(0.723 0.219 149.579);
+    }
+  }
+  .hero-diagram[data-phase='out'] {
+    opacity: 0;
+  }
+  /* One frame of no transitions while the loop rewinds to its start. */
+  .hero-diagram.hd-reset,
+  .hero-diagram.hd-reset * {
+    transition: none !important;
+  }
+
+  /* ---- terminal card ---- */
+  .hd-source {
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+    background: var(--color-card);
+    overflow: hidden;
+  }
+  .hd-titlebar {
+    display: flex;
+    gap: 5px;
+    padding: 8px 10px 0;
+  }
+  .hd-titlebar i {
+    width: 7px;
+    height: 7px;
+    border-radius: 9999px;
+    background: var(--color-border);
+  }
+  .hd-term {
+    margin: 0;
+    padding: 8px 12px 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8125rem;
+    line-height: 1.7;
+    white-space: pre;
+  }
+  .hd-line {
+    display: block;
+    opacity: 1;
+    transition: opacity 250ms ease;
+  }
+  .hd-prompt,
+  .hd-line-2 {
+    color: var(--color-muted-foreground);
+  }
+  .hd-version,
+  .hd-ok {
+    color: var(--color-foreground);
+  }
+  .hd-ok {
+    color: var(--hd-green);
+  }
+  .hd-source[data-lines='0'] .hd-line-1,
+  .hd-source[data-lines='0'] .hd-line-2,
+  .hd-source[data-lines='0'] .hd-line-3,
+  .hd-source[data-lines='1'] .hd-line-2,
+  .hd-source[data-lines='1'] .hd-line-3,
+  .hd-source[data-lines='2'] .hd-line-3 {
+    opacity: 0;
+  }
+  /* Blinking caret on the prompt line while the rest is still "typing". */
+  .hd-source[data-lines='1'] .hd-line-1::after {
+    content: '';
+    display: inline-block;
+    width: 0.55em;
+    height: 1em;
+    margin-left: 2px;
+    vertical-align: -0.15em;
+    background: var(--color-foreground);
+    animation: hd-blink 900ms steps(1) infinite;
+  }
+  @keyframes hd-blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
+  /* ---- wires ---- */
+  .hd-wires {
+    display: block;
+  }
+  .hd-track {
+    stroke: var(--color-border);
+    stroke-width: 1.5;
+  }
+  .hd-wire {
+    stroke: var(--color-muted-foreground);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+    transition: stroke-dashoffset 600ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .hd-wire[data-i='1'] {
+    transition-delay: 60ms;
+  }
+  .hd-wire[data-i='2'] {
+    transition-delay: 120ms;
+  }
+  .hd-wire[data-i='3'] {
+    transition-delay: 180ms;
+  }
+  .hero-diagram[data-wires='off'] .hd-wire {
+    stroke-dashoffset: 1;
+  }
+
+  /* ---- store rows ---- */
+  .hd-stores {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .hd-store {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 10px;
+    height: 48px;
+    padding: 0 14px;
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+    background: var(--color-card);
+    transition:
+      opacity 300ms ease,
+      border-color 300ms ease;
+  }
+  .hd-store[data-status='idle'] {
+    opacity: 0.55;
+  }
+  .hd-name {
+    font-weight: 500;
+  }
+  .hd-icon,
+  .hd-status {
+    display: grid;
+  }
+  .hd-icon > *,
+  .hd-status > * {
+    grid-area: 1 / 1;
+    transition: opacity 250ms ease;
+  }
+  .hd-ic {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0;
+  }
+  .hd-st {
+    opacity: 0;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .hd-ic-queued,
+  .hd-st-idle {
+    color: var(--color-muted-foreground);
+  }
+  .hd-store[data-status='queued'] .hd-ic-queued,
+  .hd-st-queued,
+  .hd-ic-review,
+  .hd-st-review {
+    color: var(--hd-amber);
+  }
+  .hd-ic-live,
+  .hd-st-live {
+    color: var(--hd-green);
+  }
+  .hd-store[data-status='idle'] .hd-ic-queued,
+  .hd-store[data-status='idle'] .hd-st-idle,
+  .hd-store[data-status='queued'] .hd-ic-queued,
+  .hd-store[data-status='queued'] .hd-st-queued,
+  .hd-store[data-status='review'] .hd-ic-review,
+  .hd-store[data-status='review'] .hd-st-review,
+  .hd-store[data-status='live'] .hd-ic-live,
+  .hd-store[data-status='live'] .hd-st-live {
+    opacity: 1;
+  }
+  .hd-store[data-status='review'] .hd-ic-review {
+    animation: hd-tick 1.2s ease-in-out infinite;
+  }
+  @keyframes hd-tick {
+    50% {
+      opacity: 0.45;
+    }
+  }
+
+  /* ---- narrow screens: stack, drop the wires ---- */
+  @media (max-width: 26rem) {
+    .hero-diagram {
+      grid-template-columns: 1fr;
+      row-gap: 12px;
+      max-width: none;
+    }
+    .hd-wires {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  const root = document.querySelector<HTMLElement>('.hero-diagram')
+  const motionOk = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  if (root && motionOk) {
+    const source = root.querySelector<HTMLElement>('.hd-source')!
+    const version = root.querySelector<HTMLElement>('.hd-version')!
+    const store = (key: string) => root.querySelector<HTMLElement>(`.hd-store[data-store="${key}"]`)!
+    const stores = ['chrome', 'firefox', 'edge', 'safari'].map(store)
+    const setAll = (status: string) => stores.forEach((s) => (s.dataset.status = status))
+
+    let patch = 3
+    const bump = () => {
+      patch = (patch + 1) % 10
+      version.textContent = `1.8.${patch}`
+    }
+
+    // (ms since cycle start, what happens). Applied once each in order; the
+    // cycle rewinds to `reset` when the clock wraps past TOTAL.
+    const TOTAL = 9000
+    const steps: Array<[number, () => void]> = [
+      [300, () => (source.dataset.lines = '1')],
+      [1100, () => (source.dataset.lines = '2')],
+      [1700, () => (source.dataset.lines = '3')],
+      [2000, () => (root.dataset.wires = 'on')],
+      [2500, () => setAll('queued')],
+      [3000, () => (store('chrome').dataset.status = 'review')],
+      [3150, () => (store('firefox').dataset.status = 'review')],
+      [3300, () => (store('edge').dataset.status = 'review')],
+      [3450, () => (store('safari').dataset.status = 'review')],
+      [4300, () => (store('firefox').dataset.status = 'live')],
+      [5200, () => (store('chrome').dataset.status = 'live')],
+      [6100, () => (store('safari').dataset.status = 'live')],
+      [7100, () => (store('edge').dataset.status = 'live')],
+      [8700, () => (root.dataset.phase = 'out')],
+    ]
+
+    const reset = () => {
+      root.classList.add('hd-reset')
+      source.dataset.lines = '0'
+      root.dataset.wires = 'off'
+      setAll('idle')
+      bump()
+      // Force the no-transition state to apply before re-enabling transitions.
+      void root.offsetWidth
+      root.classList.remove('hd-reset')
+      root.dataset.phase = 'run'
+    }
+
+    let start = performance.now()
+    let next = 0
+    reset()
+    const tick = (now: number) => {
+      const t = now - start
+      if (t >= TOTAL) {
+        start = now
+        next = 0
+        reset()
+      }
+      while (next < steps.length && steps[next][0] <= now - start) steps[next++][1]()
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  }
+</script>

@@ -1,17 +1,16 @@
 ---
 import Layout from '../layouts/Layout.astro'
+import HeroDiagram from '../components/HeroDiagram.astro'
 
 const SIGN_IN_URL = 'https://dash.extport.dev'
 const DISCORD_URL = 'https://discord.gg/Va9kcSqu3f'
 const GITHUB_URL = 'https://github.com/rxliuli/extport'
 const DOCS_URL = 'https://docs.extport.dev'
 
-const STORES = ['Chrome', 'Firefox', 'Edge', 'Safari']
-
 const FEATURES = [
   {
     title: 'One push, four stores',
-    body: 'Tag a release and extport submits it to the Chrome Web Store, Firefox Add-ons, Edge Add-ons, and the App Store — no store console required.',
+    body: 'Tag a release — from GitHub Actions or the extport CLI on your own machine — and extport submits it to the Chrome Web Store, Firefox Add-ons, Edge Add-ons, and the App Store. No store console required.',
   },
   {
     title: 'One dashboard for review status',
@@ -22,16 +21,12 @@ const FEATURES = [
     body: 'Store API keys and signing keys once, encrypted at rest per tenant. Rotate them without touching your CI configuration.',
   },
   {
-    title: 'CLI or GitHub Actions',
-    body: 'Drop a couple of steps into your existing release workflow, or run the same commands by hand from your own machine.',
-  },
-  {
     title: 'Safari builds, without handing over your signing keys',
-    body: 'The extport CLI and its GitHub Action wrap the Xcode build, signing, and upload Safari needs — running in your own CI with your own Apple credentials, which extport never sees. Review submission is handled server-side like every other store.',
+    body: 'The CLI and GitHub Action wrap the Xcode build, signing, and upload Safari needs — in your own CI, with Apple credentials extport never sees. Review submission is handled server-side like every other store.',
   },
   {
     title: 'Licensing',
-    body: 'Sell activation codes through your own Stripe Payment Links: extport fulfills the purchase, emails the code, verifies activations from your extension via @extport/sdk, revokes on refunds, and gives buyers a self-service portal. Seats free themselves when devices go idle. One page shows every license across every extension, searchable by code or buyer email, with revenue summarized per currency.',
+    body: 'Sell activation codes through your own Stripe Payment Links: extport fulfills the purchase, emails the code, verifies activations via @extport/sdk, revokes on refunds, and gives buyers a self-service portal.',
   },
   {
     title: 'A scaffold that starts you on every platform',
@@ -44,7 +39,7 @@ const FEATURES = [
   title="extport — write one extension, reach every platform's users"
   description="Chrome, Firefox, Edge, and Safari from one push — including Safari's Xcode build in your own CI — plus Stripe-powered licensing. Open source, self-hostable."
 >
-  <div class="mx-auto flex min-h-svh max-w-3xl flex-col px-6">
+  <div class="mx-auto flex min-h-svh max-w-5xl flex-col px-6">
     <header class="flex items-center justify-between py-6">
       <span class="text-lg font-bold tracking-tight">extport</span>
       <div class="flex items-center gap-4">
@@ -59,55 +54,85 @@ const FEATURES = [
       </div>
     </header>
 
-    <section class="flex flex-col gap-6 py-20 sm:py-28">
-      <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">
-        Write one extension. Reach every platform's users.
-      </h1>
-      <p class="text-lg text-muted-foreground">
-        {STORES.join(', ')} — one push, and extport submits to all four, with one dashboard for what's live, in
-        review, rejected, or stuck. Open source, self-hostable.
-      </p>
-      <div class="flex flex-wrap items-center gap-3">
-        <a
-          href={SIGN_IN_URL}
-          class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-        >
-          Sign in with GitHub
-        </a>
-        <a href={DISCORD_URL} class="text-sm font-medium text-muted-foreground underline underline-offset-4">
-          Join the Discord
-        </a>
+    <section class="grid items-center gap-12 py-16 sm:py-24 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-16">
+      <div class="flex max-w-xl flex-col gap-6">
+        <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">
+          Write one extension. Reach every platform's users.
+        </h1>
+        <p class="text-lg text-muted-foreground">
+          One push submits to Chrome, Firefox, Edge, and Safari — Safari's Xcode build included — and one dashboard
+          shows what's live, in review, rejected, or stuck. Open source, self-hostable.
+        </p>
+        <div class="flex flex-wrap items-center gap-3">
+          <a
+            href={SIGN_IN_URL}
+            class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            Sign in with GitHub
+          </a>
+          <a href={DISCORD_URL} class="text-sm font-medium text-muted-foreground underline underline-offset-4">
+            Join the Discord
+          </a>
+        </div>
+      </div>
+      <div class="flex justify-center lg:justify-end">
+        <HeroDiagram />
       </div>
     </section>
 
     <section class="border-t border-border py-16">
-      <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">The problem</h2>
-      <p class="mt-4 text-base leading-relaxed">
-        A browser extension is one of the only app formats that reaches desktop and mobile users from a single
-        codebase — Chrome, Firefox, and Edge cover Windows, macOS, and Linux, Safari is the only real option on iOS,
-        and Firefox already puts you on Android too (Edge is close behind). But every store has its own console, its
-        own API, its own credential type, and its own review quirks. Safari alone needs an App Store Connect key and
-        Xcode signing just to ship a build. Keeping four stores in sync by hand, re-checking four dashboards for
-        review status, doesn't scale past one extension.
-      </p>
+      <div class="max-w-2xl">
+        <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">Every extension, every store</h2>
+        <p class="mt-4 text-base leading-relaxed">
+          A browser extension is one of the only app formats that reaches desktop and mobile from a single codebase —
+          but every store has its own console, API, credential type, and review quirks. extport puts them on one page:
+          each extension, each store, the version that's live and the one still in review.
+        </p>
+      </div>
+      <figure class="mt-8">
+        <div
+          class="overflow-hidden rounded-lg border border-border bg-card shadow-sm [mask-image:linear-gradient(to_bottom,black_75%,transparent)]"
+        >
+          <picture>
+            <source srcset="/dashboard-dark.png" media="(prefers-color-scheme: dark)" />
+            <img
+              src="/dashboard-light.png"
+              width="1280"
+              height="780"
+              alt="The extport dashboard: a table of extensions with the live or in-review version for Chrome, Firefox, Edge, and Safari"
+              class="block aspect-[1280/640] w-full object-cover object-top"
+              loading="lazy"
+              decoding="async"
+            />
+          </picture>
+        </div>
+        <figcaption class="mt-3 text-sm text-muted-foreground">
+          The dashboard behind extport.dev's own extensions — green is live, amber is in review.
+        </figcaption>
+      </figure>
     </section>
 
-    <section class="border-t border-border py-16">
-      <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">How it works</h2>
-      <pre class="mt-4 overflow-x-auto rounded-lg border border-border bg-card p-4 text-sm leading-relaxed"><code>{`- uses: extport-dev/actions/push@v1
+    <section class="grid gap-8 border-t border-border py-16 md:grid-cols-2 md:gap-12">
+      <div>
+        <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">How it works</h2>
+        <p class="mt-4 text-base leading-relaxed">
+          Add one step to the release workflow you already have. The file, version, and extension are inferred from
+          your build output and <code>extport.config.json</code>; push once, and every configured store target picks
+          it up.
+        </p>
+        <p class="mt-3 text-sm text-muted-foreground">
+          The same command runs from the <code>extport</code> CLI on your own machine.
+        </p>
+      </div>
+      <pre class="self-start overflow-x-auto rounded-lg border border-border bg-card p-4 text-sm leading-relaxed"><code>{`- uses: extport-dev/actions/push@v1
   with:
     store: chrome
     api-key: \${{ secrets.EXTPORT_API_KEY }}`}</code></pre>
-      <p class="mt-4 text-sm text-muted-foreground">
-        The file, version, and extension are inferred from your build output and <code>extport.config.json</code>.
-        Runs from your existing release workflow, or from the <code>extport</code> CLI on your own machine. Push once,
-        and every configured store target picks it up.
-      </p>
     </section>
 
     <section class="border-t border-border py-16">
       <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">What works today</h2>
-      <div class="mt-8 grid gap-8 sm:grid-cols-2">
+      <div class="mt-8 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
         {
           FEATURES.map((feature) => (
             <div>
@@ -120,27 +145,29 @@ const FEATURES = [
     </section>
 
     <section id="pricing" class="border-t border-border py-16">
-      <div class="rounded-lg border border-border bg-card p-6">
-        <h2 class="font-semibold">Free while in beta — and open source</h2>
-        <p class="mt-2 text-sm text-muted-foreground">
-          Sign in with GitHub and start publishing — no waitlist. Exact prices will be set during the beta with
-          real users, but the shape is fixed now:
-        </p>
-        <ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-          <li>
-            The free tier is permanent: 3 extensions, analytics included, and licensing that only ever costs a
-            small percentage of sales you actually make.
-          </li>
-          <li>Paid plans will be about scale — more extensions for bigger fleets — never about unlocking basics.</li>
-          <li>
-            When pricing lands, nothing breaks retroactively: advance notice, and whatever you set up during the
-            beta keeps working.
-          </li>
-        </ul>
-        <p class="mt-3 text-sm text-muted-foreground">
-          The <a href={GITHUB_URL} class="underline underline-offset-4">source is on GitHub</a>{' '}
-          under the Elastic License 2.0 — self-hosting is explicitly allowed.
-        </p>
+      <div class="rounded-lg border border-border bg-card p-6 sm:p-8">
+        <div class="max-w-2xl">
+          <h2 class="font-semibold">Free while in beta — and open source</h2>
+          <p class="mt-2 text-sm text-muted-foreground">
+            Sign in with GitHub and start publishing — no waitlist. Exact prices will be set during the beta with
+            real users, but the shape is fixed now:
+          </p>
+          <ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+            <li>
+              The free tier is permanent: 3 extensions, analytics included, and licensing that only ever costs a
+              small percentage of sales you actually make.
+            </li>
+            <li>Paid plans will be about scale — more extensions for bigger fleets — never about unlocking basics.</li>
+            <li>
+              When pricing lands, nothing breaks retroactively: advance notice, and whatever you set up during the
+              beta keeps working.
+            </li>
+          </ul>
+          <p class="mt-3 text-sm text-muted-foreground">
+            The <a href={GITHUB_URL} class="underline underline-offset-4">source is on GitHub</a>{' '}
+            under the Elastic License 2.0 — self-hosting is explicitly allowed.
+          </p>
+        </div>
         <div class="mt-4 flex flex-wrap gap-3">
           <a
             href={SIGN_IN_URL}
