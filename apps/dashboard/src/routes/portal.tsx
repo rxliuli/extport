@@ -120,7 +120,7 @@ function PortalPage() {
         </>
       }
     >
-      <main className="mx-auto w-full max-w-3xl flex-1 space-y-4 px-6 py-8">
+      <main className="mx-auto w-full max-w-3xl flex-1 space-y-4 px-4 py-8 sm:px-6">
         <h1 className="text-2xl font-bold tracking-tight">Your purchases</h1>
         <LicenseList licenses={licenses.data.licenses} />
       </main>
@@ -262,7 +262,10 @@ function Devices({ devices }: { devices: PortalDevice[] }) {
   return (
     <ul className="divide-y rounded-md border text-sm">
       {active.map((device) => (
-        <li key={device.fingerprint} className="flex items-center justify-between px-3 py-2 text-muted-foreground">
+        <li
+          key={device.fingerprint}
+          className="flex flex-col gap-0.5 px-3 py-2 text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+        >
           <span className="font-mono text-xs">{device.fingerprint.slice(0, 8)}…</span>
           <span className="text-xs">
             active since {formatDate(device.activatedAt)}
