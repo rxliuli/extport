@@ -1,0 +1,367 @@
+---
+/**
+ * Two charts from the dashboard's Analytics tab, redrawn as inline SVG with
+ * illustrative data: weekly actives with one line per store, and daily actives
+ * stacked by version so a release visibly rolls out. Both draw themselves in
+ * once when scrolled into view (lines via stroke-dashoffset, the stack via a
+ * left-to-right clip), then hold still — only the hero loops.
+ *
+ * Like HeroDiagram, the markup's default state is the finished picture; the
+ * script only rewinds it when motion is allowed, and plays it on intersection.
+ *
+ * The numbers are synthetic but coherent: the version stack's daily total is a
+ * fixed fraction of the same day's weekly total across stores.
+ */
+const DAYS = 30
+const W = 480
+const H = 220
+const PAD = { top: 10, right: 18, bottom: 26, left: 34 }
+const PLOT_W = W - PAD.left - PAD.right
+const PLOT_H = H - PAD.top - PAD.bottom
+const days = Array.from({ length: DAYS }, (_, i) => i)
+
+// X axis: MM-DD every third day, the last being yesterday (UTC) — the
+// dashboard's latest rolled-up day. Computed at build time and refreshed on
+// the client so a build from weeks ago still shows the current window.
+const pad2 = (n: number) => String(n).padStart(2, '0')
+const dateLabel = (day: number) => {
+  const d = new Date()
+  d.setUTCDate(d.getUTCDate() - 1 - (DAYS - 1 - day))
+  return `${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`
+}
+const X_LABEL_DAYS = days.filter((d) => (DAYS - 1 - d) % 3 === 0)
+
+const x = (day: number) => PAD.left + (day / (DAYS - 1)) * PLOT_W
+const yScale = (max: number) => (v: number) => PAD.top + PLOT_H - (v / max) * PLOT_H
+const fmt = (n: number) => Math.round(n * 10) / 10
+
+// 0 → 1 between a and b, smoothstep-shaped.
+const ramp = (i: number, a: number, b: number) => {
+  const t = Math.min(1, Math.max(0, (i - a) / (b - a)))
+  return t * t * (3 - 2 * t)
+}
+// Launch curve: nothing before `from`, then saturating growth with time constant `tau`.
+const launch = (i: number, from: number, tau: number) => (i < from ? 0 : 1 - Math.exp(-(i - from) / tau))
+// Weekly seasonality — a soft dip centred on the weekend — plus an unrelated
+// slow wobble so no two weeks look identical.
+const weekend = (i: number) => Math.pow((1 + Math.cos((2 * Math.PI * (i - 5.5)) / 7)) / 2, 4)
+const season = (i: number) => (1 - 0.16 * weekend(i)) * (1 + 0.05 * Math.sin(i * 0.77 + 1) + 0.03 * Math.sin(i * 1.9))
+
+// ---- the underlying model: daily actives per store for one extension, 30 days from launch ----
+// Chrome goes live first; Edge's review takes a few more days; Safari trickles in
+// after that; Firefox is small but immediate.
+const grow = (i: number) => 1 + 0.18 * (i / (DAYS - 1))
+const STORES = [
+  { key: 'chrome', label: 'Chrome', color: 'var(--chart-1)', f: (i: number) => 165 * launch(i, 1.5, 3.5) * grow(i) },
+  { key: 'edge', label: 'Edge', color: 'var(--chart-3)', f: (i: number) => 60 * launch(i, 6.5, 4) * grow(i) },
+  { key: 'safari', label: 'Safari', color: 'var(--chart-4)', f: (i: number) => 34 * launch(i, 8, 7) * grow(i) },
+  { key: 'firefox', label: 'Firefox', color: 'var(--chart-2)', f: (i: number) => 9 * launch(i, 2, 3) * grow(i) },
+]
+// The dashboard's legend: lowercase store keys in its own fixed order.
+const LEGEND = ['chrome', 'edge', 'firefox', 'safari'].map((k) => STORES.find((s) => s.key === k)!)
+const daily = STORES.map((s) => days.map((i) => s.f(i) * season(i)))
+const dailyTotal = days.map((i) => daily.reduce((sum, d) => sum + d[i], 0))
+
+// ---- chart 1: weekly actives per store (rolling 7-day, so smoother than the daily series) ----
+const weekly = daily.map((d) =>
+  days.map((i) => {
+    const from = Math.max(0, i - 6)
+    const window = d.slice(from, i + 1)
+    // A rolling mean flattens the weekend dips out; leave a faint trace of them.
+    return 1.6 * (window.reduce((a, b) => a + b, 0) / window.length) * (1 - 0.03 * weekend(i))
+  }),
+)
+const Y1_MAX = 360
+const Y1_TICKS = [0, 100, 200, 300]
+const y1 = yScale(Y1_MAX)
+
+// ---- chart 2: daily actives by version, oldest at the bottom, newest on top ----
+// Real rollouts are brutal and lumpy: three quick point releases in the launch
+// week (each a hump, because the total is still small and the next release
+// arrives before the last one finishes), one version holding the whole stack
+// for two quiet weeks, then a new release still mid-climb "today".
+const VERSIONS = [
+  { key: 'v100', label: '1.0.0', color: 'var(--chart-1)' },
+  { key: 'v101', label: '1.0.1', color: 'var(--chart-2)', releasedOn: 2.6, over: 2.4, capture: 0.93 },
+  { key: 'v102', label: '1.0.2', color: 'var(--chart-3)', releasedOn: 4.3, over: 2.8, capture: 0.94 },
+  { key: 'v110', label: '1.1.0', color: 'var(--chart-4)', releasedOn: 6.4, over: 3.0, capture: 0.95 },
+  { key: 'v111', label: '1.1.1', color: 'var(--chart-5)', releasedOn: 27.3, over: 2.4, capture: 0.93 },
+]
+// adoption[k][i]: how much of whatever is left version k has captured by day i.
+const adoption = VERSIONS.map((v) =>
+  days.map((i) =>
+    v.releasedOn === undefined ? 1 : v.capture * ramp(i, v.releasedOn, v.releasedOn + v.over),
+  ),
+)
+// share[i][k]: version k's share on day i — its own capture times what every
+// newer version left behind.
+const shares = days.map((i) =>
+  VERSIONS.map((_, k) => {
+    let left = 1
+    for (let j = k + 1; j < VERSIONS.length; j++) left *= 1 - adoption[j][i]
+    return adoption[k][i] * left
+  }),
+)
+const Y2_MAX = 360
+const Y2_TICKS = [0, 100, 200, 300]
+const y2 = yScale(Y2_MAX)
+// Cumulative stack: layer k spans from sum(0..k-1) to sum(0..k).
+const stacks = VERSIONS.map((v, k) => ({
+  ...v,
+  lower: days.map((i) => dailyTotal[i] * shares[i].slice(0, k).reduce((a, b) => a + b, 0)),
+  upper: days.map((i) => dailyTotal[i] * shares[i].slice(0, k + 1).reduce((a, b) => a + b, 0)),
+}))
+
+// ---- curves: d3's curveMonotoneX (what recharts' type="monotone" draws) ----
+type Pt = [number, number]
+const sign = (v: number) => (v < 0 ? -1 : 1)
+const slope3 = (p0: Pt, p1: Pt, p2: Pt) => {
+  const h0 = p1[0] - p0[0]
+  const h1 = p2[0] - p1[0]
+  const s0 = (p1[1] - p0[1]) / (h0 || (h1 < 0 ? -0 : 0))
+  const s1 = (p2[1] - p1[1]) / (h1 || (h0 < 0 ? -0 : 0))
+  const p = (s0 * h1 + s1 * h0) / (h0 + h1)
+  return (sign(s0) + sign(s1)) * Math.min(Math.abs(s0), Math.abs(s1), 0.5 * Math.abs(p)) || 0
+}
+const slope2 = (p0: Pt, p1: Pt, t: number) => {
+  const h = p1[0] - p0[0]
+  return h ? (3 * (p1[1] - p0[1])) / h - t : t
+}
+// Returns the path *without* the leading M so callers can splice segments.
+const monotone = (pts: Pt[]) => {
+  if (pts.length < 2) return ''
+  if (pts.length === 2) return `L${fmt(pts[1][0])} ${fmt(pts[1][1])}`
+  const out: string[] = []
+  let t0 = 0
+  for (let i = 1; i < pts.length; i++) {
+    const p0 = pts[i - 1]
+    const p1 = pts[i]
+    const t1 = i < pts.length - 1 ? slope3(p0, p1, pts[i + 1]) : slope2(p0, p1, t0)
+    const tt0 = i === 1 ? slope2(p0, p1, t1) : t0
+    const dx = (p1[0] - p0[0]) / 3
+    out.push(
+      `C${fmt(p0[0] + dx)} ${fmt(p0[1] + dx * tt0)} ${fmt(p1[0] - dx)} ${fmt(p1[1] - dx * t1)} ${fmt(p1[0])} ${fmt(p1[1])}`,
+    )
+    t0 = t1
+  }
+  return out.join(' ')
+}
+const curvePath = (pts: Pt[]) => `M${fmt(pts[0][0])} ${fmt(pts[0][1])} ${monotone(pts)}`
+const pts = (values: number[], y: (v: number) => number): Pt[] => values.map((v, i) => [x(i), y(v)])
+
+const linePath = (values: number[], y: (v: number) => number) => curvePath(pts(values, y))
+// Top edge forward, bottom edge back — the same construction d3-shape's area uses.
+const areaPath = (lower: number[], upper: number[], y: (v: number) => number) => {
+  const top = pts(upper, y)
+  const bottom = pts(lower, y).reverse()
+  return `${curvePath(top)} L${fmt(bottom[0][0])} ${fmt(bottom[0][1])} ${monotone(bottom)} Z`
+}
+// Outline a layer only across its own lifespan, padded one day on each side
+// — exactly the dashboard's rule: the leading zero gives the line a visible
+// ramp up from the edge below it, the trailing zero closes it back down,
+// and outside the span nothing is drawn (otherwise the top layer's edge
+// would trace the whole stack's silhouette from day one).
+const edgePath = (lower: number[], upper: number[], y: (v: number) => number) => {
+  const alive = upper.map((v, i) => v - lower[i] >= 0.5)
+  const segments: Pt[][] = []
+  let i = 0
+  while (i < DAYS) {
+    if (!alive[i]) {
+      i++
+      continue
+    }
+    let j = i
+    while (j < DAYS && alive[j]) j++
+    const from = Math.max(0, i - 1)
+    const to = Math.min(DAYS - 1, j)
+    segments.push(days.slice(from, to + 1).map((d) => [x(d), y(upper[d])]))
+    i = j
+  }
+  return segments.map(curvePath).join(' ')
+}
+
+---
+
+<div class="an-diagram grid gap-6 md:grid-cols-2" data-play="on">
+  <figure class="an-card">
+    <figcaption>
+      <h3>Active users</h3>
+      <p>Weekly actives, one line per store.</p>
+    </figcaption>
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Line chart of weekly active users for Chrome, Edge, Safari, and Firefox over 30 days, all rising">
+      {Y1_TICKS.map((t) => (
+        <g>
+          <line class="an-grid" x1={PAD.left} x2={W - PAD.right} y1={fmt(y1(t))} y2={fmt(y1(t))} />
+          <text class="an-tick" x={PAD.left - 6} y={fmt(y1(t))} text-anchor="end" dominant-baseline="middle">{t}</text>
+        </g>
+      ))}
+      {X_LABEL_DAYS.map((day) => (
+        <text class="an-tick" data-day={day} x={fmt(x(day))} y={H - 8} text-anchor="middle">{dateLabel(day)}</text>
+      ))}
+      {STORES.map((s, i) => (
+        <path class="an-line" data-i={i} d={linePath(weekly[i], y1)} style={`stroke: ${s.color}`} pathLength="1" />
+      ))}
+    </svg>
+    <ul class="an-legend">
+      {LEGEND.map((s) => (
+        <li><i style={`background: ${s.color}`}></i>{s.key}</li>
+      ))}
+    </ul>
+  </figure>
+
+  <figure class="an-card">
+    <figcaption>
+      <h3>Version saturation</h3>
+      <p>Daily actives by version — releases eat the stack from below.</p>
+    </figcaption>
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Stacked area chart of daily active users by version over 30 days; each new release grows from the bottom until it holds most of the stack">
+      {Y2_TICKS.map((t) => (
+        <g>
+          <line class="an-grid" x1={PAD.left} x2={W - PAD.right} y1={fmt(y2(t))} y2={fmt(y2(t))} />
+          <text class="an-tick" x={PAD.left - 6} y={fmt(y2(t))} text-anchor="end" dominant-baseline="middle">{t}</text>
+        </g>
+      ))}
+      {X_LABEL_DAYS.map((day) => (
+        <text class="an-tick" data-day={day} x={fmt(x(day))} y={H - 8} text-anchor="middle">{dateLabel(day)}</text>
+      ))}
+      <g class="an-stack">
+        {stacks.map((s) => (
+          <path class="an-area" d={areaPath(s.lower, s.upper, y2)} style={`fill: ${s.color}`} />
+        ))}
+        {stacks.map((s) => (
+          <path class="an-edge" d={edgePath(s.lower, s.upper, y2)} style={`stroke: ${s.color}`} />
+        ))}
+      </g>
+    </svg>
+  </figure>
+</div>
+
+<style>
+  .an-card {
+    margin: 0;
+    padding: 1.25rem 1.25rem 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+    background: var(--color-card);
+  }
+  .an-card h3 {
+    font-weight: 600;
+  }
+  .an-card figcaption p {
+    margin-top: 0.25rem;
+    font-size: 0.875rem;
+    color: var(--color-muted-foreground);
+  }
+  .an-card svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin-top: 0.75rem;
+  }
+  .an-grid {
+    stroke: var(--color-border);
+    stroke-width: 1;
+  }
+  .an-tick {
+    font-size: 11px;
+    fill: var(--color-muted-foreground);
+  }
+  .an-line {
+    fill: none;
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+    transition: stroke-dashoffset 1800ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .an-line[data-i='1'] {
+    transition-delay: 150ms;
+  }
+  .an-line[data-i='2'] {
+    transition-delay: 300ms;
+  }
+  .an-line[data-i='3'] {
+    transition-delay: 450ms;
+  }
+  .an-area {
+    fill-opacity: 0.35;
+  }
+  .an-edge {
+    fill: none;
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+  }
+  .an-stack {
+    clip-path: inset(0 0 0 0);
+    transition: clip-path 2200ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .an-legend {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.25rem 1rem;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.75rem;
+    color: var(--color-muted-foreground);
+    transition: opacity 600ms ease 1200ms;
+  }
+  .an-legend i {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 6px;
+    border-radius: 2px;
+    vertical-align: 0;
+  }
+
+  .an-diagram.an-reset,
+  .an-diagram.an-reset * {
+    transition: none !important;
+  }
+  /* Rewound state — everything waits for the scroll-in. */
+  .an-diagram[data-play='off'] .an-line {
+    stroke-dashoffset: 1;
+  }
+  .an-diagram[data-play='off'] .an-stack {
+    clip-path: inset(0 100% 0 0);
+  }
+  .an-diagram[data-play='off'] .an-legend {
+    opacity: 0;
+  }
+</style>
+
+<script>
+  const root = document.querySelector<HTMLElement>('.an-diagram')
+  const motionOk = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  // The x axis was stamped at build time; restate it against the real clock
+  // so the window always ends yesterday (UTC), like the dashboard's.
+  if (root) {
+    const pad2 = (n: number) => String(n).padStart(2, '0')
+    root.querySelectorAll<SVGTextElement>('text[data-day]').forEach((el) => {
+      const d = new Date()
+      d.setUTCDate(d.getUTCDate() - 1 - (29 - Number(el.dataset.day)))
+      el.textContent = `${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`
+    })
+  }
+
+  if (root && motionOk && 'IntersectionObserver' in window) {
+    // Rewind without animating backwards: one frame with transitions off.
+    root.classList.add('an-reset')
+    root.dataset.play = 'off'
+    void root.offsetWidth
+    root.classList.remove('an-reset')
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return
+        root.dataset.play = 'on'
+        io.disconnect()
+      },
+      { threshold: 0.35 },
+    )
+    io.observe(root)
+  }
+</script>

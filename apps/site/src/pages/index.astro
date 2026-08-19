@@ -1,6 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro'
 import HeroDiagram from '../components/HeroDiagram.astro'
+import AnalyticsDiagram from '../components/AnalyticsDiagram.astro'
 
 const SIGN_IN_URL = 'https://dash.extport.dev'
 const DISCORD_URL = 'https://discord.gg/Va9kcSqu3f'
@@ -10,11 +11,23 @@ const DOCS_URL = 'https://docs.extport.dev'
 const FEATURES = [
   {
     title: 'One push, four stores',
-    body: 'Tag a release — from GitHub Actions or the extport CLI on your own machine — and extport submits it to the Chrome Web Store, Firefox Add-ons, Edge Add-ons, and the App Store. No store console required.',
+    body: 'Tag a release and extport submits it to the Chrome Web Store, Firefox Add-ons, Edge Add-ons, and the App Store — no store console required.',
   },
   {
     title: 'One dashboard for review status',
     body: 'See what’s live, in review, rejected, or stuck across every store, instead of checking four different consoles by hand.',
+  },
+  {
+    title: 'Analytics across every store',
+    body: 'One anonymous ping a day from your extension, and you get weekly actives, installs, and version adoption combined across all four stores.',
+  },
+  {
+    title: 'Licensing',
+    body: 'Sell activation codes through your own Stripe Payment Links: extport fulfills the purchase, emails the code, verifies activations via @extport/sdk, revokes on refunds, and gives buyers a self-service portal.',
+  },
+  {
+    title: 'CLI or GitHub Actions',
+    body: 'Drop a couple of steps into your existing release workflow, or run the same commands by hand from your own machine.',
   },
   {
     title: 'Credentials, encrypted',
@@ -23,10 +36,6 @@ const FEATURES = [
   {
     title: 'Safari builds, without handing over your signing keys',
     body: 'The CLI and GitHub Action wrap the Xcode build, signing, and upload Safari needs — in your own CI, with Apple credentials extport never sees. Review submission is handled server-side like every other store.',
-  },
-  {
-    title: 'Licensing',
-    body: 'Sell activation codes through your own Stripe Payment Links: extport fulfills the purchase, emails the code, verifies activations via @extport/sdk, revokes on refunds, and gives buyers a self-service portal.',
   },
   {
     title: 'A scaffold that starts you on every platform',
@@ -112,6 +121,20 @@ const FEATURES = [
       </figure>
     </section>
 
+    <section class="border-t border-border py-16">
+      <div class="max-w-2xl">
+        <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">Your users, across every store</h2>
+        <p class="mt-4 text-base leading-relaxed">
+          One anonymous ping a day from your extension — a random id, its version, the UI language — and the
+          Analytics tab draws what no single store console can: weekly actives per store on one chart, and daily
+          actives by version, so you can watch a release roll out before you flip anything that rides on it.
+        </p>
+      </div>
+      <div class="mt-8">
+        <AnalyticsDiagram />
+      </div>
+    </section>
+
     <section class="grid gap-8 border-t border-border py-16 md:grid-cols-2 md:gap-12">
       <div>
         <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">How it works</h2>
@@ -132,7 +155,7 @@ const FEATURES = [
 
     <section class="border-t border-border py-16">
       <h2 class="text-sm font-semibold tracking-wide text-muted-foreground uppercase">What works today</h2>
-      <div class="mt-8 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+      <div class="mt-8 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
         {
           FEATURES.map((feature) => (
             <div>
