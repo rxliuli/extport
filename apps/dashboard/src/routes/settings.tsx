@@ -129,9 +129,9 @@ function ApiKeysSection() {
 
 const CREDENTIAL_FIELDS: Record<CredentialRow['store'], { key: string; label: string; textarea?: boolean }[]> = {
   chrome: [
-    { key: 'publisherId', label: 'Publisher ID (Developer Dashboard → Settings → Profile)' },
+    { key: 'publisherId', label: 'Publisher ID' },
     { key: 'clientEmail', label: 'Service Account Email' },
-    { key: 'privateKey', label: 'Service Account Private Key (.json → private_key)', textarea: true },
+    { key: 'privateKey', label: 'Service Account Private Key', textarea: true },
   ],
   firefox: [
     { key: 'jwtIssuer', label: 'JWT Issuer' },
@@ -175,6 +175,16 @@ function CredentialFieldInputs({
 }) {
   return (
     <>
+      <p className="text-sm text-muted-foreground">
+        <a
+          href={`https://docs.extport.dev/stores/${store}/`}
+          target="_blank"
+          rel="noreferrer"
+          className="underline underline-offset-4 hover:text-foreground"
+        >
+          How to get these credentials
+        </a>
+      </p>
       {CREDENTIAL_FIELDS[store].map((f) =>
         f.textarea ? (
           <Textarea
