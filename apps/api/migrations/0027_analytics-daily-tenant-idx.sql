@@ -1,0 +1,1 @@
+CREATE INDEX `analytics_daily_tenant_idx` ON `analytics_daily` (`tenant_id`,`dim`,`date`);

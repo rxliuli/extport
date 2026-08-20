@@ -548,6 +548,11 @@ export const analyticsDaily = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.extensionId, t.date, t.browser, t.dim, t.dimValue] }),
     index('analytics_daily_series_idx').on(t.extensionId, t.dim, t.date),
+    // The /fleet/* endpoints filter by tenant, not extension — without this
+    // every fleet-dashboard query was a full-table scan of a table that
+    // grows nightly (measured ~50k rows read per query, ~70% of daily D1
+    // row reads from a handful of dashboard visits).
+    index('analytics_daily_tenant_idx').on(t.tenantId, t.dim, t.date),
   ],
 )
 
