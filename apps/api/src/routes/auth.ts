@@ -202,7 +202,9 @@ auth.get('/dev-login', async (c) => {
   if (!c.env.DEV_LOGIN_ENABLED) return c.notFound()
 
   const db = c.get('db')
-  const authSubject = 'dev-local'
+  // ?subject=anything mints a separate account — a fresh subject is a fresh
+  // empty tenant, for eyeballing first-run states without touching dev-local.
+  const authSubject = c.req.query('subject') ?? 'dev-local'
   const existing = await db
     .select()
     .from(users)
@@ -219,8 +221,8 @@ auth.get('/dev-login', async (c) => {
     await db.batch([
       db.insert(tenants).values({
         id: tenantId,
-        name: 'Local Dev',
-        email: 'dev@localhost',
+        name: authSubject === 'dev-local' ? 'Local Dev' : authSubject,
+        email: `${authSubject}@localhost`,
         status: 'active',
         dekEncrypted: dek.dekEncrypted,
         dekKeyVersion: dek.dekKeyVersion,
@@ -228,8 +230,8 @@ auth.get('/dev-login', async (c) => {
       db.insert(users).values({
         id: userId,
         tenantId,
-        email: 'dev@localhost',
-        displayName: 'Local Dev',
+        email: `${authSubject}@localhost`,
+        displayName: authSubject === 'dev-local' ? 'Local Dev' : authSubject,
         authProvider: 'dev',
         authSubject,
       }),
