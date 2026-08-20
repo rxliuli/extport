@@ -3,7 +3,7 @@ import {
   api,
   ApiError,
   type AnalyticsOverview,
-  type AnalyticsSeriesRow,
+  type AnalyticsSeries,
   type ApiKeyRow,
   type CredentialRow,
   type DeploymentVersion,
@@ -112,10 +112,7 @@ export const licensesOverviewQuery = queryOptions({
 export const analyticsSeriesQuery = (extensionId: string, dim: 'total' | 'version' | 'country' | 'language' | 'os', days = 30) =>
   queryOptions({
     queryKey: ['analytics', extensionId, dim, days],
-    queryFn: () =>
-      api<{ rows: AnalyticsSeriesRow[] }>(`/api/v1/analytics/series?extension=${extensionId}&dim=${dim}&days=${days}`).then(
-        (r) => r.rows,
-      ),
+    queryFn: () => api<AnalyticsSeries>(`/api/v1/analytics/series?extension=${extensionId}&dim=${dim}&days=${days}`),
   })
 
 export const analyticsOverviewQuery = (extensionId: string) =>
@@ -132,7 +129,7 @@ export const fleetAnalyticsOverviewQuery = queryOptions({
 export const fleetAnalyticsSeriesQuery = (days = 30) =>
   queryOptions({
     queryKey: ['analytics', 'fleet', 'series', days],
-    queryFn: () => api<{ rows: AnalyticsSeriesRow[] }>(`/api/v1/analytics/fleet/series?days=${days}`).then((r) => r.rows),
+    queryFn: () => api<AnalyticsSeries>(`/api/v1/analytics/fleet/series?days=${days}`),
   })
 
 export const fleetAnalyticsExtensionsQuery = queryOptions({

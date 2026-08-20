@@ -132,12 +132,37 @@ analyticsTenantRoutes.use('*', requireAuth, requireActiveTenant)
  * into a day-long staleness. Between midnight and 00:30 the answer is
  * deliberately short-lived instead, since whether the rollup has finished is
  * unknowable from here.
+ *
+ * A response cached inside that window is honest, not merely tolerable,
+ * because `through` (below) shares the same boundary: the snapshot simply
+ * ends a day earlier, and the new day appears at most ~15 minutes after the
+ * rollup lands.
  */
 export function secondsUntilNextRollup(now: Date = new Date()): number {
   const next = new Date(now)
   next.setUTCHours(0, 30, 0, 0)
   if (next <= now) next.setUTCDate(next.getUTCDate() + 1)
   return Math.ceil((next.getTime() - now.getTime()) / 1000)
+}
+
+/**
+ * The last day whose rollup is known to be complete — yesterday once safely
+ * past the 00:15 UTC cron, the day before while the rollup may still be
+ * running. Clock-derived on purpose, from the same 00:30 boundary the cache
+ * header uses: a row's absence can't distinguish "zero activity" from "not
+ * computed yet", so the charts need this told to them explicitly. Serving it
+ * from the server keeps the rule in one place and on the one clock that
+ * actually runs the cron.
+ *
+ * The series endpoints return it as `through`: the chart's x-axis ends
+ * there, so a pre-rollup response shows a window ending one day earlier
+ * instead of drawing the missing day as a cliff to zero (a real incident:
+ * a viewer who loaded the dashboard just after UTC midnight watched
+ * yesterday's ~29k DAU render as 0).
+ */
+export function latestRolledUpDay(now: Date = new Date()): string {
+  const preRollup = now.getUTCHours() === 0 && now.getUTCMinutes() < 30
+  return isoDay(new Date(now.getTime() - (preRollup ? 2 : 1) * 24 * 60 * 60 * 1000))
 }
 
 // `private` is load-bearing: these are per-tenant figures, and a shared
@@ -201,7 +226,7 @@ analyticsTenantRoutes.get(
   describeRoute({
     summary: 'Daily analytics series',
     description:
-      "Rows from the permanent rollup for one extension: ?dim=total (headline dau/wau/mau/installs/departures) or version/country/language/os (dau + wau). ?days= bounds the window (default 90, max 1830). Departures live on the last-seen day and are only present once confirmed — the trailing 30 days legitimately show none.",
+      "Rows from the permanent rollup for one extension: ?dim=total (headline dau/wau/mau/installs/departures) or version/country/language/os (dau + wau). ?days= bounds the window (default 90, max 1830). `through` is the last fully-rolled-up day — charts should end their axis there; a day past it is not yet computed, not zero. Departures live on the last-seen day and are only present once confirmed — the trailing 30 days legitimately show none.",
     responses: { 200: { description: 'OK' }, 404: { description: 'Extension not found' } },
   }),
   async (c) => {
@@ -236,7 +261,7 @@ analyticsTenantRoutes.get(
         ),
       )
       .orderBy(analyticsDaily.date)
-    return c.json({ rows })
+    return c.json({ rows, through: latestRolledUpDay() })
   },
 )
 
@@ -373,7 +398,7 @@ analyticsTenantRoutes.get(
   '/fleet/series',
   describeRoute({
     summary: 'Fleet-wide daily analytics series',
-    description: 'Same row shape as /series?dim=total, summed across every extension the tenant owns instead of one. ?days= bounds the window (default 90, max 1830).',
+    description: 'Same row shape as /series?dim=total, summed across every extension the tenant owns instead of one. ?days= bounds the window (default 90, max 1830). `through` is the last fully-rolled-up day, same as /series.',
     responses: { 200: { description: 'OK' } },
   }),
   async (c) => {
@@ -401,7 +426,7 @@ analyticsTenantRoutes.get(
       .where(and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total'), gte(analyticsDaily.date, from)))
       .groupBy(analyticsDaily.date, analyticsDaily.browser)
       .orderBy(analyticsDaily.date)
-    return c.json({ rows })
+    return c.json({ rows, through: latestRolledUpDay() })
   },
 )
 

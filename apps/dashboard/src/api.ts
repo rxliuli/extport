@@ -184,6 +184,17 @@ export interface AnalyticsSeriesRow {
   mau: number
 }
 
+/** A /series or /fleet/series response — rows plus the axis watermark. */
+export interface AnalyticsSeries {
+  rows: AnalyticsSeriesRow[]
+  /**
+   * The last fully-rolled-up day; charts end their x-axis here. A day past
+   * it is not yet computed — drawing it would show a false zero (the rollup
+   * runs at 00:15 UTC, so until then "yesterday" has no rows).
+   */
+  through: string
+}
+
 /** One breakdown slice; `value: null` is the folded "Other" tail. */
 export interface DimensionShare {
   value: string | null

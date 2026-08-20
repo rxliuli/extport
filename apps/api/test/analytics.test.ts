@@ -3,7 +3,7 @@ import { env } from 'cloudflare:test'
 import { and, eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { runAnalyticsRollup } from '../src/analytics/rollup'
-import { secondsUntilNextRollup, topShares } from '../src/routes/analytics'
+import { latestRolledUpDay, secondsUntilNextRollup, topShares } from '../src/routes/analytics'
 import type { WaeQuery } from '../src/analytics/wae'
 import { analyticsDaily, analyticsInstalls, analyticsPings } from '../src/db'
 import { addDays, isoDay } from '../src/lib/dates'
@@ -292,9 +292,11 @@ describe('analytics rollup', () => {
       await request(`/api/v1/analytics/series?extension=${extension.id}&dim=total`, {
         headers: { cookie: sessionCookie },
       })
-    ).json()) as { rows: { date: string; browser: string; dau: number; departures: number }[] }
+    ).json()) as { rows: { date: string; browser: string; dau: number; departures: number }[]; through: string }
     expect(series.rows.find((r) => r.date === day(-1) && r.browser === 'chrome')).toMatchObject({ dau: 2 })
     expect(series.rows.find((r) => r.date === day(-31) && r.browser === 'chrome')).toMatchObject({ departures: 1 })
+    // The axis watermark rides along so charts know where finished data ends.
+    expect(series.through).toBe(latestRolledUpDay())
 
     const versions = (await (
       await request(`/api/v1/analytics/series?extension=${extension.id}&dim=version`, {
@@ -465,10 +467,22 @@ describe('analytics caching', () => {
 
   // Between midnight and 00:30 it is unknowable from here whether the rollup
   // has finished, so the answer expires quickly instead of pinning possibly
-  // pre-rollup numbers for a whole day.
+  // pre-rollup numbers for a whole day. Caching until 00:30 stays honest
+  // because `through` flips at the same boundary — the cached snapshot just
+  // ends a day earlier.
   it('keeps the answer short-lived while the rollup may still be running', () => {
     expect(secondsUntilNextRollup(new Date('2026-08-14T00:20:00Z'))).toBe(10 * 60)
     expect(secondsUntilNextRollup(new Date('2026-08-14T00:31:00Z'))).toBe(24 * 3600 - 60)
+  })
+
+  // `through` and the cache expiry share the 00:30 boundary: before it the
+  // last trustworthy day is the day before yesterday, after it yesterday.
+  it('reports the last rolled-up day across the rollup window', () => {
+    expect(latestRolledUpDay(new Date('2026-08-14T00:00:00Z'))).toBe('2026-08-12')
+    expect(latestRolledUpDay(new Date('2026-08-14T00:29:59Z'))).toBe('2026-08-12')
+    expect(latestRolledUpDay(new Date('2026-08-14T00:30:00Z'))).toBe('2026-08-13')
+    expect(latestRolledUpDay(new Date('2026-08-14T11:00:00Z'))).toBe('2026-08-13')
+    expect(latestRolledUpDay(new Date('2026-08-14T23:59:59Z'))).toBe('2026-08-13')
   })
 
   it('marks tenant analytics private and never caches an error', async () => {

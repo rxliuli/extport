@@ -29,15 +29,21 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, Line, LineCha
 // correct the whole time.
 
 /**
- * The fixed x-axis domain: the last N days ending *yesterday* — the last
- * fully-rolled-up day (CWS does the same: "to July 29" on July 30). Days
- * without data draw as 0 so every series is a continuous line across the
- * whole window, never a floating point.
+ * The fixed x-axis domain: the last N days ending at `through`, the last
+ * fully-rolled-up day as reported by the series response (CWS does the
+ * same: "to July 29" on July 30). Days without data draw as 0 so every
+ * series is a continuous line across the whole window, never a floating
+ * point — which is exactly why the axis must not extend past `through`:
+ * within it a missing day genuinely means zero, beyond it the rollup just
+ * hasn't run yet, and the zero-fill would paint a cliff to 0 (a viewer who
+ * loaded the dashboard just after UTC midnight watched ~29k real DAU render
+ * as 0 that way).
  */
-export function lastNDays(n: number): string[] {
+export function lastNDays(n: number, through: string): string[] {
+  const end = Date.parse(`${through}T00:00:00Z`)
   const days: string[] = []
-  for (let i = n; i >= 1; i--) {
-    days.push(new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10))
+  for (let i = n - 1; i >= 0; i--) {
+    days.push(new Date(end - i * 86_400_000).toISOString().slice(0, 10))
   }
   return days
 }
@@ -268,13 +274,14 @@ function compareVersions(a: string, b: string): number {
 
 export function AnalyticsSection({ extension }: { extension: Extension }) {
   const { data: overview } = useQuery(analyticsOverviewQuery(extension.id))
-  const { data: totalRows = [], isPending } = useQuery(analyticsSeriesQuery(extension.id, 'total'))
-  const { data: versionRows = [] } = useQuery(analyticsSeriesQuery(extension.id, 'version'))
+  const { data: totalSeries, isPending } = useQuery(analyticsSeriesQuery(extension.id, 'total'))
+  const { data: versionData } = useQuery(analyticsSeriesQuery(extension.id, 'version'))
 
-  const domain = lastNDays(30)
+  const totalRows = totalSeries?.rows ?? []
+  const domain = totalSeries ? lastNDays(30, totalSeries.through) : []
   const daily = byDate(totalRows, domain)
   const activity = activitySeries(totalRows, domain)
-  const versions = versionSeries(versionRows, domain)
+  const versions = versionSeries(versionData?.rows ?? [], domain)
 
   // While the series loads, the zero-filled domain would render as a
   // convincing flat month of zeros — skeleton instead of a false signal.

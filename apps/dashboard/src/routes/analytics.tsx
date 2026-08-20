@@ -23,10 +23,11 @@ export const Route = createFileRoute('/analytics')({ component: AnalyticsPage })
 // fleet's extension count.
 function AnalyticsPage() {
   const { data: overview } = useQuery(fleetAnalyticsOverviewQuery)
-  const { data: totalRows = [], isPending } = useQuery(fleetAnalyticsSeriesQuery(30))
+  const { data: totalSeries, isPending } = useQuery(fleetAnalyticsSeriesQuery(30))
   const { data: extensions = [], isPending: extensionsPending } = useQuery(fleetAnalyticsExtensionsQuery)
 
-  const domain = lastNDays(30)
+  const totalRows = totalSeries?.rows ?? []
+  const domain = totalSeries ? lastNDays(30, totalSeries.through) : []
   const daily = byDate(totalRows, domain)
   const activity = activitySeries(totalRows, domain)
 
