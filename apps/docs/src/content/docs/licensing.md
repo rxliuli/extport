@@ -30,8 +30,8 @@ Then create a plan. A plan is one sellable tier of one extension:
 
 Activation codes verify against your **extension's id** (`ext_…`) — the
 identity is part of the verification contract baked into shipped builds,
-which is also why the extension's name is locked while licensing is
-enabled.
+so it's fixed for the life of the extension. The name, in contrast, is
+just a label: it never freezes, and renaming it can't break verification.
 
 The plans table shows a `extport_plan=plan_…` value per row — that's the
 Stripe metadata you'll need in step 3.

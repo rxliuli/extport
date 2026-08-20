@@ -142,7 +142,7 @@ describe('POST /v1/licensing/webhooks/stripe/:tenantId — signature gate', () =
 
 describe('checkout.session.completed fulfillment', () => {
   it('issues a license the public endpoint can immediately activate', async () => {
-    const { db, tenantId, plan } = await setupStripeTenant()
+    const { db, tenantId, extension, plan } = await setupStripeTenant()
     const event = checkoutEvent(plan.id)
     const res = await deliver(tenantId, event)
     expect(res.status).toBe(200)
@@ -171,7 +171,7 @@ describe('checkout.session.completed fulfillment', () => {
     const activateRes = await request('/api/v1/licensing/activate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: license.key, productName: 'My Extension', fingerprint: 'fp-buyer' }),
+      body: JSON.stringify({ code: license.key, extensionId: extension.id, fingerprint: 'fp-buyer' }),
     })
     const activated = (await activateRes.json()) as { success: boolean; data?: { tier: string } }
     expect(activated.success).toBe(true)
@@ -228,7 +228,7 @@ describe('checkout.session.completed fulfillment', () => {
 
 describe('charge.refunded / charge.dispute.created revocation', () => {
   it('flips the license to refunded, after which activation is rejected', async () => {
-    const { db, tenantId, plan } = await setupStripeTenant()
+    const { db, tenantId, extension, plan } = await setupStripeTenant()
     const event = checkoutEvent(plan.id)
     await deliver(tenantId, event)
     const [license] = await tenantLicenses(db, tenantId)
@@ -247,7 +247,7 @@ describe('charge.refunded / charge.dispute.created revocation', () => {
     const activateRes = await request('/api/v1/licensing/activate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: license!.key, productName: 'My Extension', fingerprint: 'fp-refunded' }),
+      body: JSON.stringify({ code: license!.key, extensionId: extension.id, fingerprint: 'fp-refunded' }),
     })
     expect(((await activateRes.json()) as { success: boolean }).success).toBe(false)
   })

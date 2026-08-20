@@ -28,12 +28,16 @@ reference the license-kit repo and store.rxliuli.com.
 
 ### 1. Client swap
 
+> **Historical:** every product completed this step by 2026-08-05; the
+> pre-0.0.7 `productName` identity it describes is retired (see
+> [`migration-status.md`](migration-status.md)).
+
 - Extension exists in extport with licensing enabled; plan rows created
   in the dashboard Licensing tab (tier + max devices).
-- The `productName` passed to the SDK must equal the extension's `name`
-  in extport **exactly** — the name is frozen while licensing is
-  enabled, this is the verification key until the `extensionId` switch
-  at retirement.
+- (Pre-0.0.7 only) the `productName` passed to the SDK had to equal the
+  extension's `name` in extport **exactly** — the name was frozen while
+  licensing was enabled; the `extensionId` switch at retirement ended
+  both the requirement and the freeze.
 - Swap `@rxliuli/activation-client` → `@extport/sdk` (substack-exporter:
   4 imports + delete the `apiBase` line); `attachBackground` in the
   background entrypoint; `extport.config.json` carries the `ext_…` id.
@@ -150,3 +154,6 @@ See [`licensing.md`](licensing.md) § Fleet migration step 4: license-kit
 webhook and checkout endpoints retire, and the same post-retirement SDK
 release drops the cascade entry and switches the identity key from
 `productName` to `extensionId` (unfreezing extension names).
+**Done 2026-08-20** — the identity switch shipped with SDK 0.0.7 and
+the server-side tail (wire-compat fallback + name freeze) is now
+retired; see [`migration-status.md`](migration-status.md).

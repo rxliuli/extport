@@ -5,7 +5,7 @@ Per-product progress tracker. The procedure is
 product actually stands. **Update this file as steps complete** — future
 migration work resumes from here.
 
-Last updated: 2026-08-06. **The license-kit → extport payment/licensing
+Last updated: 2026-08-20. **The license-kit → extport payment/licensing
 migration is complete for every product** — every legacy code is
 imported, every storefront buy button points at its extport Payment
 Link. **license-kit's entire server backend has now been retired**
@@ -27,10 +27,9 @@ fleet-wide, as of 2026-08-05.
   the `productName` config option entirely. The whole fleet has since
   moved past 0.0.7 (see the version table below) — the cascade is now
   historical, not something any currently-shipped build still exercises.
-  The server still accepts `productName` as a cross-check fallback for
-  any pre-0.0.7 client frozen in an old, never-updated install (see
-  licensing.md) — that's a permanent server-side allowance, not a sign
-  the fleet itself still depends on it.
+  The server's `productName` wire-compat fallback was retired with the
+  unfreeze below (2026-08-20): activate/check require `extensionId`, and
+  pre-0.0.7 clients now get a 400 instead of a silent cross-check.
 - license-kit webhook skip patch deployed (`extport_plan` sessions ignored).
 - Tenant webhook destination + live whsec stored; fulfillment, portal,
   refund→revoke all verified with real money.
@@ -91,33 +90,32 @@ a dead route — worth explicitly deleting the registration in the
 provider dashboard to stop failed-delivery noise, but nothing depends
 on it and old clients fail open regardless (see below).
 
-## productName → extensionId unfreezing — deliberately still deferred
+## productName → extensionId unfreezing — done (2026-08-20)
 
-Not a blocked/pending item — an active decision to leave
-`extensions.name` frozen (`apps/api/src/routes/extensions.ts`'s freeze
-check, unconditional while `licensingEnabled`) rather than unfreeze it.
-No product has actually needed a rename since the SDK migration;
-revisit only if one comes up for real.
+The former active decision to leave `extensions.name` frozen while
+`licensingEnabled` (to protect pre-0.0.7 clients that only sent
+`productName`) is reversed: with the whole fleet past 0.0.7 and every
+product on store auto-update, the residual installs are negligible, so
+the server dropped the `productName` fallback (pre-0.0.7 clients get a
+400) and the `extensions.name` freeze is gone — names are display-only
+again, freely editable at any time.
 
-## Retirement — done; post-retirement SDK release still deferred
+## Retirement — done; post-retirement SDK release done (2026-08-20)
 
 Licensing.md § Fleet migration step 4: license-kit webhook + checkout
 endpoints retire → post-retirement SDK release finishes dropping the
 cascade support and switches the identity key `productName` →
 `extensionId` fleet-wide, unfreezing extension names.
 
-**The retirement half of step 4 is done** (2026-08-06, see above). The
-**post-retirement SDK release is now unblocked but still deliberately
-not scheduled** — same reasoning as the "productName → extensionId
-unfreezing" section above: no product has actually needed a rename,
-revisit only if one comes up for real. Until that release ships, a
-mistyped code degrades from "invalid" to a retryable error (cosmetic,
-typo path only) — **old clients fail open more broadly too**: the
-pre-SDK hand-rolled clients treat any non-2xx from license-kit as a
-thrown error that callers swallow, keeping the local cached
-entitlement. So devices that never updated past the license-kit era
-degrade to "checks fail forever, paid features never turn off" — the
-documented failure mode, not a cliff.
+**Both halves of step 4 are now done.** The retirement half shipped
+2026-08-06 (see above); the SDK half shipped with 0.0.7 (2026-08-01,
+see the version table) and its final server-side tail — the
+`productName` wire-compat fallback and the name freeze — was removed
+2026-08-20. A mistyped code now degrades from "invalid" to a retryable
+error (cosmetic, typo path only); pre-SDK hand-rolled clients that
+never updated past the license-kit era fail open (any non-2xx thrown
+and swallowed by callers keeps the local cached entitlement) — paid
+features never turn off, the documented failure mode, not a cliff.
 
 ### store.rxliuli.com endgame
 

@@ -62,33 +62,28 @@ Fixed in extport:
 
 ## Public wire protocol
 
-Two unauthenticated endpoints. This contract is simultaneously the SDK's
-API and the fleet-migration compatibility layer — change it only with a
-reason strong enough to break both.
+Two unauthenticated endpoints. This contract is the SDK's API; the old
+`productName` identity and its license-kit cascade were retired with the
+fleet migration (see Fleet migration below).
 
 ```
-POST /api/v1/licensing/activate   { code, productName, fingerprint, deviceInfo? }
+POST /api/v1/licensing/activate   { code, extensionId, fingerprint, deviceInfo? }
   → { success, message, data?: { tier, expiresAt: null } }
 
-POST /api/v1/licensing/check      { code, productName, fingerprint }
+POST /api/v1/licensing/check      { code, extensionId, fingerprint }
   → { success, data?: { isActive, tier, expiresAt: null } }
 ```
 
 - **No tenant in the URL.** Codes are globally unique; a code resolves
-  license → plan → extension → tenant. `productName` is a cross-check
-  (the extension asking must name the product the code was sold for), not
+  license → plan → extension → tenant. `extensionId` is a cross-check
+  (the caller must prove it is the extension the code was sold for), not
   a lookup key. Brute-force defense is code entropy (80 bits), same as
   license-kit.
-- **`productName` is checked against `extensions.name`, which is frozen
-  while licensing is enabled.** A display-form string is doing a
-  machine-key job only because license-kit's wire and data froze it
-  ('Substack Exporter'), and the dual-backend cascade must keep sending
-  it either way — so rather than duplicating that string onto plans,
-  the extension's own name carries it and its PATCH is rejected while
-  `licensingEnabled` (an honest freeze: the coupling exists whether or
-  not we acknowledge it). The end-state key is the immutable, opaque
-  **`extensionId`** — the retirement step switches to it and lifts the
-  name freeze for good.
+- **Identity is the immutable `ext_…` id.** `extensionId` is compared
+  against the extension the code resolves to. The pre-0.0.7 SDK's
+  `productName` identity was retired with the fleet migration (2026-08):
+  names are display-only, and the old `extensions.name` freeze lifted
+  with it — a rename can no longer fail any device's check.
 - **`check` is the heartbeat.** There is no separate heartbeat endpoint.
   Both endpoints refresh the activation's `lastHeartbeatAt`, but only
   write when the stored value is older than 12 h — otherwise every
@@ -125,7 +120,7 @@ one cheap migration with zero data concerns.
 
 | Table | Change |
 |---|---|
-| `plans` (né `products`) | + `tier` (text). One row per (extension, tier). Plans have **no name**: the SDK's `productName` is checked against `extensions.name` (0019 dropped the short-lived `plans.name` — one entity, one key). Renamed products → plans (2026-07-28): "product" collides with Stripe/Paddle's Product and Edge's Partner Center Product ID, while the SDK (`plans`, `usePlan`), the buyer UI ("Current Plan"), and license-kit (`planTier`) already speak *plan*. − `stripeMetadataKey`: the metadata key is fixed (`extport_plan`), its value is the plan id. |
+| `plans` (né `products`) | + `tier` (text). One row per (extension, tier). Plans have **no name**: the extension (ext_… id) is their identity (0019 dropped the short-lived `plans.name`). Renamed products → plans (2026-07-28): "product" collides with Stripe/Paddle's Product and Edge's Partner Center Product ID, while the SDK (`plans`, `usePlan`), the buyer UI ("Current Plan"), and license-kit (`planTier`) already speak *plan*. − `stripeMetadataKey`: the metadata key is fixed (`extport_plan`), its value is the plan id. |
 | `licenses` | + `maxActivations` snapshot at issuance (plan edits must not retroactively change sold licenses). − `balance`. Unique index on `sourceRef` (webhook idempotency + refund lookup). Status: `active / locked / refunded`. |
 | `activations` | Unique index on (`licenseId`, `deviceFingerprint`); re-activation of a known fingerprint reuses the row (clears `releasedAt`). A seat is an activation with `releasedAt IS NULL`. |
 | `license_events` | Enum becomes `issued / activated / seat_released / revoked / reset`. Heartbeats are not events. |
@@ -308,6 +303,12 @@ whole migration, so it starts first.
    `extensionId` and keep accepting `productName` for the installed
    long tail, and the `extensions.name` freeze lifts — display names go
    back to being display-only, permanently.
+
+   **Status: shipped.** The SDK switched on 2026-08-01 (0.0.7; the whole
+   fleet is on 0.0.8/0.0.9 since 2026-08-05). With no shipped build left
+   on `productName`, the server's wire-compat fallback was retired
+   2026-08-20: activate/check now require `extensionId` (a pre-0.0.7
+   client gets a 400), and the `extensions.name` freeze is gone.
 
 Buyer-portal gap: codes sold post-flip don't appear in the old
 store.rxliuli.com portal — extport's portal is slice C. So high-volume

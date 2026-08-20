@@ -22,8 +22,8 @@ own licensing plans.
 
 ![The Extensions list with a "Redirector" extension added, showing empty Chrome/Firefox/Edge/Safari status columns](../../assets/screenshots/dashboard-extensions-list.png)
 
-The name matters more than it looks: it's the identity your licensing plans verify against, so it freezes while
-licensing is enabled. Pick the name your extension actually ships under.
+The name is just a label — the real identity is the `ext_…` id shown beneath it, which the SDK, CLI, and CI all
+reference and which never changes. Pick whatever name makes sense to you and your users.
 
 ## 3. Wire up your project
 

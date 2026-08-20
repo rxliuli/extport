@@ -118,8 +118,8 @@ export const extensions = sqliteTable(
     ...timestamps,
   },
   (t) => [
-    // The name doubles as the licensing verification key (frozen while
-    // licensingEnabled) — one entity, one key, so it's unique per tenant.
+    // Display name, unique per tenant for tidy listings. Purely cosmetic:
+    // the licensing identity is the immutable ext_… id (see docs/licensing.md).
     uniqueIndex('extensions_name_idx').on(t.tenantId, t.name),
     index('extensions_tenant_idx').on(t.tenantId),
   ],
@@ -309,9 +309,8 @@ export const plans = sqliteTable(
     tenantId: text('tenant_id').notNull(),
     extensionId: text('extension_id').notNull(),
     // 'basic' / 'pro' / ... — 'free' is reserved for the SDK's unpaid tier.
-    // What the SDK sends as `productName` is cross-checked against
-    // extensions.name (frozen while licensingEnabled) — a plan has no name
-    // of its own. The end-state key is extensionId; see docs/licensing.md.
+    // A plan has no name of its own — the extension (ext_… id) is its
+    // identity; see docs/licensing.md.
     tier: text('tier').notNull(),
     entitlementType: text('entitlement_type', {
       enum: ['perpetual', 'balance', 'recurring'],

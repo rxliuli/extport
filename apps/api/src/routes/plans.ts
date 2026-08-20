@@ -7,9 +7,9 @@ import { extensions, plans } from '../db'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
 
-// Licensing plan catalog: one row per (extension, tier). What the SDK
-// sends as productName is the extension's name (frozen while licensing
-// is enabled) — a plan has no name of its own. See docs/licensing.md.
+// Licensing plan catalog: one row per (extension, tier) — a plan has no
+// name of its own, the extension (ext_… id) is its identity.
+// See docs/licensing.md.
 const route = new Hono<AppEnv>()
 
 route.use('*', requireAuth, requireActiveTenant)
@@ -44,7 +44,7 @@ route.post(
   '/',
   describeRoute({
     summary: 'Create a plan',
-    description: "One plan per (extension, tier). The SDK's productName is the extension's name — a plan has no name of its own.",
+    description: "One plan per (extension, tier) — a plan has no name of its own.",
     responses: { 201: { description: 'Created' }, 404: { description: 'Extension not found' }, 409: { description: 'Tier already exists for this extension' } },
   }),
   validator('json', createProductBodySchema, badRequest),

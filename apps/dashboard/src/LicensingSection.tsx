@@ -118,8 +118,8 @@ function PlansCard({ extension }: { extension: Extension }) {
               }}
             >
               <p className="text-xs text-muted-foreground">
-                The <code>productName</code> your extension passes to @extport/sdk is this extension's name
-                (<span className="font-medium">{extension.name}</span>) — it stays locked while licensing is enabled.
+                A plan belongs to this extension — licenses verify against its id (<code>ext_…</code>), which is
+                fixed; the name is just a label.
               </p>
               <label className="text-sm font-medium">
                 Tier
@@ -238,9 +238,9 @@ function PlanEditDialog({ plan, extensionId }: { plan: Plan; extensionId: string
             </span>
           </label>
           <p className="text-xs text-muted-foreground">
-            Name and tier can't be edited: installed extensions carry them as their verification contract
-            (<code>productName</code> and the SDK's tier table), so changing either would fail every existing
-            device's check. Selling something different? Create a new plan.
+            Tier can't be edited after issuance: installed extensions resolve the tier from their local copy of the
+            SDK's tier table, so renaming one would fail every existing device's check. Selling something different?
+            Create a new plan.
           </p>
           <Button type="submit" disabled={save.isPending}>
             Save

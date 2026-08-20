@@ -114,13 +114,13 @@ describe('magic-link sign-in', () => {
 
 describe('GET /v1/portal/licenses', () => {
   it('lists only the signed-in buyer\'s licenses, with devices', async () => {
-    const { db, license } = await setupLicensed('alice@example.com')
+    const { db, extension, license } = await setupLicensed('alice@example.com')
     await setupLicensed('bob@example.com')
 
     await request('/api/v1/licensing/activate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: license.key, productName: 'My Extension', fingerprint: 'fp-alice' }),
+      body: JSON.stringify({ code: license.key, extensionId: extension.id, fingerprint: 'fp-alice' }),
     })
 
     expect((await request('/api/v1/portal/licenses')).status).toBe(401)
@@ -141,11 +141,11 @@ describe('GET /v1/portal/licenses', () => {
 
 describe('tenant seat release + license detail', () => {
   it('releases a seat (reset event), after which check is inactive; idempotent', async () => {
-    const { db, sessionCookie, license } = await setupLicensed()
+    const { db, extension, sessionCookie, license } = await setupLicensed()
     await request('/api/v1/licensing/activate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: license.key, productName: 'My Extension', fingerprint: 'fp-release' }),
+      body: JSON.stringify({ code: license.key, extensionId: extension.id, fingerprint: 'fp-release' }),
     })
 
     const release = () =>
@@ -164,7 +164,7 @@ describe('tenant seat release + license detail', () => {
     const check = await request('/api/v1/licensing/check', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: license.key, productName: 'My Extension', fingerprint: 'fp-release' }),
+      body: JSON.stringify({ code: license.key, extensionId: extension.id, fingerprint: 'fp-release' }),
     })
     expect(((await check.json()) as { data: { isActive: boolean } }).data.isActive).toBe(false)
 

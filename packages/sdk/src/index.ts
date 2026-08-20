@@ -95,9 +95,9 @@ export interface ActivationClientOptions<TTier extends string, TLimit> {
    * 启动直接干挂(不只是 licensing 失败)。getPlan() 只读本地存储,不需要
    * extensionId,构造后可以放心立即调用。
    *
-   * (旧版本的 productName + license-kit 级联已随本版本一起移除。
-   * server 端仍临时接受 productName 以兼容尚未升级 SDK 的存量 build——
-   * 那是已打包冻结的旧代码,不受这次改动影响。)
+   * (旧版本的 productName + license-kit 级联已随 0.0.7 一起移除;server 端
+   * 也已在 fleet 全量升级后退役 productName(2026-08)——wire 上只剩
+   * extensionId,旧客户端会收到 400。)
    */
   extensionId?: string
   /** 本地/自托管调试用:设置后只请求该 extport 部署。省略 = 生产 api.extport.dev。 */
