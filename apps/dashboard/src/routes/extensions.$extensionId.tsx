@@ -24,6 +24,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { parseListingUrl } from '@/lib/store-listing-url'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { credentialsQuery, extensionQuery, targetsQuery, timelineQuery } from '@/queries'
@@ -80,6 +81,35 @@ export function TargetsSection({ extensionId }: { extensionId: string }) {
   const selectedCredentialId = matchingCredentials.some((c) => c.id === credentialId)
     ? credentialId
     : (matchingCredentials[0]?.id ?? '')
+
+  // The id fields accept a pasted store listing URL — that URL is where most
+  // tenants go hunting for the id anyway, so extract it for them. A parsed URL
+  // also names its store, which overrides whatever the select happened to be on.
+  const handleItemIdInput = (value: string) => {
+    const parsed = parseListingUrl(value)
+    if (!parsed) {
+      setStoreItemId(value)
+      return
+    }
+    if (!availableStores.includes(parsed.store)) {
+      setStoreItemId(value)
+      toast.error(`That's a ${parsed.store} listing URL — ${parsed.store} is already connected on this extension.`)
+      return
+    }
+    if (parsed.store !== selectedStore) {
+      setStore(parsed.store)
+      setCredentialId('')
+    }
+    if (parsed.field === 'crxId') {
+      setCrxId(parsed.id)
+      setStoreItemId('')
+      toast.info(
+        'Edge listing URLs carry the CRX ID — filled it in below. The Product ID comes from Partner Center → Extension identity.',
+      )
+    } else {
+      setStoreItemId(parsed.id)
+    }
+  }
 
   const add = useMutation({
     mutationFn: () =>
@@ -172,15 +202,20 @@ export function TargetsSection({ extensionId }: { extensionId: string }) {
                 </Select>
                 <Input
                   value={storeItemId}
-                  onChange={(e) => setStoreItemId(e.target.value)}
-                  placeholder={selectedStore === 'edge' ? 'Product ID (Partner Center → Extension identity)' : 'Store item id'}
+                  onChange={(e) => handleItemIdInput(e.target.value)}
+                  placeholder={
+                    selectedStore === 'edge' ? 'Product ID (Partner Center → Extension identity)' : 'Store item id or listing URL'
+                  }
                   required
                 />
                 {selectedStore === 'edge' && (
                   <Input
                     value={crxId}
-                    onChange={(e) => setCrxId(e.target.value)}
-                    placeholder="CRX ID (optional — public status lookups)"
+                    onChange={(e) => {
+                      const parsed = parseListingUrl(e.target.value)
+                      setCrxId(parsed?.store === 'edge' ? parsed.id : e.target.value)
+                    }}
+                    placeholder="CRX ID or listing URL (optional — public status lookups)"
                   />
                 )}
                 {selectedStore === 'edge' && (

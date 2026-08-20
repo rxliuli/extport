@@ -102,7 +102,22 @@ function ExtensionsPage() {
               </TableBody>
             </Table>
             {(extensions ?? []).length === 0 && (
-              <p className="py-6 text-center text-sm text-muted-foreground">No extensions yet — add your first one above.</p>
+              <div className="space-y-1 py-6 text-center text-sm text-muted-foreground">
+                <p>No extensions yet — add your first one above.</p>
+                <p>
+                  Already published to the stores? Same thing — after creating it, paste the store listing URL when
+                  connecting a store target. See the{' '}
+                  <a
+                    href="https://docs.extport.dev/getting-started/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-4 hover:text-foreground"
+                  >
+                    getting-started guide
+                  </a>
+                  .
+                </p>
+              </div>
             )}
           </>
         )}

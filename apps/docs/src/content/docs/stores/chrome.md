@@ -29,7 +29,8 @@ URL or its public store listing URL — a 32-character lowercase string.
 
 For example, [Redirector](https://store.rxliuli.com/extensions/redirector/)'s Chrome listing is at
 `chromewebstore.google.com/detail/redirector/lioaeidejmlpffbndjhaameocfldlhin` — the trailing
-`lioaeidejmlpffbndjhaameocfldlhin` segment is the store item id.
+`lioaeidejmlpffbndjhaameocfldlhin` segment is the store item id. Pasting the whole listing URL into the
+dashboard's store item id field also works — it extracts the id for you.
 
 ## Notes
 

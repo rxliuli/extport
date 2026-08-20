@@ -33,7 +33,8 @@ secrets.
 The Safari **store item id** is your app's Apple ID (the numeric App Store Connect app id), not the bundle id.
 
 For example, [Redirector](https://store.rxliuli.com/extensions/redirector/)'s iOS app is at
-`apps.apple.com/app/url-redirector/id6743197230` — the trailing `6743197230` is the store item id.
+`apps.apple.com/app/url-redirector/id6743197230` — the trailing `6743197230` is the store item id. Pasting the
+whole App Store URL into the dashboard's store item id field also works — it extracts the id for you.
 
 ## Building and uploading
 

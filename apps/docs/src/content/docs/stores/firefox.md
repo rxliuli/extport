@@ -26,7 +26,8 @@ The **store item id** is your add-on's id or slug, found in its AMO listing URL 
 page for that add-on.
 
 For example, [Redirector](https://store.rxliuli.com/extensions/redirector/)'s Firefox listing is at
-`addons.mozilla.org/firefox/addon/redirector-url/` — the `redirector-url` slug is the store item id.
+`addons.mozilla.org/firefox/addon/redirector-url/` — the `redirector-url` slug is the store item id. Pasting the
+whole listing URL into the dashboard's store item id field also works — it extracts the slug for you.
 
 ## Source zip
 

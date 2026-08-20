@@ -36,6 +36,8 @@ when the Submission API itself can't report status.
 For example, [Redirector](https://store.rxliuli.com/extensions/redirector/)'s Edge listing has Product ID
 `fc0018c2-ecb8-4305-8ccf-b700cc62aba7` and CRX ID `jhdjcofnjfeljeekjklhgfmfocfgibmm` — the CRX ID is also the
 trailing segment of its public listing URL, `microsoftedge.microsoft.com/addons/detail/redirector/jhdjcofnjfeljeekjklhgfmfocfgibmm`.
+Pasting that listing URL into the dashboard's target form fills the CRX ID — the Product ID can only come from
+Partner Center.
 
 ## After a push, extport can't see what Edge did with it
 
