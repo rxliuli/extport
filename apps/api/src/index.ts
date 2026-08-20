@@ -130,7 +130,10 @@ app.onError((err, c) => {
   // message; the fallback below would otherwise flatten it into an opaque
   // 500, same as any other unrelated bug.
   if (err instanceof HTTPException) return c.json({ error: err.message }, err.status)
-  console.error(JSON.stringify({ level: 'error', message: err.message, stack: err.stack }))
+  // Drizzle wraps the real D1 error in `cause` — without it, an outage logs
+  // as an opaque "Failed query: select ..." (2026-08-19).
+  const cause = err.cause instanceof Error ? err.cause.message : err.cause
+  console.error(JSON.stringify({ level: 'error', message: err.message, cause, stack: err.stack }))
   return c.json({ error: 'internal error' }, 500)
 })
 
