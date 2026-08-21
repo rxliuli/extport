@@ -80,7 +80,12 @@ export interface ReconcileSummary {
   skipped: number
 }
 
-function truncate(text: string, max = 500): string {
+// The final bound on what reaches the event payload, the email, and
+// lastErrorDetail. Sized above two platform lines of adapter-truncated
+// store errors (~1KB each, see store-adapters truncate) so a multi-platform
+// failure keeps BOTH platforms' messages — at 500 the joined string cut the
+// second platform's line before its error code (Redirector, 2026-08-21).
+function truncate(text: string, max = 2500): string {
   return text.length > max ? `${text.slice(0, max)}…` : text
 }
 

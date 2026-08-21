@@ -1,7 +1,11 @@
 /** Injectable fetch so adapters are unit-testable without network access. */
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 
-export function truncate(text: string, max = 300): string {
+// Sized so one complete store error fits untruncated — ASC's structured
+// error JSON runs ~450 chars and its "detail" sentence was the part a
+// 300 cap kept eating (Redirector, 2026-08-21) — while an AMO outage
+// page (full HTML document) stays bounded.
+export function truncate(text: string, max = 1000): string {
   return text.length > max ? `${text.slice(0, max)}…` : text
 }
 
