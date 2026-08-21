@@ -70,8 +70,59 @@ runs inside a Workers request. Newest first within each theme.
     re-enters the queue at the back. extport cannot automate the triage
     (invariant 8); the daily stale reminder's whole job is to prompt
     this one human check.
+11. **A store resource with a one-per-scope slot must be adopted and
+    reshaped, never created around.** ASC allows exactly one editable
+    appStoreVersion per platform; a leftover from a superseded push or a
+    rejection holds the slot, and creating "a new version" beside it
+    409s forever. The correct move is the store's own resubmission flow:
+    find the occupant by state, rename/reshape it onto the queued
+    intent, and only create when the slot is genuinely empty. Corollary
+    for diagnosis: when a store's API rejects with a catch-all ("not in
+    valid state"), the store's own UI preflight (ASC's "Add for Review")
+    is the only tool that names the actual blocker — reach for it before
+    guessing.
 
 ## Incident log
+
+### 2026-08-21 — Redirector safari: create-409 loop, then the catch-all 409
+
+v0.17.9's submit failed pre-review on app-level metadata (new age-rating
+questions, an unaccepted agreement — both human-only fixes), but the
+failed attempts had already created the editable appStoreVersion rows
+and empty draft submissions on both platforms. The next push (v0.17.10)
+superseded the queued rows cleanly on extport's side — and left nobody
+responsible for ASC's side: one editable version per platform, the slot
+still held by 0.17.9, so `version create` 409'd forever ("You cannot
+create a new version of the App in the current state"), every tick,
+under an error email that still described the older item-add failure
+(transition-only emails go stale when the error CHANGES). Invariant 11.
+
+Fix: `095bf05` — submit() looks the editable slot up by state, not by
+versionString; renames it onto the queued version when it's older
+(ASC's own resubmission flow — the console's editable Version field),
+refuses to rename downward, creates only when the slot is empty. This
+also covers the rejected-then-push-a-fix path, which would have hit the
+same create 409.
+
+Second layer, exposed once unstuck: the item add kept returning
+`STATE_ERROR.ENTITY_STATE_INVALID` ("is not in valid state. This
+resource cannot be reviewed…") — ASC's catch-all for EVERY unmet review
+prerequisite (empty What's New, unanswered age-rating questions,
+unaccepted agreements, and this time: empty App Review contact info).
+Two facts worth their weight: **API-created versions do not inherit the
+previous version's App Review contact fields** (now required), each
+platform carries its own copy; and the API error never names the field —
+only the ASC UI's "Add for Review" preflight enumerates the actual
+blockers (it listed First name/Last name/Email/Phone in seconds after
+two days of guessing). Candidate hardening: copy `appStoreReviewDetail`
+forward from the previous version at create time, the way What's New is
+filled.
+
+Also observed: two macOS draft submissions coexisted (created 7 minutes
+apart by two failed ticks), so "one submission per platform" is not
+enforced at draft state and the reuse lookup (`limit=1`) picks one
+arbitrarily. Harmless here — both were empty — but the assumption is
+weaker than it looks.
 
 ### 2026-08-13 — Twitter Filter safari v0.0.66: one death, three layers
 
