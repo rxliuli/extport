@@ -164,7 +164,12 @@ describe('safari adapter — submit (review orchestration, binary uploaded out-o
     expect(result).toMatchObject({ submitted: true })
     expect(result.detail).toMatch(/submitted ios v1.2.0/)
 
-    expect(calls[1]!.url).toContain(`/v1/apps/${APP_ID}/appStoreVersions?filter[platform]=IOS&filter[versionString]=1.2.0`)
+    // The version lookup asks for the platform's one editable slot, not a
+    // versionString match — an occupied slot under another number must be
+    // found (and renamed), never created around.
+    expect(calls[1]!.url).toContain(`/v1/apps/${APP_ID}/appStoreVersions?filter[platform]=IOS&filter[appVersionState]=`)
+    expect(calls[1]!.url).toContain('PREPARE_FOR_SUBMISSION')
+    expect(calls[1]!.url).not.toContain('filter[versionString]')
     const createVersion = JSON.parse(String(calls[2]!.init?.body))
     expect(createVersion.data.attributes).toEqual({ platform: 'IOS', versionString: '1.2.0' })
     expect(calls[3]!.url).toBe('https://api.appstoreconnect.apple.com/v1/appStoreVersions/ver-1/relationships/build')
@@ -209,7 +214,7 @@ describe('safari adapter — submit (review orchestration, binary uploaded out-o
   it('is idempotent against partial progress — reuses the version, the open draft, and an already-added item', async () => {
     const { fetch, calls } = queueFetch([
       { status: 200, body: { data: [{ id: 'build-1' }] } }, // builds lookup
-      { status: 200, body: { data: [{ id: 'ver-1' }] } }, // version already exists
+      { status: 200, body: { data: [{ id: 'ver-1', attributes: { versionString: '1.2.0' } }] } }, // version already exists
       { status: 200, body: {} }, // attach build
       { status: 200, body: { data: [{ id: 'loc-1', attributes: { whatsNew: 'Bug fixes and improvements.' } }] } }, // notes already set
       { status: 200, body: { data: [{ id: 'sub-1' }] } }, // open draft submission exists
@@ -225,6 +230,46 @@ describe('safari adapter — submit (review orchestration, binary uploaded out-o
     // items list entirely and the already-added check can never match
     // (Twitter Filter macOS v0.0.66, 2026-08-13).
     expect(calls[5]!.url).toContain('include=appStoreVersion')
+  })
+
+  it('renames a leftover editable version from a superseded push instead of creating alongside it', async () => {
+    // ASC allows one editable version per platform. A submit that failed on
+    // v0.17.9's metadata, followed by a push of v0.17.10, leaves the slot
+    // occupied under the old number — a create 409s forever ("You cannot
+    // create a new version of the App in the current state"; Redirector,
+    // 2026-08-21). The slot must be adopted and renamed.
+    const { fetch, calls } = queueFetch([
+      { status: 200, body: { data: [{ id: 'build-2' }] } }, // builds lookup
+      { status: 200, body: { data: [{ id: 'ver-1', attributes: { versionString: '1.1.9' } }] } }, // editable slot, older number
+      { status: 200, body: {} }, // PATCH versionString
+      { status: 200, body: {} }, // attach build
+      { status: 200, body: { data: [{ id: 'loc-1', attributes: { whatsNew: 'Bug fixes and improvements.' } }] } },
+      { status: 200, body: { data: [{ id: 'sub-1' }] } }, // open draft submission (the failed tick's leftover)
+      { status: 200, body: { data: [] } }, // items lookup — empty
+      { status: 201, body: {} }, // add item
+      { status: 200, body: {} }, // PATCH submitted:true
+    ])
+    const result = await createSafariAdapter(fetch).submit(await creds(), { storeItemId: APP_ID }, zip, '1.2.0', 'macos')
+    expect(result.submitted).toBe(true)
+    expect(calls[2]!.url).toBe('https://api.appstoreconnect.apple.com/v1/appStoreVersions/ver-1')
+    expect(calls[2]!.init?.method).toBe('PATCH')
+    expect(JSON.parse(String(calls[2]!.init?.body)).data.attributes.versionString).toBe('1.2.0')
+    // Adopted, not created: the only POST is the reviewSubmissionItems add.
+    const posts = calls.filter((c) => c.init?.method === 'POST')
+    expect(posts).toHaveLength(1)
+    expect(posts[0]!.url).toContain('/v1/reviewSubmissionItems')
+  })
+
+  it('refuses to rename an editable version downward — a newer hand-prepared release is not our leftover', async () => {
+    const { fetch, calls } = queueFetch([
+      { status: 200, body: { data: [{ id: 'build-2' }] } }, // builds lookup
+      { status: 200, body: { data: [{ id: 'ver-9', attributes: { versionString: '2.0.0' } }] } }, // editable slot, newer number
+    ])
+    const result = await createSafariAdapter(fetch).submit(await creds(), { storeItemId: APP_ID }, zip, '1.2.0', 'macos')
+    expect(result.submitted).toBe(false)
+    expect(result.waiting).toBeUndefined()
+    expect(result.detail).toMatch(/editable macos version 2\.0\.0, newer than the queued v1\.2\.0/)
+    expect(calls).toHaveLength(2) // stopped before any write
   })
 
   it("treats ASC's own \"already added\" 409 on the item add as the step succeeding", async () => {

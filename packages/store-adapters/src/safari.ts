@@ -1,3 +1,4 @@
+import { compareVersions } from '@extport/shared'
 import type { SafariCredentials, CredentialCheck, StoreAdapter, StoreState, StoreTarget, SubmissionResult } from './types'
 import { signJwtES256 } from './jwt'
 import { DEFAULT_RETRY, fetchWithRetry, truncate, type FetchLike, type RetryOptions } from './util'
@@ -24,6 +25,24 @@ const LIVE_STATES = new Set([
   'PENDING_APPLE_RELEASE',
   'PROCESSING_FOR_DISTRIBUTION',
 ])
+
+// The one slot ASC gives each platform for a not-yet-approved version.
+// submit() adopts whatever occupies it — while any of these exist, creating
+// a second version 409s ("You cannot create a new version of the App in the
+// current state"), so a leftover under an older number (a submit whose push
+// was then superseded: Redirector v0.17.9 → v0.17.10, 2026-08-21) or a
+// rejected version awaiting a fixed release must be renamed onto the queued
+// version, never created alongside. Deliberately overlaps REJECTED_STATES:
+// Apple's resubmission flow is editing that same version row, not a fresh
+// one.
+const EDITABLE_VERSION_STATES = [
+  'PREPARE_FOR_SUBMISSION',
+  'READY_FOR_REVIEW',
+  'REJECTED',
+  'METADATA_REJECTED',
+  'DEVELOPER_REJECTED',
+  'INVALID_BINARY',
+]
 
 /**
  * One App Store Connect app spans macOS and iOS with fully independent
@@ -109,10 +128,12 @@ interface AscResource {
  * bytes passed by the reconciler are the web-extension zip and are ignored).
  *
  * Steps: find a processed build for (version, platform) — `waiting` until
- * one exists — then create/reuse the appStoreVersion, attach the build, and
- * submit through the reviewSubmissions flow. Idempotent against partial
- * progress from an earlier failed tick (reuses an existing version row and
- * an open draft submission, skips an already-added item).
+ * one exists — then adopt or create the appStoreVersion, attach the build,
+ * and submit through the reviewSubmissions flow. Idempotent against partial
+ * progress from an earlier failed tick (adopts the platform's one editable
+ * version row — renaming it when a superseded push or a rejection left it
+ * under an older number — reuses an open draft submission, skips an
+ * already-added item).
  */
 async function submit(
   credentials: SafariCredentials,
@@ -147,14 +168,37 @@ async function submit(
     }
   }
 
-  // 2. Create or reuse the appStoreVersion for this (platform, version).
+  // 2. Adopt or create the appStoreVersion. The lookup is by editable state,
+  //    NOT by versionString — see EDITABLE_VERSION_STATES for why an occupied
+  //    slot under a different number must be renamed, not created around.
   const versionsRes = await fetchImpl(
-    `${API_BASE}/v1/apps/${appId}/appStoreVersions?filter[platform]=${platformValue}&filter[versionString]=${encodeURIComponent(version)}&limit=1`,
+    `${API_BASE}/v1/apps/${appId}/appStoreVersions?filter[platform]=${platformValue}&filter[appVersionState]=${EDITABLE_VERSION_STATES.join(',')}&fields[appStoreVersions]=versionString&limit=1`,
     { headers: { authorization } },
   )
   if (!versionsRes.ok) return fail('version lookup', versionsRes)
   let appStoreVersion = ((await versionsRes.json()) as { data?: AscResource[] }).data?.[0]
-  if (!appStoreVersion) {
+  if (appStoreVersion) {
+    const existing = appStoreVersion.attributes?.versionString
+    if (typeof existing === 'string' && existing !== version) {
+      // Never rename downward: an editable version NEWER than the queued row
+      // is not extport's leftover (someone prepared the next release by hand)
+      // and renaming it would destroy their work-in-progress.
+      if (compareVersions(existing, version) > 0) {
+        return {
+          submitted: false,
+          detail: `App Store Connect already has an editable ${platform} version ${existing}, newer than the queued v${version} — resolve it in App Store Connect; extport won't rename it downward`,
+        }
+      }
+      const renameRes = await fetchImpl(`${API_BASE}/v1/appStoreVersions/${appStoreVersion.id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          data: { type: 'appStoreVersions', id: appStoreVersion.id, attributes: { versionString: version } },
+        }),
+      })
+      if (!renameRes.ok) return fail('version rename', renameRes)
+    }
+  } else {
     const createRes = await fetchImpl(`${API_BASE}/v1/appStoreVersions`, {
       method: 'POST',
       headers,

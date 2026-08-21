@@ -1005,15 +1005,16 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
     })
     globalThis.fetch = routedFetch([
       {
-        test: (u) => u.includes('appVersionState') && u.includes('=MAC_OS'),
+        test: (u) => u.includes('versionString,appVersionState') && u.includes('=MAC_OS'),
         respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
       },
-      { test: (u) => u.includes('appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
+      { test: (u) => u.includes('versionString,appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
       { test: (u) => u.includes('/v1/builds'), respond: () => ({ status: 200, body: { data: [{ id: 'build-1' }] } }) },
-      // The stuck draft is found here — submit()'s version lookup has no state filter.
+      // The stuck draft is found here — submit()'s version lookup asks for
+      // the platform's editable slot, which is exactly what the draft is.
       {
-        test: (u) => u.includes('appStoreVersions') && u.includes('versionString'),
-        respond: () => ({ status: 200, body: { data: [{ id: 'ver-1' }] } }),
+        test: (u) => u.includes('PREPARE_FOR_SUBMISSION'),
+        respond: () => ({ status: 200, body: { data: [{ id: 'ver-1', attributes: { versionString: '0.0.2' } }] } }),
       },
       { test: (u, i) => u.includes('/relationships/build') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
       {
@@ -1049,10 +1050,10 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
     })
     globalThis.fetch = routedFetch([
       {
-        test: (u) => u.includes('appVersionState') && u.includes('=MAC_OS'),
+        test: (u) => u.includes('versionString,appVersionState') && u.includes('=MAC_OS'),
         respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
       },
-      { test: (u) => u.includes('appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
+      { test: (u) => u.includes('versionString,appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
       { test: (u) => u.includes('/v1/builds'), respond: () => ({ status: 200, body: { data: [] } }) },
     ]).fetch
     const { notifier, sent } = recordingNotifier()
@@ -1079,13 +1080,13 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
     })
     globalThis.fetch = routedFetch([
       {
-        test: (u) => u.includes('appVersionState') && u.includes('=MAC_OS'),
+        test: (u) => u.includes('versionString,appVersionState') && u.includes('=MAC_OS'),
         respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
       },
-      { test: (u) => u.includes('appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
+      { test: (u) => u.includes('versionString,appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
       { test: (u) => u.includes('/v1/builds'), respond: () => ({ status: 200, body: { data: [{ id: 'build-1' }] } }) },
       {
-        test: (u) => u.includes('appStoreVersions') && u.includes('versionString'),
+        test: (u) => u.includes('PREPARE_FOR_SUBMISSION'),
         respond: () => ({ status: 200, body: { data: [] } }),
       },
       { test: (u, i) => u.endsWith('/v1/appStoreVersions') && i?.method === 'POST', respond: () => ({ status: 201, body: { data: { id: 'ver-1' } } }) },
@@ -1131,7 +1132,7 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
     })
     globalThis.fetch = routedFetch([
       {
-        test: (u) => u.includes('appVersionState') && u.includes('=MAC_OS'),
+        test: (u) => u.includes('versionString,appVersionState') && u.includes('=MAC_OS'),
         respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
       },
     ]).fetch
@@ -1172,13 +1173,13 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
     })
     globalThis.fetch = routedFetch([
       {
-        test: (u) => u.includes('appVersionState') && u.includes('=MAC_OS'),
+        test: (u) => u.includes('versionString,appVersionState') && u.includes('=MAC_OS'),
         respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
       },
-      { test: (u) => u.includes('appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
+      { test: (u) => u.includes('versionString,appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
       { test: (u) => u.includes('/v1/builds'), respond: () => ({ status: 200, body: { data: [{ id: 'build-1' }] } }) },
       {
-        test: (u) => u.includes('appStoreVersions') && u.includes('versionString'),
+        test: (u) => u.includes('PREPARE_FOR_SUBMISSION'),
         respond: () => ({ status: 200, body: { data: [] } }),
       },
       { test: (u, i) => u.endsWith('/v1/appStoreVersions') && i?.method === 'POST', respond: () => ({ status: 201, body: { data: { id: 'ver-1' } } }) },
@@ -1220,21 +1221,21 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
     })
     globalThis.fetch = routedFetch([
       {
-        test: (u) => u.includes('appVersionState') && u.includes('=MAC_OS'),
+        test: (u) => u.includes('versionString,appVersionState') && u.includes('=MAC_OS'),
         respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
       },
       {
-        test: (u) => u.includes('appVersionState') && u.includes('=IOS'),
+        test: (u) => u.includes('versionString,appVersionState') && u.includes('=IOS'),
         respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
       },
       { test: (u) => u.includes('/v1/builds') && u.includes('=MAC_OS'), respond: () => ({ status: 200, body: { data: [{ id: 'build-mac' }] } }) },
       { test: (u) => u.includes('/v1/builds') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [{ id: 'build-ios' }] } }) },
       {
-        test: (u) => u.includes('appStoreVersions') && u.includes('versionString') && u.includes('=MAC_OS'),
+        test: (u) => u.includes('PREPARE_FOR_SUBMISSION') && u.includes('=MAC_OS'),
         respond: () => ({ status: 200, body: { data: [] } }),
       },
       {
-        test: (u) => u.includes('appStoreVersions') && u.includes('versionString') && u.includes('=IOS'),
+        test: (u) => u.includes('PREPARE_FOR_SUBMISSION') && u.includes('=IOS'),
         respond: () => ({ status: 200, body: { data: [] } }),
       },
       {
