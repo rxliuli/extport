@@ -3,6 +3,7 @@ import starlight from '@astrojs/starlight'
 import { defineConfig } from 'astro/config'
 import starlightLinksValidator from 'starlight-links-validator'
 import starlightOpenAPI, { openAPISidebarGroups } from 'starlight-openapi'
+import starlightThemeRapide from 'starlight-theme-rapide'
 import starlightTypedoc, { createStarlightTypeDocPlugin, typeDocSidebarGroup } from 'starlight-typedoc'
 import { stripDuplicateReadmeH1 } from './plugins/strip-readme-h1.mjs'
 
@@ -35,6 +36,9 @@ export default defineConfig({
         baseUrl: 'https://github.com/rxliuli/extport/edit/main/apps/docs/',
       },
       plugins: [
+        // Theme first so it lays down the base styles; the content plugins
+        // (openapi/typedoc) layer their own on top.
+        starlightThemeRapide(),
         starlightOpenAPI([
           {
             base: 'api',
