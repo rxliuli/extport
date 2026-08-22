@@ -49,7 +49,7 @@ npx extport login   # once per machine — stores a key locally, so push never n
 npx extport push    # WXT project: zip, version, and extension id all inferred
 ```
 
-In a WXT project with [`@extport/wxt`](https://www.npmjs.com/package/@extport/wxt) configured, that's the whole
+In a WXT project with [`@extport/wxt`](/wxt/) configured, that's the whole
 command: the extension id comes from `extport.config.json`, the per-browser zips from
 `.output/{name}-{version}-{browser}.zip`, and the version from their `manifest.json`. Outside a WXT project,
 point at the zip explicitly — the version still reads from the zip's own `manifest.json`, and `--extension` is

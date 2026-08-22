@@ -38,7 +38,7 @@ whole App Store URL into the dashboard's store item id field also works — it e
 
 ## Building and uploading
 
-In a WXT project with [`@extport/wxt`](https://www.npmjs.com/package/@extport/wxt)'s `safari` block configured
+In a WXT project with [`@extport/wxt`](/wxt/)'s `safari` block configured
 (or after `extport init`'s interactive Safari setup), everything `extport safari-build` needs — project path,
 Team ID, issuer id, key id — is already in `extport.config.json`, so locally it's just:
 

@@ -1,6 +1,14 @@
 // @ts-check
 import starlight from '@astrojs/starlight'
 import { defineConfig } from 'astro/config'
+import starlightLinksValidator from 'starlight-links-validator'
+import starlightOpenAPI, { openAPISidebarGroups } from 'starlight-openapi'
+import starlightTypedoc, { createStarlightTypeDocPlugin, typeDocSidebarGroup } from 'starlight-typedoc'
+import { stripDuplicateReadmeH1 } from './plugins/strip-readme-h1.mjs'
+
+// A second starlight-typedoc instance needs its own sidebar group placeholder
+// (the default `typeDocSidebarGroup` is a singleton for one instance).
+const [starlightTypeDocWxt, wxtSidebarGroup] = createStarlightTypeDocPlugin()
 
 // https://astro.build/config
 export default defineConfig({
@@ -26,6 +34,43 @@ export default defineConfig({
       editLink: {
         baseUrl: 'https://github.com/rxliuli/extport/edit/main/apps/docs/',
       },
+      plugins: [
+        starlightOpenAPI([
+          {
+            base: 'api',
+            schema: './public/openapi.json',
+            sidebar: {
+              collapsed: true,
+              label: 'API reference',
+              operations: { badges: true, labels: 'summary', sort: 'document' },
+            },
+          },
+        ]),
+        starlightTypedoc({
+          entryPoints: ['../../packages/sdk/src/index.ts'],
+          tsconfig: '../../packages/sdk/tsconfig.json',
+          output: 'sdk',
+          // `entryFileName: 'index'` puts the README overview at `/sdk/` (the
+          // default would be `/sdk/readme/`). This works here because there is a
+          // single entry point, so no nested `index` module collides.
+          typeDoc: { entryFileName: 'index', readme: '../../packages/sdk/README.md' },
+          sidebar: { collapsed: false, label: 'SDK reference' },
+        }),
+        starlightTypeDocWxt({
+          entryPoints: ['../../packages/wxt/src/index.ts'],
+          tsconfig: '../../packages/wxt/tsconfig.json',
+          output: 'wxt',
+          typeDoc: { entryFileName: 'index', readme: '../../packages/wxt/README.md' },
+          sidebar: { collapsed: false, label: 'WXT reference' },
+        }),
+        // Runs after the two starlight-typedoc instances above have written
+        // their generated markdown; strips the duplicate README H1 from the
+        // `/sdk/` and `/wxt/` overview pages (the READMEs stay intact for npm).
+        stripDuplicateReadmeH1(),
+        // Build-time guard: fails the build on broken internal links across the
+        // manual guides and the auto-generated API/SDK/WXT references.
+        starlightLinksValidator(),
+      ],
       sidebar: [
         {
           label: 'Start here',
@@ -49,6 +94,13 @@ export default defineConfig({
           label: 'Analytics',
           items: [{ label: 'Installs, users, and versions', slug: 'analytics' }],
         },
+        // References come last — the guide pages first, reference at the end.
+        // The SDK client and the WXT build module are what tenants reach for
+        // daily; the raw REST API is only needed to bypass the CLI or wire up a
+        // custom GitHub Actions step, so it sits below.
+        typeDocSidebarGroup,
+        wxtSidebarGroup,
+        ...openAPISidebarGroups,
       ],
     }),
   ],

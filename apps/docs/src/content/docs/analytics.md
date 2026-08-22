@@ -13,7 +13,7 @@ request itself, server-side.
 
 ## 1. Turn it on
 
-If your extension uses [`@extport/wxt`](https://www.npmjs.com/package/@extport/wxt), it's one flag:
+If your extension uses [`@extport/wxt`](/wxt/), it's one flag:
 
 ```ts
 // wxt.config.ts

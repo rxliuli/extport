@@ -36,7 +36,7 @@ npx extport login
 npx extport init
 ```
 
-`extport init` creates a [WXT](https://wxt.dev) project pre-wired with [`@extport/wxt`](https://www.npmjs.com/package/@extport/wxt),
+`extport init` creates a [WXT](https://wxt.dev) project pre-wired with [`@extport/wxt`](/wxt/),
 bound to a real extension record from birth — including the GitHub Actions workflow that pushes to every store when
 you bump the version. It can also create the extension record for you, so steps 2 and 3 collapse into one.
 
