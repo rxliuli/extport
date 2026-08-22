@@ -16,7 +16,7 @@ route.use('*', requireAuth, requireActiveTenant)
 
 route.get(
   '/',
-  describeRoute({ summary: 'List plans', responses: { 200: { description: 'OK' } } }),
+  describeRoute({ summary: 'List plans', responses: { 200: { description: 'OK' } }, tags: ['Licensing'] }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
@@ -43,6 +43,7 @@ const createProductBodySchema = v.object({
 route.post(
   '/',
   describeRoute({
+    tags: ['Licensing'],
     summary: 'Create a plan',
     description: "One plan per (extension, tier) — a plan has no name of its own.",
     responses: { 201: { description: 'Created' }, 404: { description: 'Extension not found' }, 409: { description: 'Tier already exists for this extension' } },
@@ -93,6 +94,7 @@ const patchPlanBodySchema = v.object({
 route.patch(
   '/:id',
   describeRoute({
+    tags: ['Licensing'],
     summary: "Update a plan's device limit",
     description: 'Only maxActivations is editable — tier is a wire contract baked into shipped extensions.',
     responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } },

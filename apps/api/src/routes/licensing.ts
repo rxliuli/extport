@@ -105,6 +105,8 @@ route.post(
   describeRoute({
     summary: 'Activate a device with a license key',
     description: 'Public endpoint called by the extension itself (via @extport/sdk). Idempotent for an already-activated fingerprint.',
+    tags: ['Licensing'],
+    security: [],
     responses: { 200: { description: 'Result (success flag in body)' }, 404: { description: 'Licensing not enabled' } },
   }),
   validator('json', activateBodySchema, badRequest),
@@ -179,6 +181,8 @@ route.post(
   describeRoute({
     summary: 'Check whether a device activation is still valid',
     description: 'Public endpoint; also the heartbeat that keeps a seat alive. Never activates a new device.',
+    tags: ['Licensing'],
+    security: [],
     responses: { 200: { description: 'Result (isActive in body)' }, 404: { description: 'Licensing not enabled' } },
   }),
   validator('json', checkBodySchema, badRequest),

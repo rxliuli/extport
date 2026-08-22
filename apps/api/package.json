@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": { "./openapi": "./src/openapi.ts" },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",

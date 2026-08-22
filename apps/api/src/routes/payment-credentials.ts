@@ -21,7 +21,7 @@ function publicView(row: PaymentCredential) {
 
 route.get(
   '/',
-  describeRoute({ summary: 'List payment credentials', responses: { 200: { description: 'OK' } } }),
+  describeRoute({ summary: 'List payment credentials', tags: ['Licensing'], security: [{ session: [] }], responses: { 200: { description: 'OK' } } }),
   async (c) => {
     const rows = await c
       .get('db')
@@ -48,6 +48,8 @@ route.post(
   describeRoute({
     summary: 'Store a payment credential',
     description: 'Upserts the (tenant, provider) credential — storing again replaces the secret. The secret is never returned.',
+    tags: ['Licensing'],
+    security: [{ session: [] }],
     responses: { 200: { description: 'Stored' } },
   }),
   validator('json', putCredentialBodySchema, badRequest),

@@ -58,6 +58,8 @@ route.post(
   describeRoute({
     summary: 'Stripe webhook receiver',
     description: 'Set this URL (with your tenant id) as a webhook endpoint in Stripe. Authenticated by webhook signature.',
+    tags: ['Licensing'],
+    security: [],
     responses: { 200: { description: 'Handled or ignored' }, 400: { description: 'Bad signature' }, 404: { description: 'Unknown tenant or no stripe credential' } },
   }),
   async (c) => {

@@ -30,6 +30,8 @@ analyticsPublicRoutes.post(
     summary: 'Daily analytics ping',
     description:
       'The only analytics event. At most one counts per install per UTC day (the server ignores extras). Browser/OS derive from the User-Agent, country from the request — the payload deliberately carries no more than this.',
+    tags: ['Analytics'],
+    security: [],
     responses: { 204: { description: 'Accepted (or ignored — the response never distinguishes)' } },
   }),
   validator('json', pingBodySchema, badRequest),
@@ -227,6 +229,7 @@ analyticsTenantRoutes.get(
     summary: 'Daily analytics series',
     description:
       "Rows from the permanent rollup for one extension: ?dim=total (headline dau/wau/mau/installs/departures) or version/country/language/os (dau + wau). ?days= bounds the window (default 90, max 1830). `through` is the last fully-rolled-up day — charts should end their axis there; a day past it is not yet computed, not zero. Departures live on the last-seen day and are only present once confirmed — the trailing 30 days legitimately show none.",
+    tags: ['Analytics'],
     responses: { 200: { description: 'OK' }, 404: { description: 'Extension not found' } },
   }),
   async (c) => {
@@ -271,6 +274,7 @@ analyticsTenantRoutes.get(
     summary: 'Analytics overview',
     description:
       'Weekly actives, all-time installs, and the current version distribution — all derived from the same rollup /series reads, so this can never disagree with the charts. Empty until the first nightly rollup runs for this extension (never live-queried install state, which used to be able to show numbers the charts had no way to display yet).',
+    tags: ['Analytics'],
     responses: { 200: { description: 'OK' }, 404: { description: 'Extension not found' } },
   }),
   async (c) => {
@@ -359,6 +363,7 @@ analyticsTenantRoutes.get(
     summary: 'Fleet-wide analytics overview',
     description:
       'Same shape as /overview but summed across every extension the tenant owns — derived from the same rollup /fleet/series reads, so this can never disagree with the fleet chart the way a live install-state query could.',
+    tags: ['Analytics'],
     responses: { 200: { description: 'OK' } },
   }),
   async (c) => {
@@ -399,6 +404,7 @@ analyticsTenantRoutes.get(
   describeRoute({
     summary: 'Fleet-wide daily analytics series',
     description: 'Same row shape as /series?dim=total, summed across every extension the tenant owns instead of one. ?days= bounds the window (default 90, max 1830). `through` is the last fully-rolled-up day, same as /series.',
+    tags: ['Analytics'],
     responses: { 200: { description: 'OK' } },
   }),
   async (c) => {
@@ -436,6 +442,7 @@ analyticsTenantRoutes.get(
     summary: 'Per-extension analytics ranking',
     description:
       'One row per extension that has ever reported analytics, sorted by weekly actives — the "list" half of the fleet-wide page, since per-extension detail belongs in a table, not as more chart lines. Derived from the same rollup every other analytics endpoint reads, so an extension only appears once its own first nightly rollup has run, same as its own Analytics tab would show.',
+    tags: ['Analytics'],
     responses: { 200: { description: 'OK' } },
   }),
   async (c) => {

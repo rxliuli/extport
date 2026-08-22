@@ -19,6 +19,8 @@ route.get(
   '/settings',
   describeRoute({
     summary: 'Get tenant settings',
+    tags: ['Tenant'],
+    security: [{ session: [] }],
     responses: { 200: { description: 'OK', content: { 'application/json': { schema: resolver(settingsResponseSchema) } } } },
   }),
   (c) => {
@@ -47,6 +49,8 @@ route.patch(
   describeRoute({
     summary: 'Update tenant settings',
     description: 'Partially override the per-store stale-review thresholds (days a version can sit "in review" before it is flagged).',
+    tags: ['Tenant'],
+    security: [{ session: [] }],
     responses: { 200: { description: 'OK', content: { 'application/json': { schema: resolver(settingsResponseSchema) } } } },
   }),
   validator('json', patchSettingsBodySchema, badRequest),

@@ -63,6 +63,8 @@ route.get(
   '/',
   describeRoute({
     summary: 'List store credentials',
+    tags: ['Store credentials'],
+    security: [{ session: [] }],
     responses: { 200: { description: 'OK', content: { 'application/json': { schema: resolver(v.object({ credentials: v.array(credentialViewSchema) })) } } } },
   }),
   async (c) => {
@@ -92,6 +94,8 @@ route.post(
   describeRoute({
     summary: 'Add a store credential',
     description: 'Verified against the live store API before saving, then envelope-encrypted — only the last four characters are ever shown again.',
+    tags: ['Store credentials'],
+    security: [{ session: [] }],
     responses: {
       201: { description: 'Created', content: { 'application/json': { schema: resolver(v.object({ credential: credentialViewSchema })) } } },
       422: { description: 'The store rejected the credentials' },
@@ -160,6 +164,8 @@ route.patch(
   describeRoute({
     summary: 'Rotate a store credential',
     description: 'Same shape as adding one — verified the same way, kept under the same id.',
+    tags: ['Store credentials'],
+    security: [{ session: [] }],
     responses: {
       200: { description: 'OK', content: { 'application/json': { schema: resolver(v.object({ credential: credentialViewSchema })) } } },
       404: { description: 'Not found' },
@@ -224,6 +230,8 @@ route.post(
   describeRoute({
     summary: 'Re-verify a store credential',
     description: 'Re-checks the already-saved credential against the live store API and updates its status — does not accept new credential input.',
+    tags: ['Store credentials'],
+    security: [{ session: [] }],
     responses: {
       200: { description: 'OK', content: { 'application/json': { schema: resolver(v.object({ credential: credentialViewSchema, reason: v.optional(v.string()) })) } } },
       404: { description: 'Not found' },
@@ -263,6 +271,8 @@ route.delete(
   describeRoute({
     summary: 'Delete a store credential',
     description: 'Refused while a publish target still references it — remove the target first.',
+    tags: ['Store credentials'],
+    security: [{ session: [] }],
     responses: { 200: { description: 'OK' }, 404: { description: 'Not found' }, 409: { description: 'Still in use by a publish target' } },
   }),
   async (c) => {

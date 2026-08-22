@@ -37,6 +37,8 @@ route.get(
   describeRoute({
     summary: 'Look up a fulfilled purchase by Stripe Checkout Session id',
     description: 'Polled by the checkout success page. 404 until the webhook fulfills; 410 once the 24h window has passed.',
+    tags: ['Buyer portal'],
+    security: [],
     responses: { 200: { description: 'Fulfilled' }, 404: { description: 'Not fulfilled (yet)' }, 410: { description: 'Window expired' } },
   }),
   async (c) => {
@@ -83,6 +85,8 @@ route.post(
   describeRoute({
     summary: 'Request a portal sign-in link',
     description: 'Always responds ok — whether the address has purchases is never revealed here.',
+    tags: ['Buyer portal'],
+    security: [],
     responses: { 200: { description: 'OK' } },
   }),
   validator('json', requestLinkBodySchema, badRequest),
@@ -112,6 +116,8 @@ route.post(
   '/verify',
   describeRoute({
     summary: 'Exchange a magic-link code for a buyer session',
+    tags: ['Buyer portal'],
+    security: [],
     responses: { 200: { description: 'Signed in' }, 400: { description: 'Invalid, used, or expired' } },
   }),
   validator('json', verifyBodySchema, badRequest),
@@ -139,6 +145,8 @@ route.get(
   '/licenses',
   describeRoute({
     summary: "List the signed-in buyer's licenses and devices",
+    tags: ['Buyer portal'],
+    security: [{ buyerSession: [] }],
     responses: { 200: { description: 'OK' }, 401: { description: 'No buyer session' } },
   }),
   async (c) => {
@@ -189,7 +197,7 @@ route.get(
 
 route.post(
   '/logout',
-  describeRoute({ summary: 'Sign out of the buyer portal', responses: { 200: { description: 'OK' } } }),
+  describeRoute({ summary: 'Sign out of the buyer portal', tags: ['Buyer portal'], security: [{ buyerSession: [] }], responses: { 200: { description: 'OK' } } }),
   async (c) => {
     const token = getCookie(c, BUYER_SESSION_COOKIE)
     if (token) await destroyBuyerSession(c.get('db'), token)

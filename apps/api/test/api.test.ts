@@ -37,12 +37,6 @@ describe('openapi', () => {
     expect(spec.info.title).toBe('extport API')
   })
 
-  it('serves the docs viewer without auth', async () => {
-    const res = await request('/api/docs')
-    expect(res.status).toBe(200)
-    expect(res.headers.get('content-type')).toContain('text/html')
-  })
-
   it('describes a migrated route with a server URL that resolves to the real endpoint', async () => {
     const res = await request('/api/openapi.json')
     const spec = (await res.json()) as {
@@ -52,7 +46,7 @@ describe('openapi', () => {
     // Generated relative to the /api-mounted router — the server URL must
     // carry the /api prefix back, or a client following the spec literally
     // would call a path that 404s.
-    expect(spec.servers[0]!.url).toBe('https://dash.extport.dev/api')
+    expect(spec.servers[0]!.url).toBe('https://api.extport.dev/api')
 
     const push = spec.paths['/v1/artifacts']?.post
     expect(push?.summary).toBe('Push an artifact')

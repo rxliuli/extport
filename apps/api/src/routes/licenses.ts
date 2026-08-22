@@ -20,6 +20,7 @@ const PAGE_SIZE = 20
 route.get(
   '/',
   describeRoute({
+    tags: ['Licensing'],
     summary: 'List licenses',
     description:
       'Newest first, 20 per page, each row carrying its plan tier and extension for cross-product views. Filter with ?plan=, ?extension=, or ?search= (case-insensitive substring of an activation code or buyer email); pass the previous response\'s nextCursor as ?cursor= to fetch the next page.',
@@ -79,6 +80,7 @@ const OVERVIEW_DAYS = 30
 route.get(
   '/overview',
   describeRoute({
+    tags: ['Licensing'],
     summary: 'Purchase trend — last 30 days vs the 30 before',
     description:
       'Daily revenue and licenses-sold buckets for the trailing 30 days (today included, partial), index-aligned with the previous 30-day period for the dashed comparison line. Manual issuances are excluded — this charts purchases. Revenue is gross by sale date (a later refund does not remove the sale from its day, matching how the license list shows amounts) and covers the dominant currency only; counts span all currencies. Pass ?tz= as minutes east of UTC to bucket days in the viewer’s timezone; the default is UTC.',
@@ -162,6 +164,7 @@ const issueLicenseBodySchema = v.object({
 route.post(
   '/',
   describeRoute({
+    tags: ['Licensing'],
     summary: 'Issue a license',
     description: 'Manually issues an activation code for a plan. The response is the only place the key is shown in full.',
     responses: { 201: { description: 'Issued' }, 404: { description: 'Plan not found' } },
@@ -208,7 +211,7 @@ route.post(
 
 route.get(
   '/:id',
-  describeRoute({ summary: 'Get a license with its activations', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } } }),
+  describeRoute({ summary: 'Get a license with its activations', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } }, tags: ['Licensing'] }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
@@ -232,6 +235,7 @@ const releaseBodySchema = v.object({
 route.post(
   '/:id/release',
   describeRoute({
+    tags: ['Licensing'],
     summary: "Release one of a license's seats",
     responses: { 200: { description: 'Released (idempotent)' }, 404: { description: 'License or device not found' } },
   }),

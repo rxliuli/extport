@@ -20,7 +20,7 @@ const STORE_MSG = `store must be one of: ${STORES.join(', ')}`
 
 route.get(
   '/',
-  describeRoute({ summary: 'List extensions', responses: { 200: { description: 'OK' } } }),
+  describeRoute({ summary: 'List extensions', responses: { 200: { description: 'OK' } }, tags: ['Extensions'] }),
   async (c) => {
     const rows = await c
       .get('db')
@@ -39,6 +39,7 @@ route.get(
 route.get(
   '/matrix',
   describeRoute({
+    tags: ['Extensions'],
     summary: 'Publishing status matrix across all extensions',
     description: 'Every extension with its configured targets and their current lifecycle state, in one call.',
     responses: { 200: { description: 'OK' } },
@@ -103,6 +104,7 @@ const createExtensionBodySchema = v.object({
 route.post(
   '/',
   describeRoute({
+    tags: ['Extensions'],
     summary: 'Create an extension',
     description: 'name must be unique per tenant.',
     responses: { 201: { description: 'Created' }, 403: { description: 'Plan limit reached' }, 409: { description: 'Duplicate name' } },
@@ -139,7 +141,7 @@ route.post(
 
 route.get(
   '/:id',
-  describeRoute({ summary: 'Get an extension', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } } }),
+  describeRoute({ summary: 'Get an extension', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } }, tags: ['Extensions'] }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
@@ -161,6 +163,7 @@ const patchExtensionBodySchema = v.object({
 route.patch(
   '/:id',
   describeRoute({
+    tags: ['Extensions'],
     summary: 'Update an extension',
     responses: { 200: { description: 'OK' }, 400: { description: 'Nothing to update' }, 404: { description: 'Not found' } },
   }),
@@ -186,7 +189,7 @@ route.patch(
 
 route.delete(
   '/:id',
-  describeRoute({ summary: 'Delete an extension', description: 'Also deletes its artifacts, targets, versions, and events. Blocked while issued licenses exist.', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' }, 409: { description: 'Issued licenses exist' } } }),
+  describeRoute({ summary: 'Delete an extension', description: 'Also deletes its artifacts, targets, versions, and events. Blocked while issued licenses exist.', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' }, 409: { description: 'Issued licenses exist' } }, tags: ['Extensions'] }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
@@ -228,7 +231,7 @@ route.delete(
 
 route.post(
   '/:id/reconcile',
-  describeRoute({ summary: 'Reconcile an extension now', description: 'Same logic the scheduled cron runs, triggered on demand.', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } } }),
+  describeRoute({ summary: 'Reconcile an extension now', description: 'Same logic the scheduled cron runs, triggered on demand.', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } }, tags: ['Extensions'] }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
@@ -249,7 +252,7 @@ route.post(
 // they're returned as two arrays rather than forced into one.
 route.get(
   '/:id/timeline',
-  describeRoute({ summary: 'Get an extension\'s deployment timeline', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } } }),
+  describeRoute({ summary: 'Get an extension\'s deployment timeline', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } }, tags: ['Extensions'] }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
@@ -277,7 +280,7 @@ async function ownedExtension(db: Db, tenantId: string, extensionId: string) {
 
 route.get(
   '/:id/targets',
-  describeRoute({ summary: 'List publish targets for an extension', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } } }),
+  describeRoute({ summary: 'List publish targets for an extension', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } }, tags: ['Extensions'] }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
@@ -333,6 +336,7 @@ const addTargetBodySchema = v.object({
 route.post(
   '/:id/targets',
   describeRoute({
+    tags: ['Extensions'],
     summary: 'Add a store target',
     description: "Verified against the live store API before saving — refuses a storeItemId the credential can't actually see.",
     responses: { 201: { description: 'Created' }, 404: { description: 'Not found' }, 409: { description: 'Already configured' } },
@@ -474,6 +478,7 @@ const patchTargetBodySchema = v.object({
 route.patch(
   '/:id/targets/:targetId',
   describeRoute({
+    tags: ['Extensions'],
     summary: 'Update a publish target',
     responses: { 200: { description: 'OK' }, 400: { description: 'Nothing to update' }, 404: { description: 'Not found' } },
   }),
@@ -549,7 +554,7 @@ route.patch(
 
 route.delete(
   '/:id/targets/:targetId',
-  describeRoute({ summary: 'Remove a publish target', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } } }),
+  describeRoute({ summary: 'Remove a publish target', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } }, tags: ['Extensions'] }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')

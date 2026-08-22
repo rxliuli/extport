@@ -1,29 +1,14 @@
-import { Scalar } from '@scalar/hono-api-reference'
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { openAPIRouteHandler } from 'hono-openapi'
 import { runAnalyticsRollup } from './analytics/rollup'
 import { createWaeQuery } from './analytics/wae'
 import { createDb } from './db'
 import { createEmailNotifier } from './lib/notify'
+import { api } from './openapi'
 import { checkCredentialExpiry } from './reconcile/expiry'
 import type { ReconcileJob } from './reconcile/queue'
 import { runReconciliation } from './reconcile/run'
-import artifactsRoutes from './routes/artifacts'
-import authRoutes from './routes/auth'
-import cliAuthRoutes from './routes/cli-auth'
-import credentialsRoutes from './routes/credentials'
-import { analyticsPublicRoutes, analyticsTenantRoutes } from './routes/analytics'
-import extensionsRoutes from './routes/extensions'
-import keysRoutes from './routes/keys'
-import licensesRoutes from './routes/licenses'
-import licensingRoutes from './routes/licensing'
-import paymentCredentialsRoutes from './routes/payment-credentials'
-import plansRoutes from './routes/plans'
-import portalRoutes from './routes/portal'
-import stripeWebhookRoutes from './routes/stripe-webhook'
-import tenantRoutes from './routes/tenant'
-import { requireAuth, withDb, type AppEnv } from './middleware/auth'
+import { withDb, type AppEnv } from './middleware/auth'
 
 // Must match a member of wrangler.jsonc's triggers.crons exactly.
 const ANALYTICS_ROLLUP_CRON = '15 0 * * *'
@@ -55,60 +40,6 @@ app.use('*', withDb)
 // Everything lives under /api so the deployed Worker needs exactly one
 // asset-routing rule (`run_worker_first: ["/api/*"]`) and the SPA keeps the
 // entire top-level path namespace to itself.
-const api = new Hono<AppEnv>()
-
-api.get('/healthz', (c) => c.json({ ok: true }))
-
-api.route('/auth', authRoutes)
-api.route('/v1/cli-auth', cliAuthRoutes)
-api.route('/v1/keys', keysRoutes)
-api.route('/v1/extensions', extensionsRoutes)
-api.route('/v1/artifacts', artifactsRoutes)
-api.route('/v1/credentials', credentialsRoutes)
-api.route('/v1/tenant', tenantRoutes)
-// /v1/licensing is public — called by end users' devices, keyed by license
-// code alone; the stripe webhook receiver is public too, authenticated by
-// signature. plans/licenses/payment-credentials are tenant-authed.
-api.route('/v1/licensing', licensingRoutes)
-api.route('/v1/licensing/webhooks/stripe', stripeWebhookRoutes)
-// Buyer portal (portal.extport.dev): success-page lookup + magic-link
-// sign-in + read-only purchase list. Cookie-authed, same-origin.
-api.route('/v1/portal', portalRoutes)
-// /v1/analytics/ping is public (extension backgrounds, CORS-open); the
-// series/overview reads on the same prefix are tenant-authed.
-api.route('/v1/analytics', analyticsPublicRoutes)
-api.route('/v1/analytics', analyticsTenantRoutes)
-api.route('/v1/plans', plansRoutes)
-api.route('/v1/licenses', licensesRoutes)
-api.route('/v1/payment-credentials', paymentCredentialsRoutes)
-
-// Public — this is the whole point of generating it (docs/spec a third-party
-// developer can hand to a client generator without needing to ask us for it).
-api.get(
-  '/openapi.json',
-  openAPIRouteHandler(api, {
-    documentation: {
-      info: { title: 'extport API', version: '1.0.0', description: 'Publish and manage browser extension releases across Chrome, Firefox, Edge, and Safari.' },
-      // openAPIRouteHandler was handed `api` (the /api-mounted sub-router), so
-      // every generated path is relative to it, e.g. "/v1/artifacts" — the
-      // server URL has to carry the /api prefix back for paths to resolve
-      // to the real, callable endpoint.
-      servers: [{ url: 'https://dash.extport.dev/api', description: 'Production' }],
-    },
-  }),
-)
-api.get('/docs', Scalar({ url: '/api/openapi.json', pageTitle: 'extport API' }))
-
-api.get('/v1/me', requireAuth, (c) => {
-  const tenant = c.get('tenant')
-  const user = c.get('user')
-  return c.json({
-    authType: c.get('authType'),
-    tenant: { id: tenant.id, name: tenant.name, plan: tenant.plan, status: tenant.status },
-    user: user ? { id: user.id, email: user.email, displayName: user.displayName } : null,
-  })
-})
-
 app.route('/api', api)
 
 // With run_worker_first: true, non-API paths no longer reach the asset layer

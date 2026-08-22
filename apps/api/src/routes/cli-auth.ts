@@ -28,6 +28,8 @@ route.post(
   describeRoute({
     summary: 'Start a CLI login exchange',
     description: 'Session-only. Mints a real API key plus a one-time code the CLI redeems for it — never the key itself in this response.',
+    tags: ['CLI login'],
+    security: [{ session: [] }],
     responses: { 200: { description: 'OK', content: { 'application/json': { schema: resolver(v.object({ code: v.string() })) } } } },
   }),
   requireSession,
@@ -70,6 +72,8 @@ route.post(
   describeRoute({
     summary: 'Exchange a one-time code for the real API key',
     description: 'No auth — the code itself is the credential, single-use and short-lived.',
+    tags: ['CLI login'],
+    security: [],
     responses: { 200: { description: 'OK', content: { 'application/json': { schema: resolver(v.object({ key: v.string() })) } } } },
   }),
   validator('json', exchangeBodySchema, badRequest),

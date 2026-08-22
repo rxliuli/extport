@@ -26,6 +26,8 @@ keys.get(
   describeRoute({
     summary: 'List API keys',
     description: 'Never returns the plaintext key or its hash — only a masked preview.',
+    tags: ['API keys'],
+    security: [{ session: [] }],
     responses: { 200: { description: 'OK', content: { 'application/json': { schema: resolver(v.object({ keys: v.array(keyRowSchema) })) } } } },
   }),
   async (c) => {
@@ -57,6 +59,8 @@ keys.post(
   describeRoute({
     summary: 'Create an API key',
     description: 'The plaintext key is returned exactly once, here, and never persisted or shown again.',
+    tags: ['API keys'],
+    security: [{ session: [] }],
     responses: { 201: { description: 'Created', content: { 'application/json': { schema: resolver(v.object({ id: v.string(), name: v.string(), key: v.string(), masked: v.string() })) } } } },
   }),
   validator('json', createKeyBodySchema, badRequest),
@@ -82,6 +86,8 @@ keys.delete(
   '/:id',
   describeRoute({
     summary: 'Revoke an API key',
+    tags: ['API keys'],
+    security: [{ session: [] }],
     responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } },
   }),
   async (c) => {

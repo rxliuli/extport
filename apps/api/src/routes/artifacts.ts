@@ -97,6 +97,7 @@ async function resolveExtension(c: Context<AppEnv>, ref: string): Promise<Extens
 route.post(
   '/',
   describeRoute({
+    tags: ['Artifacts'],
     summary: 'Push an artifact',
     description:
       'Upload a zip (or, for stores whose adapter declares requiresArtifact: false, just pin a version already delivered out-of-band).',
@@ -269,6 +270,7 @@ route.post(
 route.get(
   '/',
   describeRoute({
+    tags: ['Artifacts'],
     summary: 'List artifacts',
     description: 'The 50 most recent artifacts pushed for an extension.',
     responses: {
