@@ -4,6 +4,9 @@ description: Publish a browser extension to every store, from one push.
 template: splash
 hero:
   tagline: Publish a browser extension to every store, from one push — Chrome, Firefox, Edge, and Safari, one dashboard for review status.
+  image:
+    alt: extport
+    file: ../../assets/extport-logo.png
   actions:
     - text: Getting started
       link: /getting-started/
