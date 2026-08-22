@@ -54,14 +54,14 @@ export default defineConfig({
           // default would be `/sdk/readme/`). This works here because there is a
           // single entry point, so no nested `index` module collides.
           typeDoc: { entryFileName: 'index', readme: '../../packages/sdk/README.md' },
-          sidebar: { collapsed: false, label: 'SDK reference' },
+          sidebar: { collapsed: true, label: 'SDK reference' },
         }),
         starlightTypeDocWxt({
           entryPoints: ['../../packages/wxt/src/index.ts'],
           tsconfig: '../../packages/wxt/tsconfig.json',
           output: 'wxt',
           typeDoc: { entryFileName: 'index', readme: '../../packages/wxt/README.md' },
-          sidebar: { collapsed: false, label: 'WXT reference' },
+          sidebar: { collapsed: true, label: 'WXT reference' },
         }),
         // Runs after the two starlight-typedoc instances above have written
         // their generated markdown; strips the duplicate README H1 from the
