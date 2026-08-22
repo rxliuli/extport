@@ -2,8 +2,9 @@ import { useSyncExternalStore } from 'react'
 import type { ActivationClient, Plan } from './index'
 
 /**
- * 订阅当前套餐。初始加载完成前返回 free（毫秒级）,之后随
- * 本上下文与其他上下文的激活/撤销自动更新。
+ * Subscribe to the current plan. Returns `free` until the initial load
+ * completes, then updates automatically as this context — or another context
+ * via transport — activates or revokes.
  */
 export function usePlan<TTier extends string, TLimit>(client: ActivationClient<TTier, TLimit>): Plan<TTier, TLimit> {
   return useSyncExternalStore(

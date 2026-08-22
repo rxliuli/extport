@@ -1,13 +1,13 @@
 import { createAnalyticsPinger, type AnalyticsOptions } from './analytics'
 
 /**
- * @extport/sdk/wxt-analytics — @wxt-dev/analytics 的 extport provider。
- * 适配器而非地基(docs/analytics-design.md § Integration):壳套在
- * @extport/sdk/analytics 的同一 ping 客户端上,与 attachAnalytics 共享
- * 存储去重,双集成也不会重复上报。
+ * @extport/sdk/wxt-analytics — the extport provider for @wxt-dev/analytics.
+ * An adapter, not a foundation (docs/analytics-design.md § Integration): it
+ * wraps the same ping client as @extport/sdk/analytics, so it shares that
+ * storage and dedup — installing both integrations never double-reports.
  *
- * 结构性类型,不依赖 @wxt-dev/analytics 包——provider 就是一个
- * (analytics, config) => { page, track, identify } 的函数。
+ * Structurally typed, no dependency on the @wxt-dev/analytics package — a
+ * provider is just a (analytics, config) => { page, track, identify } function.
  */
 
 interface WxtAnalyticsLike {
@@ -37,7 +37,7 @@ function getRuntime(): WxtRuntimeLike | undefined {
   return g['browser']?.runtime ?? g['chrome']?.runtime
 }
 
-/** 内部生命周期事件名——经 analytics.track 走一圈,让 wxt 模块的 consent 闸生效。 */
+/** Internal lifecycle event name — routed through analytics.track so the wxt module's consent gate applies. */
 const PING_EVENT = '__extport_ping'
 
 export function extport(
@@ -46,9 +46,10 @@ export function extport(
   return (analytics, config) => {
     const pinger = createAnalyticsPinger(options)
 
-    // provider 只在 background 初始化(wxt 模块的前端上下文经 port 转发),
-    // 所以这里就是"background 醒来"的钩子——Moderok 同款模式。经
-    // analytics.track 路由而非直接 ping,是为了让模块的 enabled 闸生效。
+    // The provider is only initialized in the background (the wxt module's
+    // front-end context is forwarded over a port), so this is the "background
+    // woke up" hook — same pattern as Moderok. Routing through analytics.track
+    // rather than pinging directly lets the module's enabled gate apply.
     getRuntime()?.onInstalled?.addListener(() => {
       void analytics.track(PING_EVENT)
     })
@@ -59,8 +60,8 @@ export function extport(
       identify: () => Promise.resolve(),
       track: async (event) => {
         if (event.event.name === PING_EVENT) return pinger.maybePing()
-        // extport 没有自定义事件(线协议里无处可写)——需要埋点的话在
-        // providers 数组里并联 PostHog/Umami。
+        // extport has no custom events (nowhere in the wire protocol to put
+        // them) — for those, chain PostHog/Umami alongside in providers.
         if (config.debug) {
           console.debug(`[@extport/sdk] no custom events — "${event.event.name}" dropped`)
         }

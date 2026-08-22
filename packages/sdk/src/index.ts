@@ -9,10 +9,12 @@ import { del, get, set } from 'idb-keyval'
  */
 
 /**
- * 激活配置的持久化格式。与 @rxliuli/activation-client（及更早的车队扩展
- * 手写实现）写入 idb-keyval 'plan' 键的记录完全一致——默认存储 adapter
- * 直接原位接管老用户数据,无需迁移。extport 对 perpetual 授权返回
- * expiresAt: null；历史记录里的远期日期照常解析。
+ * The persisted shape of the activation config. Identical to what
+ * @rxliuli/activation-client (and older hand-written fleet implementations)
+ * wrote under the idb-keyval 'plan' key — the default storage adapter takes
+ * over existing users' data in place, no migration. extport returns
+ * expiresAt: null for perpetual licenses; far-future dates in old records
+ * still parse as-is.
  */
 export interface PlanConfig {
   code: string
@@ -32,12 +34,13 @@ export interface StorageAdapter {
   del(key: string): Promise<void>
 }
 
-/** idb-keyval 默认库（keyval-store/keyval）,与现有扩展的存储位置一致 */
+/** The default idb-keyval store (keyval-store/keyval), matching where existing extensions already store it. */
 export const idbStorage: StorageAdapter = { get, set, del }
 
 /**
- * 跨上下文变更通知的传输层。core 不关心实现（webext 入口提供
- * runtime 消息实现）,只负责在本地变更后 broadcast、收到远端变更后刷新。
+ * Transport for cross-context change notifications. The core doesn't care
+ * about the implementation (the webext entry provides a runtime-message one);
+ * it only broadcasts after a local change and refreshes on a remote change.
  */
 export interface Transport {
   broadcast(): void
@@ -72,11 +75,12 @@ function extportBackend(base: string): LicensingBackend {
 const PRODUCTION_BACKEND = extportBackend('https://api.extport.dev')
 
 /**
- * @extport/wxt 的 WXT 插件在每个入口 main 之前注入的全局(与
- * @extport/sdk/analytics 共用同一份解析——两边永远认同一个 id,
- * 不会出现"这个上下文用 extensionId、那个上下文用 productName"的分裂)。
- * 显式传参优先,否则读注入的全局;两者都没有则交给调用方决定失败姿态
- * (analytics 静默跳过,licensing 在构造时抛错——差异在调用点,不在这里)。
+ * The global the @extport/wxt plugin injects before each entry's `main` (shared
+ * with @extport/sdk/analytics — both always agree on one id, so there's no
+ * "this context uses extensionId, that one uses productName" split). An explicit
+ * argument wins; otherwise the injected global is read; with neither, the
+ * caller decides how to fail (analytics skips silently, licensing throws at
+ * construction — the difference lives at the call site, not here).
  */
 export function resolveExtensionId(explicit?: string): string | undefined {
   if (explicit) return explicit
@@ -86,34 +90,39 @@ export function resolveExtensionId(explicit?: string): string | undefined {
 
 export interface ActivationClientOptions<TTier extends string, TLimit> {
   /**
-   * extport 扩展 id(ext_…)。可省略:@extport/wxt 注入时自动解析。两者都
-   * 没有则在第一次真正联网(activate/checkActivation)时抛错——licensing
-   * 失效必须是响的,不能悄悄不工作。**不在构造时解析/抛错**:WXT 把插件
-   * 注入(设置 globalThis.__EXTPORT__)放在用户入口模块的顶层代码求值
-   * *之后*(main() 调用前),而 createActivationClient 通常在入口模块顶层
-   * 就被立即构造——构造时抛错会先于注入发生,把整个 service worker 的
-   * 启动直接干挂(不只是 licensing 失败)。getPlan() 只读本地存储,不需要
-   * extensionId,构造后可以放心立即调用。
+   * The extport extension id (ext_…). Optional: resolved automatically when
+   * @extport/wxt injects it. If neither is available, it throws on the first
+   * real network call (activate/checkActivation) — licensing failure must be
+   * loud, never silently broken. **Not resolved/validated at construction**:
+   * the WXT plugin injects globalThis.__EXTPORT__ after the top-level code of
+   * the user's entry module evaluates (before main() runs), while
+   * createActivationClient is usually constructed at that top level — throwing
+   * then would happen before the injection and take down the whole service
+   * worker's startup (not just licensing). getPlan() only reads local storage,
+   * so it can be called right after construction.
    *
-   * (旧版本的 productName + license-kit 级联已随 0.0.7 一起移除;server 端
-   * 也已在 fleet 全量升级后退役 productName(2026-08)——wire 上只剩
-   * extensionId,旧客户端会收到 400。)
+   * (The older productName + license-kit cascade was removed in 0.0.7; the
+   * server retired productName after the fleet fully upgraded (2026-08) — the
+   * wire only carries extensionId, old clients get a 400.)
    */
   extensionId?: string
-  /** 本地/自托管调试用:设置后只请求该 extport 部署。省略 = 生产 api.extport.dev。 */
+  /** For local/self-hosted debugging: only requests that extport deployment. Omit = production api.extport.dev. */
   apiBase?: string
-  /** 各档位的能力表,必须包含 'free'。存储中出现未知档位时按 free 处理 */
+  /** The capability table per tier; must include 'free'. Unknown tiers found in storage are treated as free. */
   plans: Record<TTier, TLimit>
   storage?: StorageAdapter
-  /** 存储键,默认 'plan'（与现有扩展一致） */
+  /** Storage key; defaults to 'plan' (matching existing extensions). */
   storageKey?: string
   transport?: Transport
   deviceInfo?: () => Record<string, unknown>
   /**
-   * 每次 getPlan() 现读现问,返回值非 undefined 时优先于真实激活记录。不持久化任何状态——
-   * 要"清除"覆盖,让它返回 undefined 就行,不需要专门的清理方法。典型用途是本地开发时
-   * 想固定测某个档位,但库本身不关心也不校验调用方是不是真的在 dev 环境、要不要在多个
-   * 上下文间同步这个值——那些是调用方自己的事,想要就自己在 hook 里接存储/消息。
+   * Re-evaluated on every getPlan(); a non-undefined return takes precedence
+   * over the real activation record. Persists nothing — to "clear" the
+   * override, just return undefined; no dedicated cleanup method. Typical use
+   * is pinning a tier in local dev, but the library neither knows nor checks
+   * whether the caller is really in a dev environment or whether the value
+   * should sync across contexts — that's the caller's concern, handled in its
+   * own hook via storage/messaging if desired.
    */
   override?: () => TTier | undefined | Promise<TTier | undefined>
 }
@@ -145,17 +154,19 @@ export class ActivationClient<TTier extends string, TLimit> {
   }
 
   /**
-   * 当前套餐的同步快照,供 useSyncExternalStore 等渲染层使用。
-   * 未加载完成前返回 free；引用在档位不变时保持稳定。
-   * 业务决策（如任务执行中的限额检查）应使用 getPlan() 现读。
+   * Synchronous snapshot of the current plan, for render layers like
+   * useSyncExternalStore. Returns free until loaded; the reference stays
+   * stable while the tier is unchanged. Business decisions (e.g. limit checks
+   * mid-task) should use the live getPlan().
    */
   getSnapshot(): Plan<TTier, TLimit> {
     return this.snapshot
   }
 
   /**
-   * 订阅生效档位的变化。本上下文的激活/撤销与其他上下文经 transport
-   * 广播来的变更走同一条通道；首个订阅者会触发一次初始加载。
+   * Subscribe to changes to the effective tier. This context's own
+   * activation/revocation and changes broadcast from other contexts via
+   * transport share one channel; the first subscriber triggers an initial load.
    */
   subscribe(listener: PlanListener<TTier, TLimit>): () => void {
     this.listeners.add(listener)
@@ -168,8 +179,10 @@ export class ActivationClient<TTier extends string, TLimit> {
   }
 
   /**
-   * 从存储现读并解析当前套餐。永远反映持久化状态,无陈旧缓存。
-   * 若 options.override() 返回了有效档位,优先于真实激活记录——不持久化,每次都现问。
+   * Read and resolve the current plan fresh from storage. Always reflects
+   * persisted state, no stale cache. If options.override() returns a valid
+   * tier, it takes precedence over the real activation record — not persisted,
+   * re-asked every time.
    */
   async getPlan(): Promise<Plan<TTier, TLimit>> {
     this.loaded = true
@@ -184,7 +197,8 @@ export class ActivationClient<TTier extends string, TLimit> {
     if (tier === undefined) return undefined
     if ((tier as string) === 'free') return this.freePlan
     const limit = (this.options.plans as Record<string, TLimit>)[tier as string]
-    // 返回的档位名字不在 plans 表里：当作没设置过,回落到真实激活记录解析
+    // The returned tier name isn't in the plans table: treat it as unset and
+    // fall back to resolving the real activation record.
     return limit === undefined ? undefined : { tier, limit }
   }
 
@@ -199,12 +213,15 @@ export class ActivationClient<TTier extends string, TLimit> {
   }
 
   /**
-   * 向服务端校验本设备的激活状态。返回 true=有效,false=已失效
-   * （本地状态已清除）,undefined=本地无激活记录。
+   * Check with the server whether this device's activation is still valid.
+   * Returns true = valid, false = invalidated (local state cleared),
+   * undefined = no local activation record.
    *
-   * 说"设备未激活"时先拿存着的 code+fingerprint 自动重新激活一次（座位
-   * 衰减回归自愈）；**只有明确拒绝(重激活也被拒)才清除本地状态**——网络
-   * 故障或 5xx 是预期中的暂时状态,一律抛出,错误永远不触发清除。
+   * When it reports "device not activated", it first reactivates using the
+   * stored code+fingerprint (seat-decay self-healing); **local state is only
+   * cleared on an explicit rejection (reactivation also rejected)** — network
+   * failures or 5xx are expected transient states, always thrown, and errors
+   * never trigger a clear.
    */
   async checkActivation(): Promise<boolean | undefined> {
     const config = await this.storage.get<PlanConfig>(this.key)
@@ -217,7 +234,8 @@ export class ActivationClient<TTier extends string, TLimit> {
       fingerprint: config.fingerprint,
     })
     if (result.kind === 'rejected') {
-      // check 端点的明确拒绝(罕见)——按未激活处理,交给下面的重激活
+      // An explicit rejection from the check endpoint (rare) — treat as
+      // not activated and let the reactivation below handle it.
       active = false
     } else {
       if (!result.body.success || !result.body.data) throw new Error('Check device failed: no data')
@@ -254,8 +272,10 @@ export class ActivationClient<TTier extends string, TLimit> {
   }
 
   /**
-   * 故意在每次联网前现读,不在构造时缓存/抛错——见 ActivationClientOptions.extensionId
-   * 的注释:构造时机早于 @extport/wxt 的插件注入,那时抛错会连累整个入口模块求值失败。
+   * Deliberately read fresh before each network call, never cached or thrown at
+   * construction — see the ActivationClientOptions.extensionId comment:
+   * construction happens before the @extport/wxt plugin injection, so throwing
+   * then would fail the whole entry module's evaluation.
    */
   private resolveExtensionIdOrThrow(): string {
     const extensionId = resolveExtensionId(this.options.extensionId)
@@ -268,8 +288,10 @@ export class ActivationClient<TTier extends string, TLimit> {
   }
 
   /**
-   * 区分三种结果:2xx=ok、4xx 且 body 可解析=明确拒绝、其余(5xx/网络)=
-   * 暂时故障,抛出——调用方永远不能把"服务器暂时不可达"当成"码无效"。
+   * Distinguish three outcomes: 2xx = ok, 4xx with a parseable body = explicit
+   * rejection, everything else (5xx/network) = transient failure, thrown — so
+   * the caller can never mistake "server temporarily unreachable" for
+   * "invalid code".
    */
   private async postJson<T>(
     url: string,

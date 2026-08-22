@@ -44,34 +44,36 @@ function resolveAnalyticsStorage(): StorageAdapter {
 }
 
 /**
- * @extport/sdk/analytics — 每日 ping 客户端。线协议只有这一个事件:
- * install/update/active/departure 全部由服务端从 ping 流推断
- * (extport docs/analytics-design.md)。
+ * @extport/sdk/analytics — the daily ping client. The wire protocol has a
+ * single event: install/update/active/departure are all inferred server-side
+ * from the ping stream (extport docs/analytics-design.md).
  *
- * 与 licensing 的心跳裁决同一原则:不使用 alarms、不要求任何权限、
- * 事件驱动(background 醒来即是活跃的证明)。每 UTC 日至多一次,
- * 客户端与服务端各自独立去重。
+ * Same principle as licensing's heartbeat: no alarms, no permissions required,
+ * purely event-driven (the background waking is itself proof of activity). At
+ * most once per UTC day, deduplicated independently on client and server.
  */
 
 export interface AnalyticsOptions {
   /**
-   * extport 扩展 id(ext_…)。可省略:@extport/wxt 模块经注入的
-   * `globalThis.__EXTPORT__.extensionId` 提供时自动解析;两处都没有则
-   * 静默不上报(分析绝不能影响宿主),dev 下打印一次警告。
+   * The extport extension id (ext_…). Optional: resolved automatically when
+   * the @extport/wxt module injects `globalThis.__EXTPORT__.extensionId`. If
+   * neither is present, silently report nothing (analytics must never affect
+   * the host); warn once in dev.
    */
   extensionId?: string
-  /** 本地/自托管调试用,默认生产 extport。 */
+  /** For local/self-hosted debugging; defaults to the production extport. */
   apiBase?: string
-  /** 默认从 runtime.getManifest().version 读取。 */
+  /** Defaults to runtime.getManifest().version. */
   version?: string
-  /** 默认 idb-keyval,与 licensing 共用同一 StorageAdapter 形状。 */
+  /** Defaults to idb-keyval, the same StorageAdapter shape licensing uses. */
   storage?: StorageAdapter
-  /** 存储键,默认 'extport-analytics'。 */
+  /** Storage key; defaults to 'extport-analytics'. */
   storageKey?: string
   /**
-   * 未曾显式 setEnabled 过时的初始值,默认 true(集成本身即租户的
-   * 决定)。需要用户级同意流程的扩展传 false,并在取得同意后调
-   * setEnabled(true)。
+   * Initial value before setEnabled is ever called; defaults to true (installing
+   * the integration is itself the tenant's decision). Extensions needing a
+   * user-level consent flow pass false and call setEnabled(true) once consent is
+   * obtained.
    */
   defaultEnabled?: boolean
 }
@@ -84,17 +86,19 @@ interface AnalyticsRecord {
 
 export interface AnalyticsPinger {
   /**
-   * 当日未 ping 过则 ping,否则空操作。永不抛错——分析绝不能影响宿主。
-   * 并发调用共享同一次执行。
+   * Ping if not already pinged today, otherwise no-op. Never throws — analytics
+   * must never affect the host. Concurrent calls share a single execution.
    */
   maybePing(): Promise<void>
-  /** 持久化开关;开启时立刻补一次当日 ping(同意即生效,不等明天)。 */
+  /** Persist the enabled flag; when turned on, immediately backfill today's ping. */
   setEnabled(enabled: boolean): Promise<void>
   /**
-   * 当前应用层开关状态,供 options 页画一个退出开关用。未显式设置过时
-   * 回落 defaultEnabled(默认 true)。只反映应用层意愿——不读取
-   * Firefox 的 technicalAndInteraction 浏览器层许可(那是独立的第二道
-   * 闸,ping 时才现读,这里读了也没法在跨上下文场景保持同步)。
+   * The current app-level flag, for drawing an opt-out toggle on an options
+   * page. Falls back to defaultEnabled (default true) when never explicitly
+   * set. Reflects app-level intent only — it does not read Firefox's
+   * technicalAndInteraction browser-level permission, which is a separate
+   * second gate checked at ping time (reading it here couldn't stay in sync
+   * across contexts).
    */
   getEnabled(): Promise<boolean>
 }
@@ -121,10 +125,11 @@ function getPermissionsApi(): PermissionsApi | undefined {
 }
 
 /**
- * Firefox 140+ 的内建数据收集同意机制:permissions.getAll() 返回
- * data_collection 数组时,technicalAndInteraction 必须在其中(安装框
- * 的开关/about:addons)。键不存在 = 浏览器没有该机制,manifest 层的
- * 披露即为准绳——放行。ping 时现读,撤销无需监听,下一次 ping 自查。
+ * Firefox 140+'s built-in data-collection consent: when permissions.getAll()
+ * returns a data_collection array, technicalAndInteraction must be in it (the
+ * install dialog / about:addons switch). A missing key means the browser has no
+ * such mechanism, so the manifest-level disclosure is the standard — allow.
+ * Read at ping time, no listener needed on revoke; the next ping self-checks.
  */
 async function browserConsentsToAnalytics(): Promise<boolean> {
   try {
@@ -157,16 +162,18 @@ export function createAnalyticsPinger(options: AnalyticsOptions = {}): Analytics
     const record = (await storage.get<AnalyticsRecord>(key)) ?? {}
     const today = new Date().toISOString().slice(0, 10)
     if (record.lastPingDate === today) return
-    // 两道独立的同意闸,都不写日期戳:当天晚些时候取得同意仍能补上
-    // 当日的 ping。①应用层开关(setEnabled/defaultEnabled,给自定义
-    // 同意流程);②浏览器层(Firefox 的 technicalAndInteraction 开关,
-    // 自动尊重,租户零接线)。
+    // Two independent consent gates, neither stamps the date: consent obtained
+    // later the same day can still backfill today's ping. ① app-level flag
+    // (setEnabled/defaultEnabled, for a custom consent flow); ② browser-level
+    // (Firefox's technicalAndInteraction switch, respected automatically, zero
+    // tenant wiring).
     if (!(record.enabled ?? options.defaultEnabled ?? true)) return
     if (!(await browserConsentsToAnalytics())) return
 
     let installId = record.installId
     if (!installId) {
-      // 先持久化再发送:发送失败重试时沿用同一身份,不产生幽灵安装。
+      // Persist before sending: on retry the same identity is reused, so no
+      // phantom installs are created.
       installId = crypto.randomUUID()
       record.installId = installId
       await storage.set(key, record)
@@ -183,7 +190,8 @@ export function createAnalyticsPinger(options: AnalyticsOptions = {}): Analytics
         language: typeof navigator !== 'undefined' ? navigator.language : undefined,
       }),
     })
-    // 只有确认送达才盖日期戳——失败留给下一次唤醒重试。
+    // Only stamp the date once delivery is confirmed — a failure is left for
+    // the next wake to retry.
     if (resp.ok) {
       await storage.set(key, { ...record, lastPingDate: today })
     }
@@ -213,9 +221,10 @@ export function createAnalyticsPinger(options: AnalyticsOptions = {}): Analytics
 }
 
 /**
- * 在 background 入口顶层同步调用。background 每次冷启动本身就是
- * 每日 ping 的驱动时机;onInstalled 让安装当刻立即计数(安装时间
- * 因此精确到天而非等到下次唤醒)。
+ * Call synchronously at the top level of the background entry. Each cold start
+ * of the background is itself the driver for the daily ping; onInstalled counts
+ * the install immediately (so install time is exact to the day instead of
+ * waiting for the next wake).
  */
 export function attachAnalytics(options: AnalyticsOptions = {}): AnalyticsPinger {
   const pinger = createAnalyticsPinger(options)
@@ -226,7 +235,8 @@ export function attachAnalytics(options: AnalyticsOptions = {}): AnalyticsPinger
   runtime?.onStartup?.addListener(() => {
     void pinger.maybePing()
   })
-  // Firefox 用户当天在 about:addons 里打开数据收集开关 → 当天就计数。
+  // A Firefox user who turns the data-collection switch on in about:addons
+  // today gets counted today.
   getPermissionsApi()?.onAdded?.addListener(() => {
     void pinger.maybePing()
   })
