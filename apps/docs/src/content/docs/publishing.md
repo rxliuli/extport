@@ -190,8 +190,9 @@ jobs:
       - name: Push to Firefox AMO
         uses: extport-dev/actions/push@v1
         with:
-          # file/version inferred; source-zip has no equivalent convention to infer from.
-          source-zip: .output/${{ env.PROJECT_NAME }}-${{ needs.version.outputs.version }}-sources.zip
+          # file/version inferred from .output/ and its manifest.json; the AMO
+          # source zip infers too — .output/{name}-{version}-sources.zip, WXT's
+          # own sourcesTemplate (only produced for the firefox build).
           store: firefox
           api-key: ${{ secrets.EXTPORT_API_KEY }}
 
