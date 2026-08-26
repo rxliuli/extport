@@ -47,7 +47,7 @@ import {
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 export const Route = createFileRoute('/extensions/$extensionId')({ component: ExtensionDetailLayout })
@@ -67,6 +67,11 @@ export function TargetsSection({ extensionId }: { extensionId: string }) {
   const [storeItemId, setStoreItemId] = useState('')
   const [crxId, setCrxId] = useState('')
   const [open, setOpen] = useState(false)
+  // The store item id is what tenants actually come here to type (store and
+  // credential already have sensible defaults), so land focus there when the
+  // dialog opens instead of on the store select. Without this, Radix's
+  // FocusScope focuses the first tabbable element — the Select trigger.
+  const storeItemIdRef = useRef<HTMLInputElement>(null)
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['extensions'] })
 
@@ -159,7 +164,12 @@ export function TargetsSection({ extensionId }: { extensionId: string }) {
                 <Plus /> <span className="hidden sm:inline">Add a store</span>
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent
+              onOpenAutoFocus={(e: Event) => {
+                e.preventDefault()
+                storeItemIdRef.current?.focus()
+              }}
+            >
               <DialogHeader>
                 <DialogTitle>Add a store</DialogTitle>
               </DialogHeader>
@@ -201,6 +211,7 @@ export function TargetsSection({ extensionId }: { extensionId: string }) {
                   </SelectContent>
                 </Select>
                 <Input
+                  ref={storeItemIdRef}
                   value={storeItemId}
                   onChange={(e) => handleItemIdInput(e.target.value)}
                   placeholder={
