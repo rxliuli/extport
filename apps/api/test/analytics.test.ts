@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { runAnalyticsRollup } from '../src/analytics/rollup'
 import { latestRolledUpDay, secondsUntilNextRollup, topShares } from '../src/routes/analytics'
 import type { WaeQuery } from '../src/analytics/wae'
-import { analyticsDaily, analyticsInstalls, analyticsPings } from '../src/db'
+import { analyticsDaily, analyticsInstalls, analyticsPings, deploymentVersions } from '../src/db'
 import { addDays, isoDay } from '../src/lib/dates'
 import { createExtension, request, seedTenantWithUser } from './helpers'
 
@@ -238,6 +238,14 @@ describe('analytics rollup', () => {
       await db.insert(analyticsPings).values({ id: newId('analyticsPing'), tenantId: extension.id, extensionId: extension.id, ...row })
     }
     const waeQuery = fakeWaeQuery(rawRows, extension.id, extension.id)
+    // The versions real users could have installed, for the endpoints' version
+    // filter: analytics records what pings report, so a build that never shipped
+    // would otherwise surface as a phantom series (real case: a 0.0.68 for an
+    // extension whose latest published release was 0.0.67).
+    await db.insert(deploymentVersions).values([
+      { id: newId('deploymentVersion'), tenantId: extension.id, extensionId: extension.id, store: 'chrome', version: '1.0.0', status: 'online' },
+      { id: newId('deploymentVersion'), tenantId: extension.id, extensionId: extension.id, store: 'chrome', version: '1.0.1', status: 'online' },
+    ])
     return { db, extension, sessionCookie, now, day, waeQuery }
   }
 
@@ -361,6 +369,42 @@ describe('analytics rollup', () => {
         })
       ).status,
     ).toBe(400)
+  })
+
+  it("excludes unpublished versions from the version chart and 'latest' — a dev build must not become the headline", async () => {
+    const { db, tenantId, sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const date = isoDay(addDays(new Date(), -1))
+
+    // The versions real users could have installed.
+    await db.insert(deploymentVersions).values([
+      { id: newId('deploymentVersion'), tenantId, extensionId: extension.id, store: 'chrome', version: '1.0.0', status: 'online' },
+      { id: newId('deploymentVersion'), tenantId, extensionId: extension.id, store: 'chrome', version: '1.0.1', status: 'online' },
+    ])
+
+    await db.insert(analyticsDaily).values([
+      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'total', dimValue: '', dau: 11, wau: 11, installs: 2, departures: 0, mau: 11 },
+      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.0', dau: 3, wau: 3, installs: 0, departures: 0, mau: 3 },
+      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.1', dau: 7, wau: 7, installs: 0, departures: 0, mau: 7 },
+      // A build that pings a version no store ever shipped (dev/unpacked/probe).
+      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '2.0.0', dau: 1, wau: 1, installs: 0, departures: 0, mau: 1 },
+    ])
+
+    const series = (await (
+      await request(`/api/v1/analytics/series?extension=${extension.id}&dim=version`, { headers: { cookie: sessionCookie } })
+    ).json()) as { rows: { dimValue: string }[] }
+    const seriesVersions = series.rows.map((r) => r.dimValue)
+    expect(seriesVersions).toContain('1.0.0')
+    expect(seriesVersions).toContain('1.0.1')
+    expect(seriesVersions).not.toContain('2.0.0')
+
+    const overview = (await (
+      await request(`/api/v1/analytics/overview?extension=${extension.id}`, { headers: { cookie: sessionCookie } })
+    ).json()) as { versions: { version: string }[] }
+    const overviewVersions = overview.versions.map((v) => v.version)
+    expect(overviewVersions).toContain('1.0.0')
+    expect(overviewVersions).toContain('1.0.1')
+    expect(overviewVersions).not.toContain('2.0.0')
   })
 })
 

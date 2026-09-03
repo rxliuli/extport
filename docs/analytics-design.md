@@ -26,6 +26,17 @@ Why it fits extport:
   version-share curve gets release marker lines, and a sales-flip gate
   becomes "SDK share ≥ 95%" instead of a guessed two-week wait. The
   license-kit migration ran on exactly that guess.
+
+  **The version story is filtered to published versions.** The version
+  dimension is client-reported — an installed build pings its own
+  manifest `version`, so a local dev/unpacked load, a side-loaded probe,
+  or a regression build reports a version no store ever shipped (real
+  case: a "0.0.68" series for an extension whose latest release was
+  0.0.67 surfacing as a 0%-adoption "latest"). Both `/series?dim=version`
+  and `/overview.versions` therefore restrict the version distribution to
+  versions `deployment_versions` records as `online`; an extension that
+  has never published through extport (no ground truth) falls back to
+  reporting every pinged version rather than blanking its chart.
 - Licensing already holds the other half of a conversion funnel
   (purchases, amounts, per-extension). Installs → purchase conversion
   per store is a join, not a new event.
