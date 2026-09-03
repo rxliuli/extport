@@ -27,16 +27,20 @@ Why it fits extport:
   becomes "SDK share ≥ 95%" instead of a guessed two-week wait. The
   license-kit migration ran on exactly that guess.
 
-  **The version story is filtered to published versions.** The version
+  **Only versions *ahead* of the latest release are dropped.** The version
   dimension is client-reported — an installed build pings its own
-  manifest `version`, so a local dev/unpacked load, a side-loaded probe,
-  or a regression build reports a version no store ever shipped (real
-  case: a "0.0.68" series for an extension whose latest release was
-  0.0.67 surfacing as a 0%-adoption "latest"). Both `/series?dim=version`
-  and `/overview.versions` therefore restrict the version distribution to
-  versions `deployment_versions` records as `online`; an extension that
-  has never published through extport (no ground truth) falls back to
-  reporting every pinged version rather than blanking its chart.
+  manifest `version`, so a build of an upcoming release reports a version
+  no store is at yet (real case: a "0.0.68" series for an extension
+  whose latest release was 0.0.67 surfacing as a 0%-adoption "latest").
+  Both `/series?dim=version` and `/overview.versions` therefore drop the
+  few versions ahead of the latest published one. Older versions are
+  kept: they can be genuine stragglers, and `deployment_versions` never
+  records versions that shipped before a store was onboarded (a single
+  baseline for whatever was already live), so a filter that required an
+  `online` row for every version would hide real adoption (measured:
+  Redirector 0.16.10, 26 weekly actives, was below the tracked baseline).
+  An extension that has never shipped through extport (no ground truth)
+  shows every pinged version rather than blanking its chart.
 - Licensing already holds the other half of a conversion funnel
   (purchases, amounts, per-extension). Installs → purchase conversion
   per store is a join, not a new event.

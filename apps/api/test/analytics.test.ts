@@ -371,22 +371,27 @@ describe('analytics rollup', () => {
     ).toBe(400)
   })
 
-  it("excludes unpublished versions from the version chart and 'latest' — a dev build must not become the headline", async () => {
+  it("hides only versions ahead of the latest published release — a future dev build must not become the headline", async () => {
     const { db, tenantId, sessionCookie } = await seedTenantWithUser()
     const extension = await createExtension(sessionCookie)
     const date = isoDay(addDays(new Date(), -1))
 
-    // The versions real users could have installed.
+    // The latest published version. 1.0.0 is deliberately NOT seeded: it stands
+    // in for a real older version that shipped before the store was onboarded,
+    // so deployment_versions has no row for it (measured: Redirector 0.16.10
+    // and Imp Write 0.0.2/0.0.3/0.0.5 were all under the tracked baseline).
     await db.insert(deploymentVersions).values([
-      { id: newId('deploymentVersion'), tenantId, extensionId: extension.id, store: 'chrome', version: '1.0.0', status: 'online' },
       { id: newId('deploymentVersion'), tenantId, extensionId: extension.id, store: 'chrome', version: '1.0.1', status: 'online' },
     ])
 
     await db.insert(analyticsDaily).values([
       { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'total', dimValue: '', dau: 11, wau: 11, installs: 2, departures: 0, mau: 11 },
+      // An older real version users haven't upgraded from — kept even though
+      // deployment_versions never recorded it.
       { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.0', dau: 3, wau: 3, installs: 0, departures: 0, mau: 3 },
       { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.1', dau: 7, wau: 7, installs: 0, departures: 0, mau: 7 },
-      // A build that pings a version no store ever shipped (dev/unpacked/probe).
+      // A build pinging a version ahead of every published release
+      // (dev/unpacked of an upcoming version) — the phantom to drop.
       { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '2.0.0', dau: 1, wau: 1, installs: 0, departures: 0, mau: 1 },
     ])
 

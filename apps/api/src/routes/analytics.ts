@@ -3,6 +3,7 @@ import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
+import { compareVersions, maxVersion } from '@extport/shared'
 import { analyticsDaily, analyticsInstalls, deploymentVersions, extensions, type Db } from '../db'
 import { isoDay } from '../lib/dates'
 import { parseBrowser, parseOs } from '../lib/user-agent'
@@ -224,27 +225,37 @@ async function ownedExtension(c: Context<AppEnv>) {
 }
 
 /**
- * The versions that actually reached a store. Analytics' version dimension is
- * client-reported — an installed build pings its own manifest version, so a
- * local dev/unpacked load or a side-loaded probe reports a version no store
- * ever shipped (real case: a "0.0.68" series for an extension whose latest
- * release was 0.0.67 surfacing as a 0%-adoption "latest"). The version chart
- * and "Latest version adoption" read the rollup, which buckets whatever pings
- * arrived. Restricting the version story to `deployment_versions` rows that
- * are `online` keeps it honest: only versions real users could have installed
- * are shown, never a pre-release build or a regression probe.
+ * The highest version `deployment_versions` records as `online` — the latest
+ * version real users could be running. Analytics' version dimension is
+ * client-reported, so a build of an *upcoming* release pings a version no
+ * store is at yet (real case: a "0.0.68" series for an extension whose latest
+ * published release was 0.0.67, surfacing as a 0%-adoption "latest"). Only
+ * such *future* versions are phantoms.
  *
- * Empty when the extension has never shipped through extport (or has only
- * queued/rejected/skipped rows). Callers treat an empty set as "no ground
- * truth" and fall back to reporting every pinged version, so an analytics-only
- * extension that never published through extport doesn't lose its chart.
+ * A version below this max can still be a genuine release a user hasn't
+ * upgraded from, even though `deployment_versions` doesn't list it: the
+ * reconciler records only versions shipped since the store was onboarded (a
+ * single baseline for whatever was already live), plus everything pushed
+ * through extport. Existing versions predating that, and a store that shipped
+ * a version outside extport, never get their own row. Hiding them would drop
+ * real adoption (measured: Redirector 0.16.10, 26 weekly actives, and Imp
+ * Write 0.0.2/0.0.3/0.0.5, 46 combined, were all below the tracked baseline).
+ *
+ * null when nothing has ever shipped through extport (or only
+ * queued/rejected/skipped rows) — no ground truth, so callers show every
+ * pinged version and an analytics-only extension keeps its chart.
  */
-async function publishedVersions(db: Db, extensionId: string): Promise<string[]> {
+async function maxPublishedVersion(db: Db, extensionId: string): Promise<string | null> {
   const rows = await db
     .select({ version: deploymentVersions.version })
     .from(deploymentVersions)
     .where(and(eq(deploymentVersions.extensionId, extensionId), eq(deploymentVersions.status, 'online')))
-  return [...new Set(rows.map((r) => r.version))]
+  return maxVersion(rows.map((r) => r.version))
+}
+
+/** A reported version is a phantom only when it's ahead of everything published. */
+function isPhantomVersion(version: string, maxPublished: string | null): boolean {
+  return maxPublished !== null && compareVersions(version, maxPublished) > 0
 }
 
 analyticsTenantRoutes.get(
@@ -267,11 +278,12 @@ analyticsTenantRoutes.get(
     }
     const days = Math.min(Number.parseInt(c.req.query('days') ?? '90', 10) || 90, 1830)
     const from = isoDay(new Date(Date.now() - days * 24 * 60 * 60 * 1000))
-    // Version is client-reported, so restrict it to versions that actually
-    // shipped — an unpublished build (dev/unpacked/probe) pings a version no
-    // store holds. Empty means "no ground truth" (never published through
-    // extport), so we don't filter and keep the extension's own chart.
-    const published = dim === 'version' ? await publishedVersions(db, extension.id) : null
+    // Version is client-reported, so drop anything ahead of the latest
+    // published release — a dev/unpacked build of the *next* release pings a
+    // version no store is at yet. Older versions are kept (they can be real
+    // stragglers), and null means no ground truth (never shipped through
+    // extport) so nothing is filtered.
+    const maxPublished = dim === 'version' ? await maxPublishedVersion(db, extension.id) : null
 
     const rows = await db
       .select({
@@ -290,11 +302,11 @@ analyticsTenantRoutes.get(
           eq(analyticsDaily.extensionId, extension.id),
           eq(analyticsDaily.dim, dim as 'total'),
           gte(analyticsDaily.date, from),
-          ...(published && published.length > 0 ? [inArray(analyticsDaily.dimValue, published)] : []),
         ),
       )
       .orderBy(analyticsDaily.date)
-    return c.json({ rows, through: latestRolledUpDay() })
+    const versionRows = dim === 'version' ? rows.filter((r) => !isPhantomVersion(r.dimValue, maxPublished)) : rows
+    return c.json({ rows: versionRows, through: latestRolledUpDay() })
   },
 )
 
@@ -303,7 +315,7 @@ analyticsTenantRoutes.get(
   describeRoute({
     summary: 'Analytics overview',
     description:
-      'Weekly actives, all-time installs, and the current version distribution — all derived from the same rollup /series reads, so this can never disagree with the charts. Empty until the first nightly rollup runs for this extension (never live-queried install state, which used to be able to show numbers the charts had no way to display yet). `versions` lists only versions `deployment_versions` records as `online` — an unpublished build reports a version no store holds and must not surface as the "latest" at 0%.',
+      'Weekly actives, all-time installs, and the current version distribution — all derived from the same rollup /series reads, so this can never disagree with the charts. Empty until the first nightly rollup runs for this extension (never live-queried install state, which used to be able to show numbers the charts had no way to display yet). `versions` drops anything ahead of the latest published release — an unpublished build reports a version no store is at yet, and showing it as the "latest" at 0% reads as corruption. Older versions are kept (they can be real stragglers).',
     tags: ['Analytics'],
     responses: { 200: { description: 'OK' }, 404: { description: 'Extension not found' } },
   }),
@@ -336,18 +348,21 @@ analyticsTenantRoutes.get(
     // snapshot's same-day undercount pushed shares past 100% on day-one
     // extensions.)
     //
-    // Only published versions are listed. The version dimension is
-    // client-reported, so a dev/unpacked or probe build reports a version no
-    // store ever shipped; showing it as the highest "latest" at 0% reads as
-    // corruption. Empty published set = no ground truth (never shipped through
-    // extport), so fall back to whatever was pinged.
-    const published = await publishedVersions(db, extension.id)
+    // Drop anything ahead of the latest published release. The version
+    // dimension is client-reported, so a dev/unpacked build of the *next*
+    // release reports a version no store is at yet; showing it as the highest
+    // "latest" at 0% reads as corruption. Older versions are kept — below the
+    // tracked max they can still be real stragglers, and deployment_versions
+    // doesn't record versions that predate a store's onboarding. null = no
+    // ground truth (never shipped through extport), so show everything.
+    const maxPublished = await maxPublishedVersion(db, extension.id)
     const versions = await db
       .select({ version: analyticsDaily.dimValue, weeklyUsers: sql<number>`sum(${analyticsDaily.wau})` })
       .from(analyticsDaily)
-      .where(and(eq(analyticsDaily.extensionId, extension.id), eq(analyticsDaily.dim, 'version'), eq(analyticsDaily.date, latest.date), ...(published.length > 0 ? [inArray(analyticsDaily.dimValue, published)] : [])))
+      .where(and(eq(analyticsDaily.extensionId, extension.id), eq(analyticsDaily.dim, 'version'), eq(analyticsDaily.date, latest.date)))
       .groupBy(analyticsDaily.dimValue)
       .orderBy(sql`sum(${analyticsDaily.wau}) desc`)
+    const filteredVersions = versions.filter((v) => !isPhantomVersion(v.version, maxPublished))
 
     // The breakdown cards are a snapshot, not a series: each shows the share
     // of weekly actives per value on the latest day, because wau is already a
@@ -377,7 +392,7 @@ analyticsTenantRoutes.get(
     return c.json({
       weeklyActives: active?.weeklyActives ?? 0,
       allTimeInstalls: allTime?.allTimeInstalls ?? 0,
-      versions,
+      versions: filteredVersions,
       country: topShares(grouped.country),
       language: topShares(grouped.language),
       os: topShares(grouped.os),
