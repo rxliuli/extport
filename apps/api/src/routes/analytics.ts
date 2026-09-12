@@ -263,7 +263,7 @@ analyticsTenantRoutes.get(
   describeRoute({
     summary: 'Daily analytics series',
     description:
-      "Rows from the permanent rollup for one extension: ?dim=total (headline dau/wau/mau/installs/departures) or version/country/language/os (dau + wau). ?days= bounds the window (default 90, max 1830). `through` is the last fully-rolled-up day — charts should end their axis there; a day past it is not yet computed, not zero. Departures live on the last-seen day and are only present once confirmed — the trailing 30 days legitimately show none. ?dim=version returns only versions `deployment_versions` records as `online` — an unpublished build pings its own manifest version, and showing it as a phantom 'latest' reads as corruption, so it's excluded.",
+      "Rows from the permanent rollup for one extension: ?dim=total (headline dau/wau/installs) or version/country/language/os (dau + wau). ?days= bounds the window (default 90, max 1830). `through` is the last fully-rolled-up day — charts should end their axis there; a day past it is not yet computed, not zero. ?dim=version returns only versions `deployment_versions` records as `online` — an unpublished build pings its own manifest version, and showing it as a phantom 'latest' reads as corruption, so it's excluded.",
     tags: ['Analytics'],
     responses: { 200: { description: 'OK' }, 404: { description: 'Extension not found' } },
   }),
@@ -293,8 +293,6 @@ analyticsTenantRoutes.get(
         dau: analyticsDaily.dau,
         wau: analyticsDaily.wau,
         installs: analyticsDaily.installs,
-        departures: analyticsDaily.departures,
-        mau: analyticsDaily.mau,
       })
       .from(analyticsDaily)
       .where(
@@ -477,8 +475,6 @@ analyticsTenantRoutes.get(
         dau: sql<number>`sum(${analyticsDaily.dau})`,
         wau: sql<number>`sum(${analyticsDaily.wau})`,
         installs: sql<number>`sum(${analyticsDaily.installs})`,
-        departures: sql<number>`sum(${analyticsDaily.departures})`,
-        mau: sql<number>`sum(${analyticsDaily.mau})`,
       })
       .from(analyticsDaily)
       .where(and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total'), gte(analyticsDaily.date, from)))

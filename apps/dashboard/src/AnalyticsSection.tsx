@@ -11,13 +11,14 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { analyticsOverviewQuery, analyticsSeriesQuery } from '@/queries'
 import { useQuery } from '@tanstack/react-query'
-import type { ComponentProps } from 'react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, Line, LineChart, XAxis, YAxis } from 'recharts'
 
 // The cross-store usage view — daily pings from @extport/sdk/analytics,
-// rolled up server-side. Departures live on the last-seen day and are only
-// written once confirmed (30 days of silence), so that chart's trailing
-// month is legitimately empty. See docs/analytics-design.md.
+// rolled up server-side. Installs are same-day exact (first_seen is
+// immutable). There is no departures series: the metric could only ever speak
+// about days ≥31 days old, so a fixed-width chart's newest month was
+// structurally blank — see docs/analytics-design.md. The WAU curve is the
+// real-time churn signal instead.
 
 // Every chart below sets isAnimationActive={false}. daily/dauByBrowser/
 // versions are recomputed fresh on every render (not memoized), so any
@@ -48,30 +49,13 @@ export function lastNDays(n: number, through: string): string[] {
   return days
 }
 
-// The installs/departures chart stacks its two bars into one centered
-// diverging column (installs up, departures negated downward). Two separate
-// <Bar>s would split each day's slot side by side — and since departures
-// are zero for the trailing month by design, the visible installs bar sat
-// permanently in the left half of its slot, misaligned under the hover
-// cursor. The negation is presentation-only, so the tooltip maps values
-// back through abs before delegating.
-function AbsTooltipContent(props: ComponentProps<typeof ChartTooltipContent>) {
-  return (
-    <ChartTooltipContent
-      {...props}
-      payload={props.payload?.map((item) => (typeof item.value === 'number' ? { ...item, value: Math.abs(item.value) } : item))}
-    />
-  )
-}
-
-/** Collapse per-browser rows into one point per domain day (installs/departures bars). */
-export function byDate(rows: AnalyticsSeriesRow[], domain: string[]): { date: string; installs: number; departures: number }[] {
-  const days = new Map(domain.map((date) => [date, { date, installs: 0, departures: 0 }]))
+/** Collapse per-browser rows into one point per domain day (installs bars). */
+export function byDate(rows: AnalyticsSeriesRow[], domain: string[]): { date: string; installs: number }[] {
+  const days = new Map(domain.map((date) => [date, { date, installs: 0 }]))
   for (const row of rows) {
     const day = days.get(row.date)
     if (!day) continue
     day.installs += row.installs
-    day.departures += row.departures
   }
   return [...days.values()]
 }
@@ -366,27 +350,24 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Installs &amp; departures</CardTitle>
+          <CardTitle>Installs</CardTitle>
           <CardDescription>
-            Installs are same-day exact. Departures sit on the day the install was last seen and only appear once
-            confirmed by 30 days of silence — the most recent month is always blank, by design.
+            Same-day exact: one bar per day for installs first seen that day, all stores combined. Days are UTC.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <ChartContainer
             config={{
               installs: { label: 'Installs', color: 'var(--chart-2)' },
-              departures: { label: 'Departures', color: 'var(--chart-5)' },
             } satisfies ChartConfig}
             className="h-56 w-full"
           >
-            <BarChart data={daily.map((d) => ({ ...d, departures: -d.departures }))} stackOffset="sign" margin={{ left: 4, right: 4 }}>
+            <BarChart data={daily} margin={{ left: 4, right: 4 }}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={shortDate} minTickGap={32} />
-              <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} tickFormatter={(value: number) => String(Math.abs(value))} />
-              <ChartTooltip content={<AbsTooltipContent />} />
-              <Bar dataKey="installs" stackId="flow" fill="var(--color-installs)" radius={2} maxBarSize={40} isAnimationActive={false} />
-              <Bar dataKey="departures" stackId="flow" fill="var(--color-departures)" radius={2} maxBarSize={40} isAnimationActive={false} />
+              <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} />
+              <ChartTooltip content={<ChartTooltipContent />} />
+              <Bar dataKey="installs" fill="var(--color-installs)" radius={2} maxBarSize={40} isAnimationActive={false} />
             </BarChart>
           </ChartContainer>
         </CardContent>

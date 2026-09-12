@@ -91,17 +91,15 @@ function AnalyticsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Installs &amp; departures</CardTitle>
+              <CardTitle>Installs</CardTitle>
               <CardDescription>
-                Summed across every extension. Departures only appear once confirmed by 30 days of silence — the most
-                recent month is always blank, by design.
+                Summed across every extension: one bar per day for installs first seen that day. Same-day exact.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <ChartContainer
                 config={{
                   installs: { label: 'Installs', color: 'var(--chart-2)' },
-                  departures: { label: 'Departures', color: 'var(--chart-5)' },
                 }}
                 className="h-56 w-full"
               >
@@ -111,7 +109,6 @@ function AnalyticsPage() {
                   <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Bar dataKey="installs" fill="var(--color-installs)" radius={2} maxBarSize={40} isAnimationActive={false} />
-                  <Bar dataKey="departures" fill="var(--color-departures)" radius={2} maxBarSize={40} isAnimationActive={false} />
                 </BarChart>
               </ChartContainer>
             </CardContent>

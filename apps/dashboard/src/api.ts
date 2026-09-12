@@ -179,9 +179,6 @@ export interface AnalyticsSeriesRow {
   /** Rolling 7-day actives ending on `date` — the headline activity metric. Only on dim=total rows. */
   wau: number
   installs: number
-  /** Attributed to the last-seen day, confirmed after 30 days — the trailing month is legitimately zero. */
-  departures: number
-  mau: number
 }
 
 /** A /series or /fleet/series response — rows plus the axis watermark. */

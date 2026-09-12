@@ -81,7 +81,7 @@ cannot inflate anything.
 |---|---|---|
 | `extport_analytics` (WAE) | one data point per accepted ping, all dimensions resolved | **90 days, capped by the platform** |
 | `installs` (D1) | one row per install: `first_seen, last_seen, last_version` | permanent (prunable after long idle) |
-| `analytics_daily` (D1) | single-dimension time series: headline (dau/wau/mau/installs/departures) plus per-version, per-country, per-language, per-OS daily+weekly actives | **permanent** |
+| `analytics_daily` (D1) | single-dimension time series: headline (dau/wau/installs) plus per-version, per-country, per-language, per-OS daily+weekly actives | **permanent** |
 
 The raw layer moved to Workers Analytics Engine over 2026-08-06..13 —
 see "Moving raw pings to WAE" below for what changed since this document
@@ -102,10 +102,9 @@ below). A nightly cron aggregates yesterday's pings into
 `analytics_daily` (one GROUP BY per dimension) and computes rolling
 7-day WAU as `count(DISTINCT install_id)`, whose window sits inside
 WAE's 90-day retention; the nightly write is what makes it permanent,
-because cross-day uniques can't be recomputed once pings age out. It
-also counts newly confirmed departures (written into the row of the day
-the install was last seen, 30 days back; see below), which reads
-`installs` rather than pings.
+because cross-day uniques can't be recomputed once pings age out.
+Installs are counted on the D1 side from `installs.first_seen`, which is
+immutable, so that half recomputes exactly too.
 
 Those distinct counts are now **approximate** — WAE answers
 `count(DISTINCT)` with HyperLogLog, and a small fraction of
@@ -118,11 +117,14 @@ itself changed and is worth not repeating carelessly.
 An earlier iteration snapshotted MAU from `installs.last_seen`; the
 pointer's forward drift between midnight and the cron silently dropped
 same-day actives (day-one extensions showed MAU < DAU), which is why
-everything now derives from pings rather than that pointer.
+everything now derives from pings rather than that pointer. The `mau`
+column then outlived the fix as dead weight — the rollup stopped
+computing it and every row carried the default 0 — so it was dropped on
+2026-09-11 together with `departures` (below).
 
 **WAU is the headline activity metric** — every displayed figure and
-the Active users chart read it; dau stays in the rollup (and drives
-version saturation), mau accrues unread as the permanent 30-day record.
+the Active users chart read it; dau stays in the rollup and drives
+version saturation.
 Two reasons beyond smoothing: it's what the CWS console headlines
 (weekly users), and the event-driven ping undercounts single days by
 design — a running-but-idle browser can miss a day, rarely a week.
@@ -242,8 +244,8 @@ objections invert:
   way `sum()` can.
 - *"`installs` can't move to an append-only store anyway"* — still
   true, and it didn't. `first_seen`/`last_seen` are mutable state; WAE
-  stores an immutable event stream. Installs and departures still read
-  D1, and that write cost is unchanged.
+  stores an immutable event stream. Installs still read D1, and that
+  write cost is unchanged.
 
 **What this costs.** Reading WAE needs an account-scoped API token
 (`ANALYTICS_API_TOKEN`): the binding exposes `writeDataPoint` and
@@ -306,7 +308,56 @@ Notes that shaped decisions:
   (a disabled extension runs no code). CWS and Edge show it; we
   structurally cannot.
 
-## Departures, not uninstalls
+## Departures: removed (2026-09-11)
+
+**Status: the metric, its column and its chart are gone.** The reasoning
+below is kept as the record of how it was designed and why it was
+finally dropped — read it as history, not as a description of the
+product.
+
+Two facts ended it, both discovered by operating it rather than by
+changing taste:
+
+1. **The chart could never draw a single bar.** A day's count is only
+   confirmed 31 days after the fact (the rollup wrote it into the row of
+   the day the install was last seen), while every chart's window ends at
+   `through = today − 1`. The two ranges do not overlap at any window
+   length: the series was permanently blank, not merely a month behind.
+2. **Even repaired, the ceiling is a floor.** Silence is right-censored
+   by construction — for any threshold N, the last N days are unknowable,
+   because the witness (the silence that hasn't happened yet) lies in the
+   future. The best a silence inference can say about the recent window
+   is `≥ N`. And the authoritative alternative doesn't exist either: only
+   the CWS console reports uninstalls, as a CSV behind a per-tenant
+   login, so no multi-tenant service can fetch it.
+
+Removal was cheap because its job was already covered: a mass departure
+shows up in the WAU curve the next day, installs (`first_seen`) are
+same-day exact, and **every per-install row persists** in
+`analytics_installs` — so "of the June installs, how many are still
+active?" is one query away, forever. The departure column archived
+nothing its own source table doesn't still hold.
+
+Two follow-ups are deliberately left open, both independent of this
+removal (they read `analytics_installs` directly — no rollup column, no
+nightly job):
+
+- **Cohort retention** — installs grouped by install month, share still
+  active at age N months. Same question asked honestly: complete cohorts
+  carry no censoring at all, and there is no guessed threshold to defend.
+- **`runtime.setUninstallURL`** — would put a same-day *floor* on real
+  removals, at the price of the single per-extension URL slot (there is
+  no getter, so a library cannot compose with a tenant's own survey URL),
+  a documented no-op on Safari, and a visible platform call made on
+  tenants' behalf at the worst moment of their relationship with the
+  user. If it is ever built it belongs in the product as an uninstall
+  *feed* with version and tenure — not as another daily bar series.
+
+What follows is the original section, kept verbatim. (Its closing verdict
+on `setUninstallURL` — "rejected" — is superseded by the open follow-up
+above; the rest stands as context for the shape the metric had.)
+
+### Original: "Departures, not uninstalls"
 
 Nothing runs on uninstall. The metric is the **inferred departure**: an
 install that stays silent for 30 days — named "departures" on the
@@ -537,8 +588,7 @@ extport ships a provider as a subpath export
   surface; the stat cards read the same WAU, so a card can never
   disagree with the chart beside it), "Weekly users by
   country/language/OS" breakdown cards (top 5 + Other, labels via
-  Intl.DisplayNames — raw codes stay in the rollup), installs and
-  confirmed-departures bars (the latter trailing 30 days),
+  Intl.DisplayNames — raw codes stay in the rollup), installs bars,
   version-saturation stacked area with release markers. Default window
   30 days (CWS parity); a range picker (30/90/1y/all) joins once
   enough history exists to navigate.

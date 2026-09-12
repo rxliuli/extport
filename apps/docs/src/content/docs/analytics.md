@@ -81,7 +81,7 @@ Open your extension's **Analytics** tab. Every chart reads straight from the dai
   diverging from the others. A weekly window also absorbs the natural day-to-day jitter of extension usage — a
   browser that stays closed for a day isn't a lost user.
 - **Weekly users by country / language / OS** — top 5 + Other for each, over the same rolling week.
-- **Installs & departures** — same-day-exact installs; departures are covered below.
+- **Installs** — same-day exact: one bar per day for installs first seen that day, across every store.
 - **Version saturation** — daily actives stacked by version, so a release's adoption curve visibly eats the layer
   below it. This is the number to watch before assuming an old version's users are gone.
 
@@ -90,10 +90,11 @@ Open your extension's **Analytics** tab. Every chart reads straight from the dai
 - **The chart window is fixed and always ends yesterday** — the last day fully rolled up, same convention the store
   consoles themselves use. Days without data still draw as zero, so a new install shows up as a line rising out of a
   flat month, not a floating point.
-- **Departures are confirmed, not guessed.** An install is counted as departed only after 30 days of silence, and
-  the count is attributed back to the day it was *last seen* — not the day the 30-day window closed. That means the
-  most recent month never shows departures yet; give it time rather than reading a flat trailing edge as "nobody's
-  leaving."
+- **There is no uninstall count, and no "departures" chart.** Nothing runs at the moment of uninstall, so the only
+  honest signals are activity and installs: when people leave, the weekly-actives curve drops — that's the churn
+  signal. An inferred count ("silent for 30 days") could not be drawn anyway: it is only confirmable 30 days after
+  the fact, which leaves the newest month of any chart permanently blank. The per-install records are kept, so
+  "of the people who installed in June, how many are still active" stays answerable.
 - **Firefox's own toggle is respected automatically.** If someone declines `technicalAndInteraction` at install (or
   turns it off later in `about:addons`), the SDK checks that permission fresh on every ping — no code of yours needs
   to react to it.

@@ -473,8 +473,9 @@ export const buyerSessions = sqliteTable(
 
 // One row per install, keyed by the client-generated random UUID — the
 // pseudonymous identity, deliberately unlinked from licensing's
-// deviceFingerprint. This table is what keeps the exact metrics (MAU,
-// current version distribution, departures) independent of the raw window.
+// deviceFingerprint. This table is what keeps the exact metrics (installs,
+// current version distribution) independent of the raw window, and it is the
+// permanent per-install record (first_seen/last_seen) behind them.
 export const analyticsInstalls = sqliteTable(
   'analytics_installs',
   {
@@ -490,9 +491,14 @@ export const analyticsInstalls = sqliteTable(
   },
   (t) => [
     primaryKey({ columns: [t.extensionId, t.installId] }),
-    // Departure confirmation scans by exact last-seen day; MAU by range.
-    index('analytics_installs_last_seen_idx').on(t.lastSeen),
-    index('analytics_installs_ext_seen_idx').on(t.extensionId, t.lastSeen),
+    // The nightly installs rollup scans by first_seen, and any future
+    // per-install question ("of the June installs, how many are still
+    // active?") reads one extension's rows in first_seen order.
+    //
+    // There is deliberately no index on last_seen any more: its only reader
+    // was the departure-confirmation scan, removed 2026-09-11 (see
+    // docs/analytics-design.md). A dead index on the hottest write path is
+    // pure amplification — this table's indexes are most of its write cost.
     index('analytics_installs_ext_first_idx').on(t.extensionId, t.firstSeen),
   ],
 )
@@ -538,11 +544,18 @@ export const analyticsDaily = sqliteTable(
     // pings (a running-but-idle browser can miss a day, rarely a week).
     wau: integer('wau').notNull().default(0),
     installs: integer('installs').notNull().default(0),
-    // Attributed to the last-seen day and only written once confirmed
-    // (30 days of silence) — the chart's trailing month stays blank.
-    departures: integer('departures').notNull().default(0),
-    // Rolling 30-day MAU snapshot as of `date` — not derivable later.
-    mau: integer('mau').notNull().default(0),
+    // Two headline columns were removed on 2026-09-11 (see
+    // docs/analytics-design.md), and neither is missed:
+    //
+    // - `departures` (inferred departure, written 31 days after the fact)
+    //   could only ever describe days ≥31 days old, so a fixed-width chart's
+    //   newest month was structurally blank. The per-install rows above still
+    //   hold the first_seen/last_seen it was derived from, so nothing is lost.
+    // - `mau` (rolling 30-day actives) was already dead weight: the rollup
+    //   stopped computing it when the same-day snapshot undercount was fixed
+    //   in favour of wau, so every row carried the default 0.
+    // A half-populated column is worse than no column — the next reader has
+    // to work out which dates it means something for.
   },
   (t) => [
     primaryKey({ columns: [t.extensionId, t.date, t.browser, t.dim, t.dimValue] }),

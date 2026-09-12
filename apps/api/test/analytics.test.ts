@@ -214,7 +214,7 @@ describe('analytics rollup', () => {
       { installId: 'i1', browser: 'chrome', firstSeen: day(-1), lastSeen: day(-1), lastVersion: '1.0.1' },
       // Long-standing install, active yesterday.
       { installId: 'i2', browser: 'chrome', firstSeen: day(-29), lastSeen: day(-1), lastVersion: '1.0.1' },
-      // Departed: last seen exactly 31 days ago — confirmed today.
+      // Silent for 31 days — used to become a confirmed departure row.
       { installId: 'i3', browser: 'chrome', firstSeen: day(-60), lastSeen: day(-31), lastVersion: '1.0.0' },
       // Active this week but quiet yesterday.
       { installId: 'i4', browser: 'firefox', firstSeen: day(-10), lastSeen: day(-5), lastVersion: '1.0.0' },
@@ -249,7 +249,7 @@ describe('analytics rollup', () => {
     return { db, extension, sessionCookie, now, day, waeQuery }
   }
 
-  it('computes headline + dimension rows, attributes departures to the last-seen day, and prunes', async () => {
+  it('computes headline + dimension rows and prunes', async () => {
     const { db, extension, now, day, waeQuery } = await seedScenario()
     await runAnalyticsRollup(db, now, waeQuery)
 
@@ -259,13 +259,16 @@ describe('analytics rollup', () => {
 
     // Headline, chrome: dau counts distinct installs (raced duplicate
     // ignored), installs from first_seen. WAU equals dau here — both
-    // actives pinged yesterday. MAU is no longer computed (column default 0).
-    expect(find(day(-1), 'chrome', 'total', '')).toMatchObject({ dau: 2, wau: 2, installs: 1, mau: 0, departures: 0 })
+    // actives pinged yesterday.
+    expect(find(day(-1), 'chrome', 'total', '')).toMatchObject({ dau: 2, wau: 2, installs: 1 })
     // Firefox had no pings yesterday but pinged within the week — exactly
     // the running-but-idle install WAU exists to keep counting.
-    expect(find(day(-1), 'firefox', 'total', '')).toMatchObject({ dau: 0, wau: 1, installs: 0, mau: 0 })
-    // Departure confirmed today, written into the historical last-seen row.
-    expect(find(day(-31), 'chrome', 'total', '')).toMatchObject({ departures: 1, dau: 0 })
+    expect(find(day(-1), 'firefox', 'total', '')).toMatchObject({ dau: 0, wau: 1, installs: 0 })
+    // i3 has been silent for 31 days. It used to be written here as a
+    // confirmed departure on its last-seen day; the departures metric was
+    // removed 2026-09-11 (see docs/analytics-design.md), so it produces no
+    // row at all — this assertion is the regression guard for that.
+    expect(find(day(-31), 'chrome', 'total', '')).toBeUndefined()
 
     // Dimension rows carry dau + wau.
     expect(find(day(-1), 'chrome', 'version', '1.0.1')).toMatchObject({ dau: 2, wau: 2 })
@@ -300,9 +303,8 @@ describe('analytics rollup', () => {
       await request(`/api/v1/analytics/series?extension=${extension.id}&dim=total`, {
         headers: { cookie: sessionCookie },
       })
-    ).json()) as { rows: { date: string; browser: string; dau: number; departures: number }[]; through: string }
+    ).json()) as { rows: { date: string; browser: string; dau: number }[]; through: string }
     expect(series.rows.find((r) => r.date === day(-1) && r.browser === 'chrome')).toMatchObject({ dau: 2 })
-    expect(series.rows.find((r) => r.date === day(-31) && r.browser === 'chrome')).toMatchObject({ departures: 1 })
     // The axis watermark rides along so charts know where finished data ends.
     expect(series.through).toBe(latestRolledUpDay())
 
@@ -385,14 +387,14 @@ describe('analytics rollup', () => {
     ])
 
     await db.insert(analyticsDaily).values([
-      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'total', dimValue: '', dau: 11, wau: 11, installs: 2, departures: 0, mau: 11 },
+      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'total', dimValue: '', dau: 11, wau: 11, installs: 2 },
       // An older real version users haven't upgraded from — kept even though
       // deployment_versions never recorded it.
-      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.0', dau: 3, wau: 3, installs: 0, departures: 0, mau: 3 },
-      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.1', dau: 7, wau: 7, installs: 0, departures: 0, mau: 7 },
+      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.0', dau: 3, wau: 3, installs: 0 },
+      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.1', dau: 7, wau: 7, installs: 0 },
       // A build pinging a version ahead of every published release
       // (dev/unpacked of an upcoming version) — the phantom to drop.
-      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '2.0.0', dau: 1, wau: 1, installs: 0, departures: 0, mau: 1 },
+      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '2.0.0', dau: 1, wau: 1, installs: 0 },
     ])
 
     const series = (await (
@@ -425,10 +427,10 @@ describe('fleet-wide analytics', () => {
     // "extension rolled up on a different day than the rest of the fleet"
     // case gets its own test below.
     await db.insert(analyticsDaily).values([
-      { tenantId, extensionId: extA.id, date: day(-2), browser: 'chrome', dim: 'total', dimValue: '', dau: 1, wau: 1, installs: 1, departures: 0, mau: 1 },
-      { tenantId, extensionId: extA.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 2, wau: 2, installs: 0, departures: 0, mau: 2 },
-      { tenantId, extensionId: extA.id, date: day(-1), browser: 'firefox', dim: 'total', dimValue: '', dau: 1, wau: 1, installs: 1, departures: 0, mau: 1 },
-      { tenantId, extensionId: extB.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 5, wau: 5, installs: 1, departures: 0, mau: 5 },
+      { tenantId, extensionId: extA.id, date: day(-2), browser: 'chrome', dim: 'total', dimValue: '', dau: 1, wau: 1, installs: 1 },
+      { tenantId, extensionId: extA.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 2, wau: 2, installs: 0 },
+      { tenantId, extensionId: extA.id, date: day(-1), browser: 'firefox', dim: 'total', dimValue: '', dau: 1, wau: 1, installs: 1 },
+      { tenantId, extensionId: extB.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 5, wau: 5, installs: 1 },
     ])
 
     const overview = (await (
@@ -442,9 +444,9 @@ describe('fleet-wide analytics', () => {
 
     const series = (await (
       await request('/api/v1/analytics/fleet/series', { headers: { cookie: sessionCookie } })
-    ).json()) as { rows: { date: string; browser: string; dau: number; installs: number; mau: number }[] }
+    ).json()) as { rows: { date: string; browser: string; dau: number; installs: number }[] }
     // Both extensions' chrome rows for the same day sum into one row.
-    expect(series.rows.find((r) => r.date === day(-1) && r.browser === 'chrome')).toMatchObject({ dau: 7, installs: 1, mau: 7 })
+    expect(series.rows.find((r) => r.date === day(-1) && r.browser === 'chrome')).toMatchObject({ dau: 7, installs: 1 })
 
     const list = (await (
       await request('/api/v1/analytics/fleet/extensions', { headers: { cookie: sessionCookie } })
@@ -483,9 +485,9 @@ describe('fleet-wide analytics', () => {
 
     await db.insert(analyticsDaily).values([
       // Only ever rolled up once, several days ago.
-      { tenantId, extensionId: stale.id, date: day(-5), browser: 'chrome', dim: 'total', dimValue: '', dau: 4, wau: 4, installs: 4, departures: 0, mau: 4 },
+      { tenantId, extensionId: stale.id, date: day(-5), browser: 'chrome', dim: 'total', dimValue: '', dau: 4, wau: 4, installs: 4 },
       // Rolled up as recently as yesterday.
-      { tenantId, extensionId: fresh.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 2, wau: 2, installs: 2, departures: 0, mau: 2 },
+      { tenantId, extensionId: fresh.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 2, wau: 2, installs: 2 },
     ])
 
     const list = (await (

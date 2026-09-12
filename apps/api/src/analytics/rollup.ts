@@ -76,9 +76,8 @@ function upsertMetric(db: Db, metric: 'dau' | 'wau', date: string, dim: string, 
 //
 // Processes yesterday only. A missed night leaves a hole that can be
 // repaired manually by calling this with `now` set to the day after the
-// hole while the raw window still covers it (dau/wau/installs recompute
-// exactly; only the departure snapshot drifts with install state, the
-// documented cost of deriving it from last_seen).
+// hole while the raw window still covers it — every metric here recomputes
+// exactly from WAE (dau/wau) or immutable per-install state (installs).
 //
 // Split across two stores on purpose: the ping stream lives in Analytics
 // Engine (high-frequency, immutable, 90-day platform cap), install state and
@@ -88,7 +87,6 @@ export async function runAnalyticsRollup(db: Db, now: Date = new Date(), waeQuer
   const yesterday = isoDay(addDays(now, -1))
   const today = isoDay(now)
   const wauStart = isoDay(addDays(now, -7)) // 7-day window ending yesterday
-  const departedDay = isoDay(addDays(now, -31)) // last-seen day now 30 full days silent
   const pruneBefore = isoDay(addDays(now, -90))
 
   // Half-open ranges: `date = yesterday` and `date <= yesterday` both mean
@@ -127,11 +125,10 @@ export async function runAnalyticsRollup(db: Db, now: Date = new Date(), waeQuer
     // The window always sits inside WAE's 90-day retention, and the permanent
     // row is written while those pings are still queryable.
     ...upsertMetric(db, 'wau', yesterday, 'total', headlineWau ?? []),
-    // Installs and departures stay on D1: both read analytics_installs, whose
+    // Installs stay on D1: they read analytics_installs, whose
     // first_seen/last_seen are mutable state. WAE only stores an immutable
-    // event stream and has no equivalent.
-    //
-    // Installs: first_seen is immutable, so this recomputes exactly.
+    // event stream and has no equivalent. first_seen is immutable, so this
+    // recomputes exactly.
     toD1(
       db,
       sql`
@@ -143,23 +140,13 @@ export async function runAnalyticsRollup(db: Db, now: Date = new Date(), waeQuer
         DO UPDATE SET installs = excluded.installs
       `,
     ),
-    // Departures, attributed to the last-seen day and only now confirmed —
-    // an install whose last_seen is exactly 31 days back has been silent for
-    // 30 full days. Each install matches this predicate on exactly one cron
-    // day (any later ping moves last_seen and it never matches again), and
-    // the count lands on the historical row, upserted in case that day's
-    // row predates analytics or was pruned.
-    toD1(
-      db,
-      sql`
-        INSERT INTO analytics_daily (tenant_id, extension_id, date, browser, dim, dim_value, departures)
-        SELECT tenant_id, extension_id, last_seen, browser, 'total', '', count(*)
-        FROM analytics_installs WHERE last_seen = ${departedDay}
-        GROUP BY tenant_id, extension_id, browser
-        ON CONFLICT (extension_id, date, browser, dim, dim_value)
-        DO UPDATE SET departures = excluded.departures
-      `,
-    ),
+    // Inferred departures used to be written here (count of installs whose
+    // last_seen was exactly 31 days back, upserted into that historical row).
+    // Removed 2026-09-11 — see docs/analytics-design.md: the metric could only
+    // describe days ≥31 days old, so a fixed-width chart's newest month was
+    // structurally blank, and the data it counted is still in
+    // analytics_installs if it is ever wanted back.
+    //
     // analytics_pings is no longer written — pings go to WAE. This prune is
     // what retires the table: with nothing arriving, it empties itself 90 days
     // after the last write and can then be dropped. Kept rather than dropped
