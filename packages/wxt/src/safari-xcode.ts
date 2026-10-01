@@ -129,8 +129,16 @@ interface PbxObject {
   buildConfigurations?: string[]
 }
 
-/** A `};` at two tabs closes a top-level object; nested lists and dicts are deeper. */
-const BUILD_CONFIG_BLOCK = /([0-9A-Fa-f]{24}) \/\* \w+ \*\/ = \{\s*isa = XCBuildConfiguration;[\s\S]*?\n\t\t\};/g
+/**
+ * A `};` at two tabs closes a top-level object; nested lists and dicts are
+ * deeper. The id's trailing comment is optional and its content doesn't
+ * matter: older Xcode writes a bare config name there (e.g. "Debug"), while
+ * Xcode 27 writes a full sentence instead (observed on gmail-notifier
+ * 2026-10-02: `Debug configuration for PBXNativeTarget "Inbox Notifier for
+ * Gmail"`). Either way the block is already keyed by the 24-hex object id,
+ * which is all `resolveBundleIds` ever hands back.
+ */
+const BUILD_CONFIG_BLOCK = /([0-9A-Fa-f]{24})(?: \/\*[^*]*\*\/)? = \{\s*isa = XCBuildConfiguration;[\s\S]*?\n\t\t\};/g
 const SINGLE_BUNDLE_ID = /PRODUCT_BUNDLE_IDENTIFIER = ("[^"]*"|[^;]+);/
 
 /**

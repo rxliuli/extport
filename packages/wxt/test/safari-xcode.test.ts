@@ -40,13 +40,15 @@ const UNRELATED = 'CCCCCCCCCCCCCCCCCCCCCCC1'
  * A pbxproj fragment carrying the XCBuildConfiguration blocks those ids name.
  * Quoting follows the same rule the converter uses — bare when the id has no
  * special characters — so a rewrite that changes nothing is byte-identical.
+ * `comment` defaults to the config's own name (older Xcode's style); pass it
+ * explicitly to cover Xcode 27's longer sentence-style comment instead.
  */
-function pbxproj(configs: { id: string; name: string; bundleId: string }[]): string {
+function pbxproj(configs: { id: string; name: string; bundleId: string; comment?: string }[]): string {
   const write = (id: string) => (/^[A-Za-z0-9._]+$/.test(id) ? id : `"${id}"`)
   return [
     '/* Begin XCBuildConfiguration section */',
     ...configs.flatMap((c) => [
-      `\t\t${c.id} /* ${c.name} */ = {`,
+      `\t\t${c.id} /* ${c.comment ?? c.name} */ = {`,
       `\t\t\tisa = XCBuildConfiguration;`,
       `\t\t\tbuildSettings = {`,
       `\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = ${write(c.bundleId)};`,
@@ -172,5 +174,32 @@ describe('applyBundleIds', () => {
   it('is a no-op when nothing was resolved', () => {
     const content = pbxproj([{ id: APP_DEBUG, name: 'Debug', bundleId: 'com.old' }])
     expect(applyBundleIds(content, new Map())).toBe(content)
+  })
+
+  // Xcode 27 replaced the old `/* Debug */` comment with a full sentence
+  // (observed on gmail-notifier's project.pbxproj, 2026-10-02), so `\w+`
+  // never matched and nothing got rewritten — Xcode then refused to build
+  // the extension. The comment's content doesn't matter; the id is the key.
+  it("rewrites a block whose comment is Xcode 27's sentence style", () => {
+    const content = pbxproj([
+      { id: APP_DEBUG, name: 'Debug', bundleId: 'com.rxliuli.Inbox-Notifier-for-Gmail', comment: 'Debug configuration for PBXNativeTarget "Inbox Notifier for Gmail"' },
+      { id: EXT_DEBUG, name: 'Debug', bundleId: 'com.rxliuli.gmail-notifier', comment: 'Debug configuration for PBXNativeTarget "Inbox Notifier for Gmail Extension"' },
+    ])
+    const result = applyBundleIds(
+      content,
+      new Map([
+        [APP_DEBUG, 'com.rxliuli.gmail-notifier'],
+        [EXT_DEBUG, 'com.rxliuli.gmail-notifier.Extension'],
+      ]),
+    )
+    expect(idsInFile(result)).toEqual(['com.rxliuli.gmail-notifier', 'com.rxliuli.gmail-notifier.Extension'])
+  })
+
+  // A pbxproj is free-form enough that a comment-less id is plausible too;
+  // the rewriter shouldn't depend on one being there.
+  it('rewrites a block whose id has no comment at all', () => {
+    const content = ['/* Begin XCBuildConfiguration section */', `\t\t${APP_DEBUG} = {`, `\t\t\tisa = XCBuildConfiguration;`, `\t\t\tbuildSettings = {`, `\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = com.old;`, `\t\t\t};`, `\t\t\tname = Debug;`, `\t\t};`, '/* End XCBuildConfiguration section */'].join('\n')
+    const result = applyBundleIds(content, new Map([[APP_DEBUG, 'com.new']]))
+    expect(idsInFile(result)).toEqual(['com.new'])
   })
 })
