@@ -373,27 +373,39 @@ describe('analytics rollup', () => {
     ).toBe(400)
   })
 
-  it("hides only versions ahead of the latest published release — a future dev build must not become the headline", async () => {
+  it('restricts the version chart and overview to versions extport actually published — a plain whitelist, not a range check', async () => {
     const { db, tenantId, sessionCookie } = await seedTenantWithUser()
     const extension = await createExtension(sessionCookie)
     const date = isoDay(addDays(new Date(), -1))
 
-    // The latest published version. 1.0.0 is deliberately NOT seeded: it stands
-    // in for a real older version that shipped before the store was onboarded,
-    // so deployment_versions has no row for it (measured: Redirector 0.16.10
-    // and Imp Write 0.0.2/0.0.3/0.0.5 were all under the tracked baseline).
+    // The whitelist: only these two versions ever went `online` through
+    // extport. 1.0.0.5 (between them) and 0.9.0 (below the earliest) are
+    // deliberately NOT here — a plain whitelist hides both, unlike the old
+    // "only drop what's ahead of the max" filter, which used to let an
+    // under-the-max straggler through.
     await db.insert(deploymentVersions).values([
+      { id: newId('deploymentVersion'), tenantId, extensionId: extension.id, store: 'chrome', version: '1.0.0', status: 'online' },
       { id: newId('deploymentVersion'), tenantId, extensionId: extension.id, store: 'chrome', version: '1.0.1', status: 'online' },
     ])
 
     await db.insert(analyticsDaily).values([
-      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'total', dimValue: '', dau: 11, wau: 11, installs: 2 },
-      // An older real version users haven't upgraded from — kept even though
-      // deployment_versions never recorded it.
+      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'total', dimValue: '', dau: 20, wau: 20, installs: 2 },
+      // Below the earliest published version — a real straggler on a release
+      // that predates the extension's onboarding to extport, or just never
+      // published through it. No deployment_versions row exists for it, so
+      // the whitelist has no way to know it's real; hidden is the accepted
+      // cost of a plain whitelist.
+      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '0.9.0', dau: 2, wau: 2, installs: 0 },
+      // In the whitelist — shown.
       { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.0', dau: 3, wau: 3, installs: 0 },
+      // Between the two published versions (e.g. a hotfix build no store
+      // ever shipped) — not itself in the whitelist, hidden even though it
+      // sits "inside" the published range.
+      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.0.5', dau: 5, wau: 5, installs: 0 },
+      // In the whitelist — shown.
       { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.1', dau: 7, wau: 7, installs: 0 },
-      // A build pinging a version ahead of every published release
-      // (dev/unpacked of an upcoming version) — the phantom to drop.
+      // Ahead of the latest published version (dev/unpacked of an upcoming
+      // release) — hidden.
       { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '2.0.0', dau: 1, wau: 1, installs: 0 },
     ])
 
@@ -401,17 +413,37 @@ describe('analytics rollup', () => {
       await request(`/api/v1/analytics/series?extension=${extension.id}&dim=version`, { headers: { cookie: sessionCookie } })
     ).json()) as { rows: { dimValue: string }[] }
     const seriesVersions = series.rows.map((r) => r.dimValue)
-    expect(seriesVersions).toContain('1.0.0')
-    expect(seriesVersions).toContain('1.0.1')
-    expect(seriesVersions).not.toContain('2.0.0')
+    expect(seriesVersions.sort()).toEqual(['1.0.0', '1.0.1'])
 
     const overview = (await (
       await request(`/api/v1/analytics/overview?extension=${extension.id}`, { headers: { cookie: sessionCookie } })
     ).json()) as { versions: { version: string }[] }
     const overviewVersions = overview.versions.map((v) => v.version)
-    expect(overviewVersions).toContain('1.0.0')
-    expect(overviewVersions).toContain('1.0.1')
-    expect(overviewVersions).not.toContain('2.0.0')
+    expect(overviewVersions.sort()).toEqual(['1.0.0', '1.0.1'])
+  })
+
+  it('shows every pinged version when nothing has published through extport yet — no ground truth to filter against', async () => {
+    const { db, tenantId, sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const date = isoDay(addDays(new Date(), -1))
+
+    // No deployment_versions rows at all for this extension — never
+    // published through extport, so there's nothing to whitelist against.
+    await db.insert(analyticsDaily).values([
+      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'total', dimValue: '', dau: 10, wau: 10, installs: 1 },
+      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.0', dau: 6, wau: 6, installs: 0 },
+      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.1', dau: 4, wau: 4, installs: 0 },
+    ])
+
+    const series = (await (
+      await request(`/api/v1/analytics/series?extension=${extension.id}&dim=version`, { headers: { cookie: sessionCookie } })
+    ).json()) as { rows: { dimValue: string }[] }
+    expect(series.rows.map((r) => r.dimValue).sort()).toEqual(['1.0.0', '1.0.1'])
+
+    const overview = (await (
+      await request(`/api/v1/analytics/overview?extension=${extension.id}`, { headers: { cookie: sessionCookie } })
+    ).json()) as { versions: { version: string }[] }
+    expect(overview.versions.map((v) => v.version).sort()).toEqual(['1.0.0', '1.0.1'])
   })
 })
 
