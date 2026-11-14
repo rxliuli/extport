@@ -8,7 +8,7 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "build": "pnpm -r --if-present build"
   },
-  "packageManager": "pnpm@11.15.1",
+  "packageManager": "pnpm@12.18.0",
   "devDependencies": {
     "typescript": "^7.0.2"
   }
