@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { capture, run } from './exec'
 import { writeSetupPage } from './safari-setup-page'
+import { parseXcproj, patchXcproj, serializeXcproj } from './safari-xcproj'
 
 export type SafariProjectType = 'macos' | 'ios' | 'both'
 
@@ -62,10 +63,31 @@ function projectDir(options: PostBuildOptions): string {
   return `.output/${options.projectName}`
 }
 
+/**
+ * Xcode 27.2 and later generate new projects in the JSON `project.xcproj`
+ * format; earlier versions write the OpenStep `project.pbxproj`. Which one the
+ * converter produced depends only on the Xcode that ran it, so look rather
+ * than guess from a version number.
+ */
 async function updateProjectConfig(options: PostBuildOptions): Promise<void> {
-  const projectConfigPath = path.resolve(options.rootPath, `${projectDir(options)}/${options.projectName}.xcodeproj/project.pbxproj`)
+  const xcodeprojPath = path.resolve(options.rootPath, `${projectDir(options)}/${options.projectName}.xcodeproj`)
   const packageJsonModule = await import(path.resolve(options.rootPath, 'package.json'), { with: { type: 'json' } })
   const packageJson = packageJsonModule.default as { version: string }
+
+  const xcprojPath = path.join(xcodeprojPath, 'project.xcproj')
+  if (await exists(xcprojPath)) {
+    const project = patchXcproj(parseXcproj(await fs.readFile(xcprojPath, 'utf-8')), {
+      appCategory: options.appCategory,
+      bundleIdentifier: options.bundleIdentifier,
+      developmentTeam: options.developmentTeam,
+      version: packageJson.version,
+      projectVersion: parseProjectVersion(packageJson.version),
+    })
+    await fs.writeFile(xcprojPath, serializeXcproj(project))
+    return
+  }
+
+  const projectConfigPath = path.join(xcodeprojPath, 'project.pbxproj')
   const content = await fs.readFile(projectConfigPath, 'utf-8')
   const desired = resolveBundleIds(await readPbxObjects(projectConfigPath), options.bundleIdentifier)
   const newContent = applyBundleIds(content, desired)
@@ -85,6 +107,13 @@ async function updateProjectConfig(options: PostBuildOptions): Promise<void> {
     .replaceAll(`COPY_PHASE_STRIP = NO;`, options.developmentTeam ? `COPY_PHASE_STRIP = NO;\n\t\t\t\tDEVELOPMENT_TEAM = ${options.developmentTeam};` : 'COPY_PHASE_STRIP = NO;')
     .replace(/CURRENT_PROJECT_VERSION = \d+;/g, `CURRENT_PROJECT_VERSION = ${parseProjectVersion(packageJson.version)};`)
   await fs.writeFile(projectConfigPath, newContent)
+}
+
+async function exists(file: string): Promise<boolean> {
+  return fs.access(file).then(
+    () => true,
+    () => false,
+  )
 }
 
 async function updateInfoPlist(options: PostBuildOptions): Promise<void> {

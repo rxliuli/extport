@@ -127,6 +127,17 @@ badge, four steps and the button, with no hand-patching anywhere.
 
 ## Notes if you work on this again
 
+- **There are two project formats, and the Xcode that ran the converter
+  picks.** Xcode 27.2 and later generate new projects as JSON
+  (`project.xcproj`); earlier versions write the OpenStep `project.pbxproj`.
+  `safari-xcode.ts` checks which file is there. The JSON one is plain data
+  — targets carry their own `build-settings` and a readable `product-type` —
+  so `safari-xcproj.ts` parses it, edits the object and writes it back.
+  Xcode writes it with trailing commas, which `JSON.parse` rejects, hence
+  `parseXcproj`; it reads the strict JSON we write back without complaint
+  (verified with Xcode 27.2 on art-to-gif, 2026-11-15: `xcodebuild -list`,
+  `-showBuildSettings` and a full build of the macOS app). Everything below
+  about plutil and text substitution applies to the pbxproj path only.
 - **Read a pbxproj with `plutil`, never with regexes.** It's an OpenStep
   property list, so `plutil -convert json -o - <path>` parses it natively —
   Apple's own parser, no dependency, and it moves with the format. Writing
