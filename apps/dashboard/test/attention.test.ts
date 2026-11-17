@@ -126,4 +126,39 @@ describe('classifyFleet', () => {
     )
     expect(actions.map((a) => a.kind)).toEqual(['error', 'rejected', 'credential'])
   })
+  it('shows hours for a review under a day old instead of "since today"', () => {
+    const { inFlight } = classifyFleet(
+      [
+        ext('claude', [
+          target('edge', [
+            lifecycle({ status: 'in_review', inReviewVersion: '0.0.20', submittedAt: '2026-11-16T14:00:00Z' }),
+          ]),
+        ]),
+      ],
+      STALE,
+      NOW,
+    )
+    expect(inFlight[0].message).toBe('0.0.20 in review for 22 hours')
+  })
+
+  it('lists the longest-waiting review first, queued-only items last', () => {
+    const { inFlight } = classifyFleet(
+      [
+        ext('recent', [
+          target('edge', [
+            lifecycle({ status: 'in_review', inReviewVersion: '1', submittedAt: '2026-11-16T14:00:00Z' }),
+          ]),
+        ]),
+        ext('queued', [target('firefox', [lifecycle({ status: 'queued', queuedVersion: '2' })])]),
+        ext('oldest', [
+          target('edge', [
+            lifecycle({ status: 'in_review', inReviewVersion: '3', submittedAt: '2026-11-10T17:42:08Z' }),
+          ]),
+        ]),
+      ],
+      STALE,
+      NOW,
+    )
+    expect(inFlight.map((i) => i.extensionName)).toEqual(['oldest', 'recent', 'queued'])
+  })
 })

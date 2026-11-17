@@ -58,7 +58,7 @@ function errorMessage(err: unknown): string {
 
 export function TargetsSection({ extensionId }: { extensionId: string }) {
   const queryClient = useQueryClient()
-  const { data: targets = [] } = useQuery(targetsQuery(extensionId))
+  const { data: targets = [], isPending: targetsPending } = useQuery(targetsQuery(extensionId))
   const { data: credentials = [] } = useQuery(credentialsQuery)
   const [store, setStore] = useState<Store>('chrome')
   const [credentialId, setCredentialId] = useState('')
@@ -330,7 +330,12 @@ export function TargetsSection({ extensionId }: { extensionId: string }) {
           </TableBody>
         </Table>
       )}
-      {targets.length === 0 && <p className={sectionEmptyClass}>No stores configured yet.</p>}
+      {targetsPending && (
+        <div className="p-5">
+          <Skeleton className="h-16 w-full" />
+        </div>
+      )}
+      {!targetsPending && targets.length === 0 && <p className={sectionEmptyClass}>No stores configured yet.</p>}
     </Section>
   )
 }
@@ -423,7 +428,7 @@ const RECENT_VERSION_COUNT = 5
 // release-progress view. Target-level health (error/recovered/stale_review)
 // has no version to belong to, so it lives in the ops list below instead.
 export function VersionMatrixSection({ extensionId }: { extensionId: string }) {
-  const { data } = useQuery(timelineQuery(extensionId))
+  const { data, isPending: timelinePending } = useQuery(timelineQuery(extensionId))
   const { data: targets = [] } = useQuery(targetsQuery(extensionId))
   const versions = data?.versions ?? []
   const events = data?.events ?? []
@@ -487,7 +492,14 @@ export function VersionMatrixSection({ extensionId }: { extensionId: string }) {
           )
         }
       >
-        {versionNumbers.length === 0 && <p className={sectionEmptyClass}>No versions tracked yet.</p>}
+        {timelinePending && (
+          <div className="p-5">
+            <Skeleton className="h-32 w-full" />
+          </div>
+        )}
+        {!timelinePending && versionNumbers.length === 0 && (
+          <p className={sectionEmptyClass}>No versions tracked yet.</p>
+        )}
         {versionNumbers.length > 0 && (
           <>
             <Table>

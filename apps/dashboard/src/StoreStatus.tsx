@@ -3,7 +3,7 @@ import { storeName } from './attention'
 import { Section, sectionRowClass } from './components/Section'
 import { Skeleton } from './components/ui/skeleton'
 import { targetsQuery, tenantSettingsQuery } from './queries'
-import { ageDays, formatDate } from './status'
+import { ageDays, formatDate, formatElapsed } from './status'
 import { useQuery } from '@tanstack/react-query'
 import { ExternalLink } from 'lucide-react'
 
@@ -92,7 +92,7 @@ function describe(
     lines.push({
       label: 'In review',
       version: l.inReviewVersion,
-      note: age !== null ? (age <= 0 ? 'since today' : `${age} day${age === 1 ? '' : 's'}`) : undefined,
+      note: l.submittedAt ? formatElapsed(l.submittedAt) : undefined,
       title: since ? `Submitted ${since}` : undefined,
       tone: 'pending',
     })

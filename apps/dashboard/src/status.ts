@@ -47,3 +47,16 @@ export function summarizeStoreError(message: string): string {
           : `The store rejected the request (${status})`
   return inner ? `${what}: ${inner}` : `${what}.`
 }
+
+/**
+ * Time since an ISO date in the largest whole unit: "less than an hour",
+ * "5 hours", "1 day", "6 days". Hours below a day so a review submitted
+ * yesterday evening doesn't read as "since today".
+ */
+export function formatElapsed(since: string, now: number = Date.now()): string {
+  const hours = Math.floor((now - new Date(since).getTime()) / 3_600_000)
+  if (hours < 1) return 'less than an hour'
+  if (hours < 24) return hours === 1 ? '1 hour' : `${hours} hours`
+  const days = Math.floor(hours / 24)
+  return days === 1 ? '1 day' : `${days} days`
+}

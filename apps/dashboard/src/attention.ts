@@ -1,5 +1,5 @@
 import type { MatrixExtension, MatrixTarget, SafariPlatform, Store, TargetLifecycle } from './api'
-import { ageDays } from './status'
+import { ageDays, formatElapsed } from './status'
 
 /**
  * Splits the fleet into "needs a human" vs "in flight" vs "fine", so the
@@ -31,6 +31,8 @@ export interface InFlightItem {
   store: Store
   platform: SafariPlatform | null
   message: string
+  /** When the pending version was submitted — oldest first in the list. Null for queued-only. */
+  submittedAt: string | null
 }
 
 export type ExtensionHealth = 'action' | 'in_flight' | 'ok'
@@ -51,17 +53,6 @@ const PLATFORM_LABEL: Record<SafariPlatform, string> = { ios: 'iOS', macos: 'mac
 
 export function storeName(store: Store, platform: SafariPlatform | null): string {
   return platform ? `${STORE_LABEL[store]} (${PLATFORM_LABEL[platform]})` : STORE_LABEL[store]
-}
-
-function days(n: number): string {
-  if (n <= 0) return 'today'
-  return n === 1 ? '1 day' : `${n} days`
-}
-
-/** "since today" / "for 1 day" — how long a review has been sitting. */
-function reviewAge(n: number | null): string {
-  if (n === null) return ''
-  return n <= 0 ? ' since today' : ` for ${days(n)}`
 }
 
 function liveClause(l: TargetLifecycle): string {
@@ -107,7 +98,7 @@ function classifyLifecycle(
         action: {
           ...base,
           kind: 'stale_review',
-          label: `In review for ${days(age)}`,
+          label: `In review for ${formatElapsed(l.submittedAt!, now)}`,
           message: `${reviewing} has been in review longer than your ${staleReviewDays[target.store]}-day threshold. ${liveClause(l)}${queuedClause}`,
         },
       }
@@ -116,7 +107,8 @@ function classifyLifecycle(
       inFlight: {
         ...base,
         store: target.store,
-        message: `${reviewing} in review${reviewAge(age)}${l.queuedVersion ? ` · ${l.queuedVersion} queued` : ''}`,
+        message: `${reviewing} in review${l.submittedAt ? ` for ${formatElapsed(l.submittedAt, now)}` : ''}${l.queuedVersion ? ` · ${l.queuedVersion} queued` : ''}`,
+        submittedAt: l.submittedAt,
       },
     }
   }
@@ -126,6 +118,7 @@ function classifyLifecycle(
         ...base,
         store: target.store,
         message: `${l.queuedVersion} queued${l.statusDetail ? ` — ${l.statusDetail}` : ''}`,
+        submittedAt: null,
       },
     }
   }
@@ -194,5 +187,12 @@ export function classifyFleet(
 
   const order: ActionKind[] = ['error', 'rejected', 'credential', 'stale_review', 'not_set_up']
   actions.sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))
+  // Longest-waiting review first; queued-only items (no submit time yet) last.
+  inFlight.sort((a, b) => {
+    if (a.submittedAt === b.submittedAt) return 0
+    if (a.submittedAt === null) return 1
+    if (b.submittedAt === null) return -1
+    return a.submittedAt < b.submittedAt ? -1 : 1
+  })
   return { actions, inFlight, health }
 }

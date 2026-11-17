@@ -15,12 +15,14 @@ function PublishingPage() {
   // key, so this doesn't add a request. Used only to hide the CI onboarding
   // hint once there's proof the tenant already knows how to push.
   const { data: timeline } = useQuery(timelineQuery(extensionId))
-  const hasPushedBefore = (timeline?.versions.length ?? 0) > 0
+  // Only once the timeline has loaded — while it's in flight, "no versions"
+  // just means "not fetched yet", and the hint would flash for every tenant.
+  const neverPushed = timeline !== undefined && timeline.versions.length === 0
 
   return (
     <div className="space-y-8">
       <StoreStatusSection extensionId={extensionId} />
-      {!hasPushedBefore && (
+      {neverPushed && (
         <p className="text-sm text-muted-foreground">
           Haven't pushed a build yet?{' '}
           <a

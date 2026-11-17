@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { summarizeStoreError } from '../src/status'
+import { formatElapsed, summarizeStoreError } from '../src/status'
 
 describe('summarizeStoreError', () => {
   it('pulls the message out of a Chrome Web Store error body', () => {
@@ -31,5 +31,18 @@ describe('summarizeStoreError', () => {
 
   it('leaves messages without a status code alone', () => {
     expect(summarizeStoreError('network unreachable')).toBe('network unreachable')
+  })
+})
+
+describe('formatElapsed', () => {
+  const now = new Date('2026-11-17T12:00:00Z').getTime()
+  it.each([
+    ['2026-11-17T11:30:00Z', 'less than an hour'],
+    ['2026-11-17T11:00:00Z', '1 hour'],
+    ['2026-11-16T14:00:00Z', '22 hours'],
+    ['2026-11-16T11:00:00Z', '1 day'],
+    ['2026-11-10T17:42:08Z', '6 days'],
+  ])('%s → %s', (since, expected) => {
+    expect(formatElapsed(since, now)).toBe(expected)
   })
 })
