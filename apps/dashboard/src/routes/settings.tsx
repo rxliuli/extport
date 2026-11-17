@@ -145,8 +145,10 @@ const CREDENTIAL_FIELDS: Record<
     { key: 'apiKey', label: 'API Key', rotates: true },
   ],
   safari: [
-    { key: 'keyId', label: 'Key ID', rotates: true },
+    // Issuer ID first: it's account-wide and sits above the key list in App
+    // Store Connect; Key ID and .p8 are a pair that always rotate together.
     { key: 'issuerId', label: 'Issuer ID' },
+    { key: 'keyId', label: 'Key ID', rotates: true },
     { key: 'privateKeyP8', label: '.p8 Private Key', textarea: true, rotates: true },
   ],
 }

@@ -13,8 +13,8 @@ Under **Settings → Store credentials → Safari**, extport asks for:
 
 | Field | Where it comes from |
 | --- | --- |
-| Key ID | [App Store Connect → Users and Access → Integrations → App Store Connect API](https://appstoreconnect.apple.com/access/integrations/api) → your key's "KEY ID" column |
-| Issuer ID | Same page, shown above the key list as "Issuer ID" |
+| Issuer ID | [App Store Connect → Users and Access → Integrations → App Store Connect API](https://appstoreconnect.apple.com/access/integrations/api) → shown above the key list as "Issuer ID" |
+| Key ID | Same page → your key's "KEY ID" column |
 | .p8 Private Key | Downloaded once when the key is created — App Store Connect never lets you re-download it |
 
 ![The App Store Connect API page under Users and Access → Integrations, showing Issuer ID and the Active keys table with its Access column](../../../assets/screenshots/safari-asc-api-keys.png)
@@ -26,7 +26,7 @@ which is what `extport safari-build` uses) needs an API key with the **Admin** r
 column in the screenshot above. Developer or App Manager roles can authenticate fine but fail partway through
 signing with a "Cloud signing permission error" — confirmed against Apple's real API, not just the docs. If you hit
 that error, generate a new key with the Admin role and rotate the credential in both extport's Settings and your CI
-secrets.
+secrets. Rotating only asks for the new Key ID and .p8 — the Issuer ID is account-wide and stays the same.
 
 ## Store item id
 

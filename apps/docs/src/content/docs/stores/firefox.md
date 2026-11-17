@@ -16,7 +16,8 @@ Under **Settings → Store credentials → Firefox**, extport asks for:
 | JWT Secret | The same page, shown once when the key is generated |
 
 If you don't already have API keys, generate a new key pair from the [Developer Hub](https://addons.mozilla.org/en-US/developers/addon/api/key/) —
-regenerating invalidates the previous secret, so rotate the credential in extport's Settings right after.
+regenerating invalidates the previous secret, so rotate the credential in extport's Settings right after. A new
+key pair changes both the issuer and the secret, so rotation asks for both.
 
 ![The Manage API Keys page in the AMO Developer Hub, showing the JWT issuer and JWT secret fields](../../../assets/screenshots/firefox-api-keys.png)
 

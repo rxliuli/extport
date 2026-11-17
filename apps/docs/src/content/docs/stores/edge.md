@@ -19,6 +19,15 @@ extension.
 
 ![The Publish API page in Microsoft Partner Center, showing the Client ID and API Keys list](../../../assets/screenshots/edge-publish-api.png)
 
+### API keys expire every ~72 days
+
+Edge is the only store whose credential expires. When adding or rotating one, extport pre-fills the expiry as
+today + 72 days — correct it if Partner Center shows a different date for your key. A week before that date the
+credential turns `expiring` and you get one reminder email.
+
+To renew: generate a new API key on the same Publish API page, then **Rotate…** the credential in extport's
+Settings. Only the API key is asked for — the Client ID never changes, so it's kept as is.
+
 ## Product id and crx id
 
 Edge is the one store with two different ids for the same listing:
