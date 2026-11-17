@@ -18,7 +18,8 @@ function Dot({ tone }: { tone: keyof typeof DOT }) {
   return <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${DOT[tone]}`} />
 }
 
-function LifecycleLine({ lifecycle }: { lifecycle: TargetLifecycle }) {
+/** A single lifecycle — one store, or one Safari platform — as one line. */
+export function VersionSummary({ lifecycle }: { lifecycle: TargetLifecycle }) {
   const live = lifecycle.liveVersion
   if (lifecycle.status === 'error') {
     return (
@@ -68,34 +69,4 @@ function LifecycleLine({ lifecycle }: { lifecycle: TargetLifecycle }) {
     )
   }
   return <span className="text-muted-foreground/50">—</span>
-}
-
-// iOS before macOS: on iOS every browser is WebKit and extensions exist
-// only through Safari, so that's where Safari-extension users actually
-// live — macOS Safari competes with Chrome/Firefox for a far smaller
-// share. Display-level order only; adapters and reconcile are untouched.
-const PLATFORM_ORDER: Record<string, number> = { ios: 0, macos: 1 }
-
-/**
- * A target's lifecycles on a single row (uniform table row heights even
- * when Safari carries two platforms). Single-lifecycle stores render
- * exactly as before; Safari platforms each get a small label.
- */
-export function VersionSummary({ lifecycles }: { lifecycles: TargetLifecycle[] }) {
-  if (lifecycles.length === 0) return <span className="text-muted-foreground/50">—</span>
-  const ordered = [...lifecycles].sort(
-    (a, b) => (PLATFORM_ORDER[a.platform ?? ''] ?? 9) - (PLATFORM_ORDER[b.platform ?? ''] ?? 9),
-  )
-  return (
-    <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-0.5">
-      {ordered.map((lifecycle) => (
-        <span key={lifecycle.platform ?? 'default'} className="inline-flex items-center gap-1.5">
-          {lifecycle.platform && (
-            <span className="text-[11px] text-muted-foreground">{lifecycle.platform === 'ios' ? 'iOS' : 'macOS'}</span>
-          )}
-          <LifecycleLine lifecycle={lifecycle} />
-        </span>
-      ))}
-    </span>
-  )
 }

@@ -1,5 +1,5 @@
-import { api, ApiError, type MatrixExtension, type Store } from '@/api'
-import { classifyFleet, storeName, STORE_LABEL, type ActionItem, type ExtensionHealth } from '@/attention'
+import { api, ApiError, type MatrixExtension, type MatrixTarget, type SafariPlatform, type Store } from '@/api'
+import { classifyFleet, storeName, type ActionItem, type ExtensionHealth } from '@/attention'
 import { PageHeader } from '@/components/Section'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,7 +15,43 @@ import { toast } from 'sonner'
 
 export const Route = createFileRoute('/')({ component: ExtensionsPage })
 
-const STORES: Store[] = ['chrome', 'firefox', 'edge', 'safari']
+// One column per lifecycle, so every cell holds exactly one status and each
+// column scans vertically. Safari splits by platform, macOS first so the
+// desktop browsers stay contiguous and iOS closes the row — the same order as
+// the server's deriveTargetLifecycles and the extension page.
+const COLUMNS: { store: Store; platform: SafariPlatform | null }[] = [
+  { store: 'chrome', platform: null },
+  { store: 'firefox', platform: null },
+  { store: 'edge', platform: null },
+  { store: 'safari', platform: 'macos' },
+  { store: 'safari', platform: 'ios' },
+]
+const STORES = [...new Set(COLUMNS.map((c) => c.store))]
+
+const DASH = <span className="text-muted-foreground/50">—</span>
+
+function targetCells(target: MatrixTarget | undefined, columns: typeof COLUMNS) {
+  const dim = target && !target.enabled ? 'opacity-50' : undefined
+  // A Safari target with no platform-tagged rows yet (nothing published, or
+  // the first publish failed) has one platform-less lifecycle: span it across
+  // both Safari columns instead of guessing a platform.
+  if (target && columns.length > 1 && target.lifecycles.every((l) => l.platform === null)) {
+    const lifecycle = target.lifecycles[0]
+    return [
+      <TableCell key="all" colSpan={columns.length} className={dim}>
+        {lifecycle ? <VersionSummary lifecycle={lifecycle} /> : DASH}
+      </TableCell>,
+    ]
+  }
+  return columns.map((c) => {
+    const lifecycle = target?.lifecycles.find((l) => l.platform === c.platform)
+    return (
+      <TableCell key={c.platform ?? 'default'} className={dim}>
+        {lifecycle ? <VersionSummary lifecycle={lifecycle} /> : DASH}
+      </TableCell>
+    )
+  })
+}
 
 // Fallback until the settings request lands — mirrors @extport/shared's
 // DEFAULT_STALE_REVIEW_DAYS so the first paint already classifies sensibly.
@@ -246,8 +282,8 @@ function ExtensionsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="pl-5">Extension</TableHead>
-                    {STORES.map((s) => (
-                      <TableHead key={s}>{STORE_LABEL[s]}</TableHead>
+                    {COLUMNS.map((c) => (
+                      <TableHead key={`${c.store}:${c.platform ?? ''}`}>{storeName(c.store, c.platform)}</TableHead>
                     ))}
                   </TableRow>
                 </TableHeader>
@@ -268,18 +304,12 @@ function ExtensionsPage() {
                           {ext.name}
                         </Link>
                       </TableCell>
-                      {STORES.map((s) => {
-                        const target = ext.targets.find((t) => t.store === s)
-                        return (
-                          <TableCell key={s} className={target && !target.enabled ? 'opacity-50' : undefined}>
-                            {target ? (
-                              <VersionSummary lifecycles={target.lifecycles} />
-                            ) : (
-                              <span className="text-muted-foreground/50">—</span>
-                            )}
-                          </TableCell>
-                        )
-                      })}
+                      {STORES.flatMap((s) =>
+                        targetCells(
+                          ext.targets.find((t) => t.store === s),
+                          COLUMNS.filter((c) => c.store === s),
+                        ),
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
