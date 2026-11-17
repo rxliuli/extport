@@ -46,8 +46,9 @@ export type ActionEntry = { type: 'item'; item: ActionItem } | { type: 'group'; 
 
 /**
  * Collapses same-cause store errors into groups, in place of their first
- * member so the list order holds. Only store API responses group (they have
- * a status); extport-written errors stay one per lifecycle, as does a cause
+ * member so the list order holds. Only store-side failures group (an HTTP
+ * status, or a code such as TIMEOUT); extport-written errors stay one per
+ * lifecycle, as does a cause
  * that only one lifecycle has.
  */
 export function groupActions(actions: ActionItem[]): ActionEntry[] {
@@ -55,7 +56,7 @@ export function groupActions(actions: ActionItem[]): ActionEntry[] {
   const groups = new Map<string, ActionGroup>()
   for (const item of actions) {
     const error = item.kind === 'error' ? item.error : null
-    if (!error || error.status === null || !item.store) {
+    if (!error || (error.status === null && error.code === null) || !item.store) {
       entries.push({ type: 'item', item })
       continue
     }
@@ -139,6 +140,12 @@ const LONG_MESSAGE = 160
  */
 export function errorSummary(store: Store, error: TargetError | null): { summary: string; raw: string | null } {
   if (!error) return { summary: 'The last publish attempt failed.', raw: null }
+  if (error.code === 'TIMEOUT') {
+    return {
+      summary: `${STORE_API[store]} didn't respond within 60s. The problem is on the store's side; extport keeps retrying.`,
+      raw: error.message,
+    }
+  }
   if (error.status === null) {
     return { summary: error.message, raw: error.message.length > LONG_MESSAGE ? error.message : null }
   }

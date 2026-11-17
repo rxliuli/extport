@@ -6,7 +6,7 @@ import {
   type Store,
   type TargetError,
 } from '@extport/shared'
-import { getAdapter, StoreApiError, type StoreAdapter } from '@extport/store-adapters'
+import { getAdapter, StoreApiError, StoreTimeoutError, type StoreAdapter } from '@extport/store-adapters'
 import { and, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
 import {
   artifacts,
@@ -104,6 +104,7 @@ function truncate(text: string, max = 2500): string {
 function toTargetError(err: unknown, platform: string | null): TargetError {
   const message = truncate(err instanceof Error ? err.message : String(err))
   if (err instanceof StoreApiError) return { platform, status: err.status, code: err.code, message }
+  if (err instanceof StoreTimeoutError) return { platform, status: null, code: 'TIMEOUT', message }
   return { platform, status: null, code: null, message }
 }
 

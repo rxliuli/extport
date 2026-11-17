@@ -13,7 +13,7 @@ export { createChromeAdapter } from './chrome'
 export { createEdgeAdapter } from './edge'
 export { createFirefoxAdapter } from './firefox'
 export { createSafariAdapter } from './safari'
-export { fetchWithRetry, pollUntil, sleep, StoreApiError, storeApiError } from './util'
+export { fetchWithRetry, pollUntil, sleep, StoreApiError, storeApiError, StoreTimeoutError } from './util'
 export type { FetchLike } from './util'
 
 const adapters: { [S in Store]: StoreAdapter<CredentialsByStore[S]> } = {

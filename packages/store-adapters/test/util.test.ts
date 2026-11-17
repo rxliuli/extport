@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchWithRetry, fetchWithTimeout, storeApiError, submitFailure, type FetchLike } from '../src/util'
+import { fetchWithRetry, fetchWithTimeout, storeApiError, StoreTimeoutError, submitFailure, type FetchLike } from '../src/util'
 
 describe('storeApiError', () => {
   it('keeps the message shape adapters always used', () => {
@@ -45,9 +45,9 @@ describe('fetchWithTimeout', () => {
   it('turns a request that never answers into a named error', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const fetch = fetchWithTimeout(hangingFetch, 'safari', 20)
-    await expect(fetch('https://api.appstoreconnect.apple.com/v1/apps/1/appStoreVersions?limit=10')).rejects.toThrow(
-      'safari request timed out after 0s: GET /v1/apps/1/appStoreVersions',
-    )
+    const err = await fetch('https://api.appstoreconnect.apple.com/v1/apps/1/appStoreVersions?limit=10').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(StoreTimeoutError)
+    expect((err as Error).message).toBe('safari request timed out after 0s: GET /v1/apps/1/appStoreVersions')
     expect(JSON.parse(warn.mock.calls[0]![0] as string)).toMatchObject({ message: 'store request timed out', store: 'safari' })
   })
 

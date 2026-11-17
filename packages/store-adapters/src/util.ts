@@ -14,6 +14,9 @@ export function truncate(text: string, max = 1000): string {
  * store's own error code so reconcile can record them as data (see
  * TargetError) — the message is the same human/log line it always was.
  */
+/** A store API call that didn't answer within REQUEST_TIMEOUT_MS — the store's problem, like a 5xx. */
+export class StoreTimeoutError extends Error {}
+
 export class StoreApiError extends Error {
   readonly status: number
   readonly code: string | null
@@ -97,7 +100,7 @@ export function fetchWithTimeout(fetchImpl: FetchLike, store: string, timeoutMs 
     } catch (err) {
       if (!timeout.aborted) throw err
       console.warn(JSON.stringify({ level: 'warn', message: 'store request timed out', store, method, path, ms: Date.now() - started }))
-      throw new Error(`${store} request timed out after ${Math.round(timeoutMs / 1000)}s: ${method} ${path}`)
+      throw new StoreTimeoutError(`${store} request timed out after ${Math.round(timeoutMs / 1000)}s: ${method} ${path}`)
     }
   }
 }

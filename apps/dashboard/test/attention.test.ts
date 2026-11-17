@@ -291,3 +291,23 @@ describe('isReviewOverdue', () => {
     expect(isReviewOverdue('chrome', { inReviewVersion: null, submittedAt: '2026-01-01T00:00:00Z' }, STALE, NOW)).toBe(false)
   })
 })
+
+describe('store timeouts', () => {
+  it('read as a store-side problem and group like any other store failure', () => {
+    const timeout = (platform: 'macos' | 'ios') =>
+      lifecycle({
+        platform,
+        status: 'error',
+        error: { platform, status: null, code: 'TIMEOUT', message: 'safari request timed out after 60s: GET /v1/apps/1' },
+      })
+    expect(errorSummary('safari', timeout('macos').error).summary).toBe(
+      "App Store Connect didn't respond within 60s. The problem is on the store's side; extport keeps retrying.",
+    )
+    const { actions } = classifyFleet(
+      [ext('a', [target('safari', [timeout('macos')])]), ext('b', [target('safari', [timeout('macos')])])],
+      STALE,
+      NOW,
+    )
+    expect(groupActions(actions).map((e) => (e.type === 'group' ? e.group.items.length : 0))).toEqual([2])
+  })
+})
