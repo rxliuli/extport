@@ -142,10 +142,19 @@ function chromePublisherId(store: Store, credentials: unknown): string | undefin
  * bursting N copies of news the tenant had. Email is for what only
  * extport can see.
  */
-function buildMessage(row: JoinedRow, kind: NotifyKind, payload: Record<string, unknown>, credentials: unknown, platform?: string): { subject: string; text: string } | null {
+function buildMessage(
+  row: JoinedRow,
+  kind: NotifyKind,
+  payload: Record<string, unknown>,
+  credentials: unknown,
+  platform?: string,
+): { subject: string; text: string } | null {
   const ext = row.extension.name
   const store = STORE_LABELS[row.target.store]
-  const link = storeConsoleUrl(row.target.store, row.target.storeItemId, { platform, publisherId: chromePublisherId(row.target.store, credentials) })
+  const link = storeConsoleUrl(row.target.store, row.target.storeItemId, {
+    platform,
+    publisherId: chromePublisherId(row.target.store, credentials),
+  })
   switch (kind) {
     case 'rejected': {
       const reason =
@@ -155,7 +164,10 @@ function buildMessage(row: JoinedRow, kind: NotifyKind, payload: Record<string, 
       const pausedNote = payload.paused
         ? `\n\nThis is the second rejection in a row, so submissions to ${store} are paused. Fix the cause on the store's developer console first, then re-enable the target in the extport dashboard — the newest version submits automatically.`
         : ''
-      return { subject: `❌ ${ext} rejected on ${store}`, text: `${ext} v${payload.version} was rejected on ${store}.\n\n${reason}${pausedNote}\n\nStore page: ${link}` }
+      return {
+        subject: `❌ ${ext} rejected on ${store}`,
+        text: `${ext} v${payload.version} was rejected on ${store}.\n\n${reason}${pausedNote}\n\nStore page: ${link}`,
+      }
     }
     case 'error': {
       const ver = typeof payload.version === 'string' && payload.version ? payload.version : null
@@ -169,7 +181,14 @@ function buildMessage(row: JoinedRow, kind: NotifyKind, payload: Record<string, 
   }
 }
 
-async function notify(notifier: Notifier, row: JoinedRow, kind: NotifyKind, payload: Record<string, unknown>, credentials: unknown, platform?: string): Promise<void> {
+async function notify(
+  notifier: Notifier,
+  row: JoinedRow,
+  kind: NotifyKind,
+  payload: Record<string, unknown>,
+  credentials: unknown,
+  platform?: string,
+): Promise<void> {
   const message = buildMessage(row, kind, payload, credentials, platform)
   if (message) await notifier.send({ to: row.tenant.email, ...message })
 }
@@ -186,7 +205,12 @@ async function notify(notifier: Notifier, row: JoinedRow, kind: NotifyKind, payl
  * are undocumented and unstable. "The last verdict was also rejected" is
  * store-agnostic and is precisely the harm pattern being stopped.
  */
-async function maybeAutoPause(db: Db, row: JoinedRow, justRejected: DeploymentVersion, lifecycleRows: DeploymentVersion[]): Promise<boolean> {
+async function maybeAutoPause(
+  db: Db,
+  row: JoinedRow,
+  justRejected: DeploymentVersion,
+  lifecycleRows: DeploymentVersion[],
+): Promise<boolean> {
   const previousVerdict = lifecycleRows
     .filter((v) => v.id !== justRejected.id && (v.platform ?? null) === (justRejected.platform ?? null))
     .filter((v) => v.status === 'online' || v.status === 'rejected')
@@ -211,7 +235,14 @@ async function maybeAutoPause(db: Db, row: JoinedRow, justRejected: DeploymentVe
   return true
 }
 
-async function persistError(db: Db, notifier: Notifier, row: JoinedRow, message: string, credentials: unknown = undefined, version?: string): Promise<void> {
+async function persistError(
+  db: Db,
+  notifier: Notifier,
+  row: JoinedRow,
+  message: string,
+  credentials: unknown = undefined,
+  version?: string,
+): Promise<void> {
   const detail = truncate(message)
   // The event and the email mark the healthy → erroring TRANSITION, not every
   // failing tick — a credential left broken for a week must not produce 48
@@ -244,7 +275,13 @@ function staleReviewThresholdDays(tenant: Tenant, store: Store): number {
   return tenant.settings.staleReviewDays?.[store] ?? DEFAULT_STALE_REVIEW_DAYS[store]
 }
 
-async function maybeEmitStaleReview(db: Db, notifier: Notifier, row: JoinedRow, inReview: DeploymentVersion | null, credentials: unknown): Promise<void> {
+async function maybeEmitStaleReview(
+  db: Db,
+  notifier: Notifier,
+  row: JoinedRow,
+  inReview: DeploymentVersion | null,
+  credentials: unknown,
+): Promise<void> {
   if (!inReview || !inReview.submittedAt) return
   const thresholdMs = staleReviewThresholdDays(row.tenant, row.target.store) * 24 * 60 * 60 * 1000
   const ageMs = Date.now() - new Date(inReview.submittedAt).getTime()
@@ -317,7 +354,10 @@ async function reconcileLifecycle(
     const alreadyRecordedOnline = lifecycleRows.some((v) => v.status === 'online' && v.version === liveVersion)
     if (!alreadyRecordedOnline) {
       if (inReview && inReview.version === liveVersion) {
-        await db.update(deploymentVersions).set({ status: 'online', statusDetail: null }).where(eq(deploymentVersions.id, inReview.id))
+        await db
+          .update(deploymentVersions)
+          .set({ status: 'online', statusDetail: null })
+          .where(eq(deploymentVersions.id, inReview.id))
         inReview = null
       } else if (queued && queued.version === liveVersion) {
         // The queued version is already live: a submit succeeded store-side
@@ -330,7 +370,10 @@ async function reconcileLifecycle(
         // a duplicate store submission or a version-validation error, every
         // tick. Same shape as the in_review flip above, one lost write
         // earlier in the lifecycle.
-        await db.update(deploymentVersions).set({ status: 'online', statusDetail: null }).where(eq(deploymentVersions.id, queued.id))
+        await db
+          .update(deploymentVersions)
+          .set({ status: 'online', statusDetail: null })
+          .where(eq(deploymentVersions.id, queued.id))
         queued = null
       } else {
         // First-ever baseline (target just added, nothing pushed through extport
@@ -350,9 +393,19 @@ async function reconcileLifecycle(
     }
   }
   if (inReview && actual.reviewStatus === 'rejected') {
-    await db.update(deploymentVersions).set({ status: 'rejected', statusDetail: actual.rejectionReason ?? null }).where(eq(deploymentVersions.id, inReview.id))
+    await db
+      .update(deploymentVersions)
+      .set({ status: 'rejected', statusDetail: actual.rejectionReason ?? null })
+      .where(eq(deploymentVersions.id, inReview.id))
     const paused = await maybeAutoPause(db, row, inReview, lifecycleRows)
-    await notify(notifier, row, 'rejected', { version: inReview.version, reason: actual.rejectionReason, paused }, credentials, platform)
+    await notify(
+      notifier,
+      row,
+      'rejected',
+      { version: inReview.version, reason: actual.rejectionReason, paused },
+      credentials,
+      platform,
+    )
     inReview = null
     // A paused target must not push the queued next version into the same
     // grinder this tick — and the enabled filter keeps it out of later ones.
@@ -416,7 +469,8 @@ async function reconcileLifecycle(
       console.warn(
         JSON.stringify({
           level: 'warn',
-          message: 'reconcile: store reports in-review version that already has an online row — not creating a duplicate',
+          message:
+            'reconcile: store reports in-review version that already has an online row — not creating a duplicate',
           extensionId: target.extensionId,
           store: target.store,
           platform: platform ?? null,
@@ -424,7 +478,10 @@ async function reconcileLifecycle(
         }),
       )
     } else if (queued && queued.version === inReviewVersion) {
-      await db.update(deploymentVersions).set({ status: 'in_review', submittedAt: null }).where(eq(deploymentVersions.id, queued.id))
+      await db
+        .update(deploymentVersions)
+        .set({ status: 'in_review', submittedAt: null })
+        .where(eq(deploymentVersions.id, queued.id))
       queued = null
       inReview = { version: inReviewVersion, submittedAt: null } as DeploymentVersion
     } else {
@@ -466,7 +523,8 @@ async function reconcileLifecycle(
 
   if (!queued!.artifactId) throw new Error(`queued deployment_versions row ${queued!.id} has no pinned artifact`)
   const [artifactRow] = await db.select().from(artifacts).where(eq(artifacts.id, queued!.artifactId))
-  if (!artifactRow) throw new Error(`artifact ${queued!.artifactId} for ${target.store} v${queued!.version} no longer exists`)
+  if (!artifactRow)
+    throw new Error(`artifact ${queued!.artifactId} for ${target.store} v${queued!.version} no longer exists`)
 
   let bytes: ArrayBuffer = new ArrayBuffer(0)
   let sourceBytes: ArrayBuffer | undefined
@@ -491,7 +549,10 @@ async function reconcileLifecycle(
       // to upload a binary, or Edge's validation outlasting the poll window.
       // Keep the row queued and surface the reason where the dashboard shows
       // details, then retry next tick.
-      await db.update(deploymentVersions).set({ statusDetail: result.detail ?? null }).where(eq(deploymentVersions.id, queued!.id))
+      await db
+        .update(deploymentVersions)
+        .set({ statusDetail: result.detail ?? null })
+        .where(eq(deploymentVersions.id, queued!.id))
       return 'noop'
     }
     throw new Error(result.detail ?? `${target.store} submit failed without a detail message`)
@@ -514,7 +575,10 @@ async function reconcileLifecycle(
  * adapter supports. Single derivation point so reconcile and the targets
  * list endpoint can't disagree about what a target actually covers.
  */
-export function resolveTargetPlatforms(target: Pick<PublishTarget, 'platforms'>, adapter: Pick<StoreAdapter, 'platforms'>): (string | undefined)[] {
+export function resolveTargetPlatforms(
+  target: Pick<PublishTarget, 'platforms'>,
+  adapter: Pick<StoreAdapter, 'platforms'>,
+): (string | undefined)[] {
   if (target.platforms) return target.platforms
   return adapter.platforms ? [...adapter.platforms] : [undefined]
 }
@@ -526,30 +590,17 @@ export function resolveTargetPlatforms(target: Pick<PublishTarget, 'platforms'>,
  * collected failures at the end — the caller catches per-target and persists
  * the error uniformly, so a bad target never takes its siblings down with it.
  */
-async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow, credentials: unknown, versionRows: DeploymentVersion[], sweep: boolean): Promise<'noop' | 'submitted' | 'blocked'> {
+async function reconcileOne(
+  env: Env,
+  db: Db,
+  notifier: Notifier,
+  row: JoinedRow,
+  credentials: unknown,
+  versionRows: DeploymentVersion[],
+): Promise<'noop' | 'submitted' | 'blocked'> {
   const { target } = row
   const adapter = getAdapter(target.store)
   const platforms = resolveTargetPlatforms(target, adapter)
-
-  // The half-hourly sweep leaves settled targets alone entirely — no store
-  // round-trip, no lastReconciledAt update. A target is settled when every
-  // lifecycle has at least one row (a lifecycle with none still needs its
-  // first getState to baseline what's already live), nothing is queued or in
-  // review, and no error is pending re-check. Extport only drives state it
-  // initiated; drift created behind its back (a takedown, a hand-upload on
-  // the store console) is the tenant's own doing and stays their
-  // responsibility — the dashboard's manual reconcile fetches ground truth
-  // on demand when they want it. What this buys: idle polling was the noise
-  // source — every store-side outage (ASC 500s 2026-07/08, AMO 503s
-  // 2026-08-09) crossed N settled targets and fanned out N transition
-  // emails about work that didn't exist, and 48 idle calls/day/target burned
-  // the rate-limit budget real submissions need (AMO 429, 2026-07-30).
-  // Scoped runs (post-push, target-added, dashboard button) always poll.
-  if (sweep && target.lastErrorDetail === null) {
-    const active = versionRows.some((v) => v.status === 'queued' || v.status === 'in_review')
-    const baselined = platforms.every((p) => versionRows.some((v) => (v.platform ?? null) === (p ?? null)))
-    if (!active && baselined) return 'noop'
-  }
 
   let submitted = false
   let blocked = false
@@ -574,7 +625,10 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
   // healthy → erroring every tick while one platform stays broken, and each
   // flip would re-send the transition email.
   if (failures.length === 0 && target.lastErrorDetail) {
-    await db.update(publishTargets).set({ lastErrorDetail: null, lastErrorAt: null }).where(eq(publishTargets.id, target.id))
+    await db
+      .update(publishTargets)
+      .set({ lastErrorDetail: null, lastErrorAt: null })
+      .where(eq(publishTargets.id, target.id))
     await db.insert(publishEvents).values({
       id: newId('publishEvent'),
       tenantId: row.extension.tenantId,
@@ -585,10 +639,43 @@ async function reconcileOne(env: Env, db: Db, notifier: Notifier, row: JoinedRow
     })
     target.lastErrorDetail = null
   }
-  await db.update(publishTargets).set({ lastReconciledAt: new Date().toISOString() }).where(eq(publishTargets.id, target.id))
+  await db
+    .update(publishTargets)
+    .set({ lastReconciledAt: new Date().toISOString() })
+    .where(eq(publishTargets.id, target.id))
   if (failures.length > 0) throw new Error(failures.join('\n'))
 
   return submitted ? 'submitted' : blocked ? 'blocked' : 'noop'
+}
+
+/**
+ * The half-hourly sweep leaves settled targets alone entirely — no lock, no
+ * store round-trip, no lastReconciledAt update. A target is settled when
+ * every lifecycle has at least one row (a lifecycle with none still needs its
+ * first getState to baseline what's already live), nothing is queued or in
+ * review, and no error is pending re-check. Extport only drives state it
+ * initiated; drift created behind its back (a takedown, a hand-upload on the
+ * store console) is the tenant's own doing and stays their responsibility —
+ * the dashboard's manual reconcile fetches ground truth on demand when they
+ * want it. What this buys: idle polling was the noise source — every
+ * store-side outage (ASC 500s 2026-07/08, AMO 503s 2026-08-09) crossed N
+ * settled targets and fanned out N transition emails about work that didn't
+ * exist, and 48 idle calls/day/target burned the rate-limit budget real
+ * submissions need (AMO 429, 2026-07-30). Scoped runs (post-push,
+ * target-added, dashboard button) always poll.
+ *
+ * Checked before the target lock, not inside it: settled is most targets on
+ * most ticks, and the claim + release around a no-op was two D1 writes per
+ * target per tick — ~94% of all lock traffic (2026-11). Nothing is lost by
+ * deciding unlocked: the row and its versions are read once at the top of
+ * the run either way, so the lock never guarded this decision.
+ */
+function isSettled(row: JoinedRow, versionRows: DeploymentVersion[]): boolean {
+  if (row.target.lastErrorDetail !== null) return false
+  const platforms = resolveTargetPlatforms(row.target, getAdapter(row.target.store))
+  const active = versionRows.some((v) => v.status === 'queued' || v.status === 'in_review')
+  const baselined = platforms.every((p) => versionRows.some((v) => (v.platform ?? null) === (p ?? null)))
+  return !active && baselined
 }
 
 /**
@@ -622,7 +709,10 @@ async function claimTarget(db: Db, targetId: string): Promise<TargetClaim> {
   // nothing was wrong. The caller records it as an `interrupted` event so
   // deaths are at least visible after the fact.
   const staleBefore = new Date(now.getTime() - RECONCILE_LOCK_STALE_MS).toISOString()
-  const [held] = await db.select({ since: publishTargets.reconcilingSince }).from(publishTargets).where(eq(publishTargets.id, targetId))
+  const [held] = await db
+    .select({ since: publishTargets.reconcilingSince })
+    .from(publishTargets)
+    .where(eq(publishTargets.id, targetId))
   const since = held?.since
   if (!since || since >= staleBefore) return null
   const reclaimed = await db
@@ -669,7 +759,12 @@ async function withTargetLock<T>(db: Db, row: JoinedRow, fn: () => Promise<T>): 
  * targets (see reconcileOne); the scoped entry points are all explicit
  * requests about a specific extension and always hit the store.
  */
-export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilter = {}, notifier: Notifier = createEmailNotifier(env)): Promise<ReconcileSummary> {
+export async function runReconciliation(
+  env: Env,
+  db: Db,
+  filter: ReconcileFilter = {},
+  notifier: Notifier = createEmailNotifier(env),
+): Promise<ReconcileSummary> {
   const sweep = !filter.tenantId && !filter.extensionId
   const conditions = [eq(publishTargets.enabled, true)]
   if (filter.tenantId) conditions.push(eq(extensions.tenantId, filter.tenantId))
@@ -687,7 +782,10 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
   if (rows.length === 0) return summary
 
   const extensionIds = [...new Set(rows.map((r) => r.extension.id))]
-  const versionRows = await db.select().from(deploymentVersions).where(inArray(deploymentVersions.extensionId, extensionIds))
+  const versionRows = await db
+    .select()
+    .from(deploymentVersions)
+    .where(inArray(deploymentVersions.extensionId, extensionIds))
   const versionsByExtStore = new Map<string, DeploymentVersion[]>()
   for (const v of versionRows) {
     const key = `${v.extensionId}:${v.store}`
@@ -704,7 +802,12 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
     if (credential.status === 'invalid') {
       for (const row of group) {
         const outcome = await withTargetLock(db, row, () =>
-          persistError(db, notifier, row, `store credential "${credential.label}" failed verification — reverify it in Settings`),
+          persistError(
+            db,
+            notifier,
+            row,
+            `store credential "${credential.label}" failed verification — reverify it in Settings`,
+          ),
         )
         if (outcome === 'skipped') {
           summary.skipped++
@@ -722,7 +825,9 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
       credentials = await decryptJson(dek, credential.encryptedPayload)
     } catch (err) {
       for (const row of group) {
-        const outcome = await withTargetLock(db, row, () => persistError(db, notifier, row, `credential decryption failed: ${(err as Error).message}`))
+        const outcome = await withTargetLock(db, row, () =>
+          persistError(db, notifier, row, `credential decryption failed: ${(err as Error).message}`),
+        )
         if (outcome === 'skipped') {
           summary.skipped++
           continue
@@ -734,11 +839,14 @@ export async function runReconciliation(env: Env, db: Db, filter: ReconcileFilte
     }
 
     for (const row of group) {
+      const vRows = versionsByExtStore.get(`${row.target.extensionId}:${row.target.store}`) ?? []
+      if (sweep && isSettled(row, vRows)) {
+        summary.processed++
+        continue
+      }
       const outcome = await withTargetLock(db, row, async () => {
-        const key = `${row.target.extensionId}:${row.target.store}`
-        const vRows = versionsByExtStore.get(key) ?? []
         try {
-          return await reconcileOne(env, db, notifier, row, credentials, vRows, sweep)
+          return await reconcileOne(env, db, notifier, row, credentials, vRows)
         } catch (err) {
           const queuedVersion = vRows.find((v) => v.status === 'queued')?.version
           await persistError(db, notifier, row, (err as Error).message, credentials, queuedVersion)

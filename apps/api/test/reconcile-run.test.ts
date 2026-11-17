@@ -159,13 +159,21 @@ function routedFetch(routes: Route[]): { fetch: typeof fetch; calls: { url: stri
   return { fetch: fetchFn, calls }
 }
 
-function chromeRoutes(opts: { fetchStatus?: unknown; uploadOk?: boolean; publishOk?: boolean; cancelOk?: boolean } = {}): Route[] {
+function chromeRoutes(
+  opts: { fetchStatus?: unknown; uploadOk?: boolean; publishOk?: boolean; cancelOk?: boolean } = {},
+): Route[] {
   return [
-    { test: (u) => u === 'https://oauth2.googleapis.com/token', respond: () => ({ status: 200, body: { access_token: 'at' } }) },
+    {
+      test: (u) => u === 'https://oauth2.googleapis.com/token',
+      respond: () => ({ status: 200, body: { access_token: 'at' } }),
+    },
     { test: (u) => u.endsWith(':fetchStatus'), respond: () => ({ status: 200, body: opts.fetchStatus ?? {} }) },
     {
       test: (u, i) => u.endsWith(':upload') && i?.method === 'POST',
-      respond: () => (opts.uploadOk === false ? { status: 400, body: 'bad zip' } : { status: 200, body: { uploadState: 'SUCCEEDED' } }),
+      respond: () =>
+        opts.uploadOk === false
+          ? { status: 400, body: 'bad zip' }
+          : { status: 200, body: { uploadState: 'SUCCEEDED' } },
     },
     {
       test: (u, i) => u.endsWith(':publish') && i?.method === 'POST',
@@ -189,7 +197,11 @@ function recordingNotifier(): { notifier: Notifier; sent: Notification[] } {
 }
 
 async function versionsFor(db: ReturnType<typeof createDb>, extensionId: string) {
-  return db.select().from(deploymentVersions).where(eq(deploymentVersions.extensionId, extensionId)).orderBy(deploymentVersions.version)
+  return db
+    .select()
+    .from(deploymentVersions)
+    .where(eq(deploymentVersions.extensionId, extensionId))
+    .orderBy(deploymentVersions.version)
 }
 
 async function targetFor(db: ReturnType<typeof createDb>, extensionId: string) {
@@ -231,7 +243,11 @@ describe('runReconciliation — already synced', () => {
       versions: [{ version: '1.0.0', status: 'online' }],
     })
     const { fetch, calls } = routedFetch(
-      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] } } }),
+      chromeRoutes({
+        fetchStatus: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] },
+        },
+      }),
     )
     globalThis.fetch = fetch
     const { notifier, sent } = recordingNotifier()
@@ -259,7 +275,11 @@ describe('runReconciliation — a queued version the store already reports live'
       ],
     })
     const { fetch, calls } = routedFetch(
-      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.1.0' }] } } }),
+      chromeRoutes({
+        fetchStatus: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.1.0' }] },
+        },
+      }),
     )
     globalThis.fetch = fetch
     const { notifier, sent } = recordingNotifier()
@@ -292,6 +312,11 @@ describe('runReconciliation — routine sweep leaves settled targets alone', () 
       versions: [{ version: '1.0.0', status: 'online' }],
     })
     await soloTarget(db, targetId)
+    // Any write to the row — the lock's claim and release included — bumps
+    // updated_at, so pinning it to a known past value shows the sweep never
+    // took the lock: a settled target costs no D1 writes at all.
+    const pinned = '2026-01-01T00:00:00.000Z'
+    await db.update(publishTargets).set({ updatedAt: pinned }).where(eq(publishTargets.id, targetId))
     const { fetch, calls } = routedFetch(chromeRoutes())
     globalThis.fetch = fetch
     const { notifier, sent } = recordingNotifier()
@@ -301,6 +326,7 @@ describe('runReconciliation — routine sweep leaves settled targets alone', () 
     expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 0, skipped: 0 })
     expect(calls).toHaveLength(0)
     expect((await targetFor(db, extensionId)).lastReconciledAt).toBeNull()
+    expect((await targetFor(db, extensionId)).updatedAt).toBe(pinned)
     expect(await eventsFor(db, extensionId)).toHaveLength(0)
     expect(sent).toHaveLength(0)
   })
@@ -315,7 +341,11 @@ describe('runReconciliation — routine sweep leaves settled targets alone', () 
       .set({ lastErrorDetail: 'addon lookup failed (503): store outage', lastErrorAt: new Date().toISOString() })
       .where(eq(publishTargets.id, targetId))
     const { fetch, calls } = routedFetch(
-      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] } } }),
+      chromeRoutes({
+        fetchStatus: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] },
+        },
+      }),
     )
     globalThis.fetch = fetch
     const { notifier, sent } = recordingNotifier()
@@ -331,7 +361,11 @@ describe('runReconciliation — routine sweep leaves settled targets alone', () 
     const { db, extensionId, targetId } = await setupChromeScenario({})
     await soloTarget(db, targetId)
     const { fetch, calls } = routedFetch(
-      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] } } }),
+      chromeRoutes({
+        fetchStatus: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] },
+        },
+      }),
     )
     globalThis.fetch = fetch
     const { notifier } = recordingNotifier()
@@ -364,7 +398,11 @@ describe('runReconciliation — routine sweep leaves settled targets alone', () 
       versions: [{ version: '1.0.0', status: 'online' }],
     })
     const { fetch, calls } = routedFetch(
-      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] } } }),
+      chromeRoutes({
+        fetchStatus: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] },
+        },
+      }),
     )
     globalThis.fetch = fetch
     const { notifier } = recordingNotifier()
@@ -379,7 +417,11 @@ describe('runReconciliation — baseline discovery', () => {
   it('records an in-review version the store reports that we have no local row for at all', async () => {
     const { db, tenantId, extensionId } = await setupChromeScenario({})
     globalThis.fetch = routedFetch(
-      chromeRoutes({ fetchStatus: { submittedItemRevisionStatus: { state: 'PENDING_REVIEW', distributionChannels: [{ crxVersion: '1.0.0' }] } } }),
+      chromeRoutes({
+        fetchStatus: {
+          submittedItemRevisionStatus: { state: 'PENDING_REVIEW', distributionChannels: [{ crxVersion: '1.0.0' }] },
+        },
+      }),
     ).fetch
     const { notifier, sent } = recordingNotifier()
 
@@ -467,7 +509,11 @@ describe('runReconciliation — baseline discovery', () => {
       ],
     })
     globalThis.fetch = routedFetch(
-      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] } } }),
+      chromeRoutes({
+        fetchStatus: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] },
+        },
+      }),
     ).fetch
 
     const summary = await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
@@ -486,7 +532,11 @@ describe('runReconciliation — waiting on the exact version already in review',
       versions: [{ version: '1.1.0', status: 'in_review', submittedAt: new Date().toISOString() }],
     })
     globalThis.fetch = routedFetch(
-      chromeRoutes({ fetchStatus: { submittedItemRevisionStatus: { state: 'PENDING_REVIEW', distributionChannels: [{ crxVersion: '1.1.0' }] } } }),
+      chromeRoutes({
+        fetchStatus: {
+          submittedItemRevisionStatus: { state: 'PENDING_REVIEW', distributionChannels: [{ crxVersion: '1.1.0' }] },
+        },
+      }),
     ).fetch
     const { notifier, sent } = recordingNotifier()
 
@@ -503,7 +553,11 @@ describe('runReconciliation — approval', () => {
       versions: [{ version: '1.1.0', status: 'in_review', submittedAt: new Date().toISOString() }],
     })
     globalThis.fetch = routedFetch(
-      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.1.0' }] } } }),
+      chromeRoutes({
+        fetchStatus: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.1.0' }] },
+        },
+      }),
     ).fetch
     const { notifier, sent } = recordingNotifier()
 
@@ -524,7 +578,11 @@ describe('runReconciliation — rejection frees the slot for a newer version', (
       ],
     })
     globalThis.fetch = routedFetch(
-      chromeRoutes({ fetchStatus: { submittedItemRevisionStatus: { state: 'REJECTED', distributionChannels: [{ crxVersion: '1.1.0' }] } } }),
+      chromeRoutes({
+        fetchStatus: {
+          submittedItemRevisionStatus: { state: 'REJECTED', distributionChannels: [{ crxVersion: '1.1.0' }] },
+        },
+      }),
     ).fetch
     const { notifier, sent } = recordingNotifier()
 
@@ -554,7 +612,11 @@ describe('runReconciliation — rejection frees the slot for a newer version', (
       ],
     })
     const { fetch, calls } = routedFetch(
-      chromeRoutes({ fetchStatus: { submittedItemRevisionStatus: { state: 'REJECTED', distributionChannels: [{ crxVersion: '1.1.0' }] } } }),
+      chromeRoutes({
+        fetchStatus: {
+          submittedItemRevisionStatus: { state: 'REJECTED', distributionChannels: [{ crxVersion: '1.1.0' }] },
+        },
+      }),
     )
     globalThis.fetch = fetch
     const { notifier, sent } = recordingNotifier()
@@ -596,7 +658,11 @@ describe('runReconciliation — rejection frees the slot for a newer version', (
       ],
     })
     globalThis.fetch = routedFetch(
-      chromeRoutes({ fetchStatus: { submittedItemRevisionStatus: { state: 'REJECTED', distributionChannels: [{ crxVersion: '1.2.0' }] } } }),
+      chromeRoutes({
+        fetchStatus: {
+          submittedItemRevisionStatus: { state: 'REJECTED', distributionChannels: [{ crxVersion: '1.2.0' }] },
+        },
+      }),
     ).fetch
     const { notifier, sent } = recordingNotifier()
 
@@ -659,7 +725,7 @@ describe('runReconciliation — phantom in-review row self-heals', () => {
     expect(rows).toMatchObject([{ version: '1.1.0', status: 'in_review' }])
   })
 
-  it('leaves an in_review row with no submittedAt alone — age can\'t be judged, so it is not eligible', async () => {
+  it("leaves an in_review row with no submittedAt alone — age can't be judged, so it is not eligible", async () => {
     // Mirrors maybeEmitStaleReview's existing treatment of a null
     // submittedAt as "can't judge staleness" — same reasoning applies here:
     // without an age, err toward leaving a discovered baseline alone.
@@ -683,7 +749,9 @@ describe('runReconciliation — blocked (no auto-withdraw)', () => {
       { version: '1.1.0', status: 'queued' as const },
     ],
   }
-  const pendingFetchStatus = { submittedItemRevisionStatus: { state: 'PENDING_REVIEW', distributionChannels: [{ crxVersion: '1.0.0' }] } }
+  const pendingFetchStatus = {
+    submittedItemRevisionStatus: { state: 'PENDING_REVIEW', distributionChannels: [{ crxVersion: '1.0.0' }] },
+  }
 
   it('blocks without calling cancelSubmission — never cancels an in-review version', async () => {
     const { db, tenantId, extensionId } = await setupChromeScenario(scenario)
@@ -775,7 +843,11 @@ describe('runReconciliation — failure isolation', () => {
       .set({ lastErrorDetail: 'chrome fetchStatus failed (503)', lastErrorAt: new Date().toISOString() })
       .where(eq(publishTargets.extensionId, extensionId))
     globalThis.fetch = routedFetch(
-      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] } } }),
+      chromeRoutes({
+        fetchStatus: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] },
+        },
+      }),
     ).fetch
     const { notifier, sent } = recordingNotifier()
 
@@ -897,7 +969,9 @@ describe('runReconciliation — failure isolation', () => {
 
 // ES256 test key for the safari adapter's real JWT signing.
 async function makeP8(): Promise<string> {
-  const pair = (await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign'])) as CryptoKeyPair
+  const pair = (await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
+    'sign',
+  ])) as CryptoKeyPair
   const pkcs8 = new Uint8Array((await crypto.subtle.exportKey('pkcs8', pair.privateKey)) as ArrayBuffer)
   let binary = ''
   for (const b of pkcs8) binary += String.fromCharCode(b)
@@ -911,7 +985,9 @@ interface SafariVersionSeed {
   submittedAt?: string
 }
 
-async function setupSafariScenario(opts: { artifacts?: { version: string }[]; versions?: SafariVersionSeed[]; platforms?: string[] } = {}) {
+async function setupSafariScenario(
+  opts: { artifacts?: { version: string }[]; versions?: SafariVersionSeed[]; platforms?: string[] } = {},
+) {
   const db = createDb(env.DB)
   const tenantId = newId('tenant')
   const dekInfo = await provisionTenantDek(env)
@@ -1008,7 +1084,10 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
         test: (u) => u.includes('versionString,appVersionState') && u.includes('=MAC_OS'),
         respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
       },
-      { test: (u) => u.includes('versionString,appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
+      {
+        test: (u) => u.includes('versionString,appVersionState') && u.includes('=IOS'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
       { test: (u) => u.includes('/v1/builds'), respond: () => ({ status: 200, body: { data: [{ id: 'build-1' }] } }) },
       // The stuck draft is found here — submit()'s version lookup asks for
       // the platform's editable slot, which is exactly what the draft is.
@@ -1016,7 +1095,10 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
         test: (u) => u.includes('PREPARE_FOR_SUBMISSION'),
         respond: () => ({ status: 200, body: { data: [{ id: 'ver-1', attributes: { versionString: '0.0.2' } }] } }),
       },
-      { test: (u, i) => u.includes('/relationships/build') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+      {
+        test: (u, i) => u.includes('/relationships/build') && i?.method === 'PATCH',
+        respond: () => ({ status: 200, body: {} }),
+      },
       {
         test: (u) => u.includes('appStoreVersionLocalizations') && u.includes('/ver-1/'),
         respond: () => ({ status: 200, body: { data: [{ id: 'loc-1', attributes: { whatsNew: null } }] } }),
@@ -1025,11 +1107,26 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
         test: (u, i) => u.endsWith('/v1/appStoreVersionLocalizations/loc-1') && i?.method === 'PATCH',
         respond: () => ({ status: 200, body: {} }),
       },
-      { test: (u) => u.includes('reviewSubmissions') && u.includes('READY_FOR_REVIEW'), respond: () => ({ status: 200, body: { data: [] } }) },
-      { test: (u, i) => u.endsWith('/v1/reviewSubmissions') && i?.method === 'POST', respond: () => ({ status: 201, body: { data: { id: 'sub-1' } } }) },
-      { test: (u) => u.includes('/reviewSubmissions/sub-1/items'), respond: () => ({ status: 200, body: { data: [] } }) },
-      { test: (u, i) => u.endsWith('/v1/reviewSubmissionItems') && i?.method === 'POST', respond: () => ({ status: 201, body: {} }) },
-      { test: (u, i) => u.endsWith('/v1/reviewSubmissions/sub-1') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+      {
+        test: (u) => u.includes('reviewSubmissions') && u.includes('READY_FOR_REVIEW'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/reviewSubmissions') && i?.method === 'POST',
+        respond: () => ({ status: 201, body: { data: { id: 'sub-1' } } }),
+      },
+      {
+        test: (u) => u.includes('/reviewSubmissions/sub-1/items'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/reviewSubmissionItems') && i?.method === 'POST',
+        respond: () => ({ status: 201, body: {} }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/reviewSubmissions/sub-1') && i?.method === 'PATCH',
+        respond: () => ({ status: 200, body: {} }),
+      },
     ]).fetch
 
     const summary = await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
@@ -1053,7 +1150,10 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
         test: (u) => u.includes('versionString,appVersionState') && u.includes('=MAC_OS'),
         respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
       },
-      { test: (u) => u.includes('versionString,appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
+      {
+        test: (u) => u.includes('versionString,appVersionState') && u.includes('=IOS'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
       { test: (u) => u.includes('/v1/builds'), respond: () => ({ status: 200, body: { data: [] } }) },
     ]).fetch
     const { notifier, sent } = recordingNotifier()
@@ -1083,14 +1183,23 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
         test: (u) => u.includes('versionString,appVersionState') && u.includes('=MAC_OS'),
         respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
       },
-      { test: (u) => u.includes('versionString,appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
+      {
+        test: (u) => u.includes('versionString,appVersionState') && u.includes('=IOS'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
       { test: (u) => u.includes('/v1/builds'), respond: () => ({ status: 200, body: { data: [{ id: 'build-1' }] } }) },
       {
         test: (u) => u.includes('PREPARE_FOR_SUBMISSION'),
         respond: () => ({ status: 200, body: { data: [] } }),
       },
-      { test: (u, i) => u.endsWith('/v1/appStoreVersions') && i?.method === 'POST', respond: () => ({ status: 201, body: { data: { id: 'ver-1' } } }) },
-      { test: (u, i) => u.includes('/relationships/build') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+      {
+        test: (u, i) => u.endsWith('/v1/appStoreVersions') && i?.method === 'POST',
+        respond: () => ({ status: 201, body: { data: { id: 'ver-1' } } }),
+      },
+      {
+        test: (u, i) => u.includes('/relationships/build') && i?.method === 'PATCH',
+        respond: () => ({ status: 200, body: {} }),
+      },
       {
         test: (u) => u.includes('appStoreVersionLocalizations') && u.includes('/ver-1/'),
         respond: () => ({ status: 200, body: { data: [{ id: 'loc-1', attributes: { whatsNew: null } }] } }),
@@ -1103,10 +1212,22 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
         test: (u) => u.includes('reviewSubmissions') && u.includes('READY_FOR_REVIEW'),
         respond: () => ({ status: 200, body: { data: [] } }),
       },
-      { test: (u, i) => u.endsWith('/v1/reviewSubmissions') && i?.method === 'POST', respond: () => ({ status: 201, body: { data: { id: 'sub-1' } } }) },
-      { test: (u) => u.includes('/reviewSubmissions/sub-1/items'), respond: () => ({ status: 200, body: { data: [] } }) },
-      { test: (u, i) => u.endsWith('/v1/reviewSubmissionItems') && i?.method === 'POST', respond: () => ({ status: 201, body: {} }) },
-      { test: (u, i) => u.endsWith('/v1/reviewSubmissions/sub-1') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+      {
+        test: (u, i) => u.endsWith('/v1/reviewSubmissions') && i?.method === 'POST',
+        respond: () => ({ status: 201, body: { data: { id: 'sub-1' } } }),
+      },
+      {
+        test: (u) => u.includes('/reviewSubmissions/sub-1/items'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/reviewSubmissionItems') && i?.method === 'POST',
+        respond: () => ({ status: 201, body: {} }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/reviewSubmissions/sub-1') && i?.method === 'PATCH',
+        respond: () => ({ status: 200, body: {} }),
+      },
     ]).fetch
     const { notifier, sent } = recordingNotifier()
 
@@ -1176,14 +1297,23 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
         test: (u) => u.includes('versionString,appVersionState') && u.includes('=MAC_OS'),
         respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
       },
-      { test: (u) => u.includes('versionString,appVersionState') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [] } }) },
+      {
+        test: (u) => u.includes('versionString,appVersionState') && u.includes('=IOS'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
       { test: (u) => u.includes('/v1/builds'), respond: () => ({ status: 200, body: { data: [{ id: 'build-1' }] } }) },
       {
         test: (u) => u.includes('PREPARE_FOR_SUBMISSION'),
         respond: () => ({ status: 200, body: { data: [] } }),
       },
-      { test: (u, i) => u.endsWith('/v1/appStoreVersions') && i?.method === 'POST', respond: () => ({ status: 201, body: { data: { id: 'ver-1' } } }) },
-      { test: (u, i) => u.includes('/relationships/build') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+      {
+        test: (u, i) => u.endsWith('/v1/appStoreVersions') && i?.method === 'POST',
+        respond: () => ({ status: 201, body: { data: { id: 'ver-1' } } }),
+      },
+      {
+        test: (u, i) => u.includes('/relationships/build') && i?.method === 'PATCH',
+        respond: () => ({ status: 200, body: {} }),
+      },
       {
         test: (u) => u.includes('appStoreVersionLocalizations') && u.includes('/ver-1/'),
         respond: () => ({ status: 200, body: { data: [{ id: 'loc-1', attributes: { whatsNew: null } }] } }),
@@ -1196,10 +1326,22 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
         test: (u) => u.includes('reviewSubmissions') && u.includes('READY_FOR_REVIEW'),
         respond: () => ({ status: 200, body: { data: [] } }),
       },
-      { test: (u, i) => u.endsWith('/v1/reviewSubmissions') && i?.method === 'POST', respond: () => ({ status: 201, body: { data: { id: 'sub-1' } } }) },
-      { test: (u) => u.includes('/reviewSubmissions/sub-1/items'), respond: () => ({ status: 200, body: { data: [] } }) },
-      { test: (u, i) => u.endsWith('/v1/reviewSubmissionItems') && i?.method === 'POST', respond: () => ({ status: 201, body: {} }) },
-      { test: (u, i) => u.endsWith('/v1/reviewSubmissions/sub-1') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+      {
+        test: (u, i) => u.endsWith('/v1/reviewSubmissions') && i?.method === 'POST',
+        respond: () => ({ status: 201, body: { data: { id: 'sub-1' } } }),
+      },
+      {
+        test: (u) => u.includes('/reviewSubmissions/sub-1/items'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/reviewSubmissionItems') && i?.method === 'POST',
+        respond: () => ({ status: 201, body: {} }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/reviewSubmissions/sub-1') && i?.method === 'PATCH',
+        respond: () => ({ status: 200, body: {} }),
+      },
     ]).fetch
 
     const summary = await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
@@ -1228,8 +1370,14 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
         test: (u) => u.includes('versionString,appVersionState') && u.includes('=IOS'),
         respond: () => ({ status: 200, body: { data: [ascVersion('0.0.1', 'READY_FOR_DISTRIBUTION')] } }),
       },
-      { test: (u) => u.includes('/v1/builds') && u.includes('=MAC_OS'), respond: () => ({ status: 200, body: { data: [{ id: 'build-mac' }] } }) },
-      { test: (u) => u.includes('/v1/builds') && u.includes('=IOS'), respond: () => ({ status: 200, body: { data: [{ id: 'build-ios' }] } }) },
+      {
+        test: (u) => u.includes('/v1/builds') && u.includes('=MAC_OS'),
+        respond: () => ({ status: 200, body: { data: [{ id: 'build-mac' }] } }),
+      },
+      {
+        test: (u) => u.includes('/v1/builds') && u.includes('=IOS'),
+        respond: () => ({ status: 200, body: { data: [{ id: 'build-ios' }] } }),
+      },
       {
         test: (u) => u.includes('PREPARE_FOR_SUBMISSION') && u.includes('=MAC_OS'),
         respond: () => ({ status: 200, body: { data: [] } }),
@@ -1246,20 +1394,47 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
         test: (u, i) => u.endsWith('/v1/appStoreVersions') && i?.method === 'POST' && String(i.body).includes('IOS'),
         respond: () => ({ status: 201, body: { data: { id: 'ver-ios' } } }),
       },
-      { test: (u, i) => u.includes('/appStoreVersions/ver-mac/relationships/build') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
-      { test: (u, i) => u.includes('/appStoreVersions/ver-ios/relationships/build') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+      {
+        test: (u, i) => u.includes('/appStoreVersions/ver-mac/relationships/build') && i?.method === 'PATCH',
+        respond: () => ({ status: 200, body: {} }),
+      },
+      {
+        test: (u, i) => u.includes('/appStoreVersions/ver-ios/relationships/build') && i?.method === 'PATCH',
+        respond: () => ({ status: 200, body: {} }),
+      },
       // macOS's own localizations lookup fails — this platform's only failure.
-      { test: (u) => u.includes('/appStoreVersions/ver-mac/appStoreVersionLocalizations'), respond: () => ({ status: 500, body: 'boom' }) },
+      {
+        test: (u) => u.includes('/appStoreVersions/ver-mac/appStoreVersionLocalizations'),
+        respond: () => ({ status: 500, body: 'boom' }),
+      },
       {
         test: (u) => u.includes('/appStoreVersions/ver-ios/appStoreVersionLocalizations'),
         respond: () => ({ status: 200, body: { data: [{ id: 'loc-ios', attributes: { whatsNew: null } }] } }),
       },
-      { test: (u, i) => u.endsWith('/v1/appStoreVersionLocalizations/loc-ios') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
-      { test: (u) => u.includes('reviewSubmissions') && u.includes('READY_FOR_REVIEW'), respond: () => ({ status: 200, body: { data: [] } }) },
-      { test: (u, i) => u.endsWith('/v1/reviewSubmissions') && i?.method === 'POST', respond: () => ({ status: 201, body: { data: { id: 'sub-ios' } } }) },
-      { test: (u) => u.includes('/reviewSubmissions/sub-ios/items'), respond: () => ({ status: 200, body: { data: [] } }) },
-      { test: (u, i) => u.endsWith('/v1/reviewSubmissionItems') && i?.method === 'POST', respond: () => ({ status: 201, body: {} }) },
-      { test: (u, i) => u.endsWith('/v1/reviewSubmissions/sub-ios') && i?.method === 'PATCH', respond: () => ({ status: 200, body: {} }) },
+      {
+        test: (u, i) => u.endsWith('/v1/appStoreVersionLocalizations/loc-ios') && i?.method === 'PATCH',
+        respond: () => ({ status: 200, body: {} }),
+      },
+      {
+        test: (u) => u.includes('reviewSubmissions') && u.includes('READY_FOR_REVIEW'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/reviewSubmissions') && i?.method === 'POST',
+        respond: () => ({ status: 201, body: { data: { id: 'sub-ios' } } }),
+      },
+      {
+        test: (u) => u.includes('/reviewSubmissions/sub-ios/items'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/reviewSubmissionItems') && i?.method === 'POST',
+        respond: () => ({ status: 201, body: {} }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/reviewSubmissions/sub-ios') && i?.method === 'PATCH',
+        respond: () => ({ status: 200, body: {} }),
+      },
     ]).fetch
     const { notifier, sent } = recordingNotifier()
 
@@ -1321,7 +1496,10 @@ describe('runReconciliation — concurrent-invocation locking', () => {
       artifacts: [{ version: '1.0.0' }],
       versions: [{ version: '1.0.0', status: 'queued' }],
     })
-    await db.update(publishTargets).set({ reconcilingSince: new Date().toISOString() }).where(eq(publishTargets.id, targetId))
+    await db
+      .update(publishTargets)
+      .set({ reconcilingSince: new Date().toISOString() })
+      .where(eq(publishTargets.id, targetId))
     const { fetch, calls } = routedFetch(chromeRoutes())
     globalThis.fetch = fetch
     const { notifier, sent } = recordingNotifier()
@@ -1360,7 +1538,11 @@ describe('runReconciliation — concurrent-invocation locking', () => {
       versions: [{ version: '1.0.0', status: 'online' }],
     })
     globalThis.fetch = routedFetch(
-      chromeRoutes({ fetchStatus: { publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] } } }),
+      chromeRoutes({
+        fetchStatus: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] },
+        },
+      }),
     ).fetch
     const { notifier } = recordingNotifier()
 
@@ -1402,7 +1584,10 @@ describe('runReconciliation — concurrent-invocation locking', () => {
     globalThis.fetch = routedFetch(chromeRoutes()).fetch
     const { notifier } = recordingNotifier()
 
-    const [a, b] = await Promise.all([runReconciliation(env, db, { tenantId }, notifier), runReconciliation(env, db, { tenantId }, notifier)])
+    const [a, b] = await Promise.all([
+      runReconciliation(env, db, { tenantId }, notifier),
+      runReconciliation(env, db, { tenantId }, notifier),
+    ])
     expect(a.submitted + b.submitted).toBe(1)
     expect(a.skipped + b.skipped).toBe(1)
     expect(a.processed + b.processed).toBe(1)
@@ -1420,7 +1605,9 @@ describe('queue consumer — push-triggered reconcile jobs', () => {
     const outcomes: string[] = []
     const batch = {
       queue: 'extport-reconcile',
-      messages: [{ body: { tenantId, extensionId }, ack: () => outcomes.push('ack'), retry: () => outcomes.push('retry') }],
+      messages: [
+        { body: { tenantId, extensionId }, ack: () => outcomes.push('ack'), retry: () => outcomes.push('retry') },
+      ],
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- hand-built MessageBatch covers only what the handler reads
     await worker.queue!(batch as any, env)
