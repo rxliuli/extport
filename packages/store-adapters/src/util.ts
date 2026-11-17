@@ -62,6 +62,54 @@ function errorCode(body: string | undefined): string | null {
   return (code as string | undefined) ?? null
 }
 
+/**
+ * Per-attempt bound on one store API call (headers and body). Every
+ * reconcile-path call is a single REST request; none legitimately takes
+ * minutes. Without a bound, a store that accepts the connection and never
+ * answers (ASC during its 2026-11-17 incident) held a target's reconcile
+ * lock until the invocation itself died, and every sync in between was
+ * silently skipped. Generous on purpose: no per-call timing existed to tune
+ * against — the slow-call log below is what supplies it.
+ */
+export const REQUEST_TIMEOUT_MS = 60_000
+// Calls slower than this are logged with their duration.
+const SLOW_REQUEST_MS = 10_000
+
+/**
+ * Bounds every call through `fetchImpl` by `timeoutMs` and logs slow ones.
+ * Sits under fetchWithRetry, so the bound is per attempt; a timeout throws,
+ * which fetchWithRetry deliberately doesn't retry.
+ */
+export function fetchWithTimeout(fetchImpl: FetchLike, store: string, timeoutMs = REQUEST_TIMEOUT_MS): FetchLike {
+  return async (input, init) => {
+    const started = Date.now()
+    const timeout = AbortSignal.timeout(timeoutMs)
+    const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout
+    const method = init?.method ?? 'GET'
+    const path = requestPath(input)
+    try {
+      const res = await fetchImpl(input, { ...init, signal })
+      const ms = Date.now() - started
+      if (ms >= SLOW_REQUEST_MS) {
+        console.warn(JSON.stringify({ level: 'warn', message: 'slow store request', store, method, path, status: res.status, ms }))
+      }
+      return res
+    } catch (err) {
+      if (!timeout.aborted) throw err
+      console.warn(JSON.stringify({ level: 'warn', message: 'store request timed out', store, method, path, ms: Date.now() - started }))
+      throw new Error(`${store} request timed out after ${Math.round(timeoutMs / 1000)}s: ${method} ${path}`)
+    }
+  }
+}
+
+function requestPath(input: string): string {
+  try {
+    return new URL(input).pathname
+  } catch {
+    return input
+  }
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }

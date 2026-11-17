@@ -10,7 +10,7 @@ import { storeConsoleUrl } from '../lib/store-links'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
 import { enqueueReconcile, queueLatestArtifact } from '../reconcile/queue'
-import { resolveTargetPlatforms, runReconciliation } from '../reconcile/run'
+import { isReconciling, resolveTargetPlatforms } from '../reconcile/run'
 import { deriveTargetLifecycles } from '../reconcile/status'
 
 const route = new Hono<AppEnv>()
@@ -232,7 +232,13 @@ route.delete(
 
 route.post(
   '/:id/reconcile',
-  describeRoute({ summary: 'Reconcile an extension now', description: 'Same logic the scheduled cron runs, triggered on demand.', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } }, tags: ['Extensions'] }),
+  describeRoute({
+    summary: 'Reconcile an extension now',
+    description:
+      'Queues the same reconcile the scheduled cron runs, scoped to this extension, and returns right away. It runs in the background — a slow store can take minutes — so poll GET /v1/extensions/{id}/targets (`reconciling` per target) for the outcome.',
+    responses: { 202: { description: 'Queued' }, 404: { description: 'Not found' } },
+    tags: ['Extensions'],
+  }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
@@ -242,8 +248,15 @@ route.post(
       .where(and(eq(extensions.tenantId, tenant.id), eq(extensions.id, c.req.param('id'))))
     if (!extension) return c.json({ error: 'not found' }, 404)
 
-    const summary = await runReconciliation(c.env, db, { tenantId: tenant.id, extensionId: extension.id })
-    return c.json({ summary })
+    // Queued, never run inside this request: a request's work dies with its
+    // connection — closing the tab mid-sync killed the reconcile and left
+    // its target locks behind, so every retry for the next 10 minutes was
+    // silently skipped (Imp Translate / BilingualTube safari, 2026-11-17).
+    // A queue consumer gets 15 minutes regardless of who's still watching.
+    // Not enqueueReconcile: that swallows a send failure, and here nothing
+    // else would ever tell the tenant their sync didn't start.
+    await c.env.RECONCILE_QUEUE.send({ tenantId: tenant.id, extensionId: extension.id })
+    return c.json({ queued: true }, 202)
   },
 )
 
@@ -340,6 +353,9 @@ route.get(
         credentialId: r.credential.id,
         credentialLabel: r.credential.label,
         credentialStatus: r.credential.status,
+        // A reconcile holds this target right now — the dashboard shows it as
+        // syncing and keeps polling until it's released.
+        reconciling: isReconciling(r.target),
         // Target-level link for the "nothing published yet" row; each
         // lifecycle carries its own so Safari's iOS row opens the iOS side.
         consoleUrl: storeConsoleUrl(r.target.store, r.target.storeItemId, {

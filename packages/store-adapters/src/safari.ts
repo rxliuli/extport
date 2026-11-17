@@ -1,7 +1,7 @@
 import { compareVersions } from '@extport/shared'
 import type { SafariCredentials, CredentialCheck, StoreAdapter, StoreState, StoreTarget, SubmissionResult } from './types'
 import { signJwtES256 } from './jwt'
-import { DEFAULT_RETRY, fetchWithRetry, truncate, type FetchLike, type RetryOptions, storeApiError, submitFailure } from './util'
+import { DEFAULT_RETRY, fetchWithRetry, truncate, type FetchLike, type RetryOptions, storeApiError, submitFailure, fetchWithTimeout } from './util'
 
 const API_BASE = 'https://api.appstoreconnect.apple.com'
 
@@ -358,7 +358,7 @@ export function createSafariAdapter(rawFetchImpl: FetchLike = (i, o) => fetch(i,
   // a burst against the same ASC endpoint with the same JWT. Retry transient
   // 5xx here so that burst doesn't turn one Apple-side blip into an error
   // email per target.
-  const fetchImpl = fetchWithRetry(rawFetchImpl, retry)
+  const fetchImpl = fetchWithRetry(fetchWithTimeout(rawFetchImpl, 'safari'), retry)
   return {
     store: 'safari',
     platforms: SAFARI_PLATFORMS,

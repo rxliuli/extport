@@ -1,6 +1,6 @@
 import type { CredentialCheck, FirefoxCredentials, StoreAdapter, StoreState, SubmissionResult, VersionKnowledge } from './types'
 import { signJwtHS256 } from './jwt'
-import { pollUntil, truncate, type FetchLike, storeApiError, submitFailure } from './util'
+import { pollUntil, truncate, type FetchLike, storeApiError, submitFailure, fetchWithTimeout } from './util'
 
 const BASE = 'https://addons.mozilla.org'
 const PROFILE_URL = `${BASE}/api/v5/accounts/profile/`
@@ -206,9 +206,10 @@ function humanDuration(seconds: number): string {
 }
 
 export function createFirefoxAdapter(
-  fetchImpl: FetchLike = (i, o) => fetch(i, o),
+  rawFetchImpl: FetchLike = (i, o) => fetch(i, o),
   poll: PollOptions = DEFAULT_POLL,
 ): StoreAdapter<FirefoxCredentials> {
+  const fetchImpl = fetchWithTimeout(rawFetchImpl, 'firefox')
   return {
     store: 'firefox',
     async verifyCredentials(credentials): Promise<CredentialCheck> {

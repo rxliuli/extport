@@ -80,6 +80,8 @@ export interface PublishTarget {
   credentialId: string
   credentialLabel: string
   credentialStatus: 'active' | 'invalid' | 'expiring'
+  /** A reconcile holds this target right now ("Sync now" watches this to know when it's done). */
+  reconciling: boolean
   /** Store developer console deep link (computed server-side — Chrome's needs the publisherId inside the encrypted credential). */
   consoleUrl: string
   lifecycles: (TargetLifecycle & { consoleUrl: string })[]

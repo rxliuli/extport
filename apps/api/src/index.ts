@@ -72,6 +72,9 @@ app.onError((err, c) => {
 // export below is what the Workers runtime actually loads.
 export { app }
 
+const SKIPPED_RETRIES = 3
+const SKIPPED_RETRY_DELAY_S = 240
+
 export default {
   fetch: app.fetch,
   async scheduled(controller, env, ctx) {
@@ -117,7 +120,16 @@ export default {
     for (const message of batch.messages) {
       try {
         const summary = await runReconciliation(env, db, message.body, notifier)
-        console.log(JSON.stringify({ level: 'info', message: 'reconcile job complete', ...message.body, ...summary }))
+        console.log(JSON.stringify({ level: 'info', message: 'reconcile job complete', ...message.body, ...summary, attempts: message.attempts }))
+        // A skipped target was held by another invocation, so this job's
+        // reconcile never happened for it. Come back once that one is likely
+        // done — or, if it died holding the lock, once the lock has gone
+        // stale and can be reclaimed (RECONCILE_LOCK_STALE_MS, 10 minutes;
+        // three 4-minute waits outlast it).
+        if (summary.skipped > 0 && message.attempts <= SKIPPED_RETRIES) {
+          message.retry({ delaySeconds: SKIPPED_RETRY_DELAY_S })
+          continue
+        }
         message.ack()
       } catch (err) {
         // runReconciliation persists per-target errors itself — reaching

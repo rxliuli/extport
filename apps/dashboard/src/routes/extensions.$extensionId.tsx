@@ -46,7 +46,7 @@ import {
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 export const Route = createFileRoute('/extensions/$extensionId')({ component: ExtensionDetailLayout })
@@ -590,6 +590,57 @@ export function VersionMatrixSection({ extensionId }: { extensionId: string }) {
   )
 }
 
+// The queue usually hands the job to a consumer within seconds; until one
+// has claimed a target there's nothing to watch, so don't call it done yet.
+const SYNC_PICKUP_MS = 20_000
+// A store on a bad day can hold a sync for minutes; past this, stop watching
+// (the half-hourly poll takes over) rather than spin forever.
+const SYNC_WATCH_MAX_MS = 15 * 60_000
+const SYNC_POLL_MS = 3_000
+
+/**
+ * "Sync now" queues a background reconcile and returns at once, so the
+ * button watches the targets' `reconciling` flag to know when it's over:
+ * done after two consecutive polls with nothing held (one could land in the
+ * instant between one target's lock and the next).
+ */
+function useSync(extensionId: string) {
+  const queryClient = useQueryClient()
+  const [startedAt, setStartedAt] = useState<number | null>(null)
+  const idlePolls = useRef(0)
+  const { data: targets, dataUpdatedAt } = useQuery({
+    ...targetsQuery(extensionId),
+    refetchInterval: startedAt !== null ? SYNC_POLL_MS : 30_000,
+  })
+
+  useEffect(() => {
+    if (startedAt === null) return
+    const age = Date.now() - startedAt
+    const busy = targets?.some((t) => t.reconciling) ?? false
+    idlePolls.current = busy ? 0 : idlePolls.current + 1
+    if ((age > SYNC_PICKUP_MS && idlePolls.current >= 2) || age > SYNC_WATCH_MAX_MS) {
+      setStartedAt(null)
+      void queryClient.invalidateQueries({ queryKey: ['extensions'] })
+    }
+  }, [dataUpdatedAt, startedAt, targets, queryClient])
+
+  const mutation = useMutation({
+    mutationFn: () => api<{ queued: true }>(`/api/v1/extensions/${extensionId}/reconcile`, { method: 'POST' }),
+    onSuccess: () => {
+      idlePolls.current = 0
+      setStartedAt(Date.now())
+      if (targets?.some((t) => t.reconciling)) {
+        toast.info('A sync is already running for this extension — yours retries once it finishes.')
+      } else {
+        toast.success('Sync started — store status updates here as each store finishes.')
+      }
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  })
+
+  return { start: () => mutation.mutate(), syncing: mutation.isPending || startedAt !== null }
+}
+
 function ExtensionDetailLayout() {
   const { extensionId } = Route.useParams()
   const navigate = useNavigate()
@@ -597,20 +648,7 @@ function ExtensionDetailLayout() {
   const { data: extension, isPending } = useQuery(extensionQuery(extensionId))
   const [deleteOpen, setDeleteOpen] = useState(false)
 
-  const reconcile = useMutation({
-    mutationFn: () =>
-      api<{ summary: { processed: number; submitted: number; blocked: number; errors: number } }>(
-        `/api/v1/extensions/${extensionId}/reconcile`,
-        { method: 'POST' },
-      ),
-    onSuccess: ({ summary }) => {
-      const text = `processed ${summary.processed} · submitted ${summary.submitted} · blocked ${summary.blocked} · errors ${summary.errors}`
-      if (summary.errors > 0) toast.warning(text)
-      else toast.success(text)
-      void queryClient.invalidateQueries({ queryKey: ['extensions'] })
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  })
+  const sync = useSync(extensionId)
 
   const deleteExtension = useMutation({
     mutationFn: () => api(`/api/v1/extensions/${extensionId}`, { method: 'DELETE' }),
@@ -669,12 +707,12 @@ function ExtensionDetailLayout() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => reconcile.mutate()}
-              disabled={reconcile.isPending}
+              onClick={sync.start}
+              disabled={sync.syncing}
               title="Check every store now and submit anything waiting (otherwise this runs every 30 minutes)"
             >
-              {reconcile.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-              Sync now
+              {sync.syncing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+              {sync.syncing ? 'Syncing…' : 'Sync now'}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

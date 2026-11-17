@@ -17,7 +17,7 @@ import { provisionTenantDek, tenantDek } from '../src/lib/kms'
 import type { Notification, Notifier } from '../src/lib/notify'
 import worker from '../src/index'
 import { isVersionRegression, queueLatestArtifact } from '../src/reconcile/queue'
-import { runReconciliation } from '../src/reconcile/run'
+import { isReconciling, runReconciliation } from '../src/reconcile/run'
 import { createApiKey, createExtension, request, seedTenantWithUser } from './helpers'
 
 // Same static test-only RSA key used in credentials.test.ts.
@@ -1629,18 +1629,63 @@ describe('queue consumer — push-triggered reconcile jobs', () => {
   })
 })
 
+describe('queue consumer — a job whose target was locked', () => {
+  async function runJob(attempts: number) {
+    const { db, tenantId, extensionId, targetId } = await setupChromeScenario({
+      artifacts: [{ version: '1.0.0' }],
+      versions: [{ version: '1.0.0', status: 'queued' }],
+    })
+    // Another invocation holds the target right now.
+    await db.update(publishTargets).set({ reconcilingSince: new Date().toISOString() }).where(eq(publishTargets.id, targetId))
+    const { fetch, calls } = routedFetch(chromeRoutes())
+    globalThis.fetch = fetch
+    const outcomes: unknown[] = []
+    const batch = {
+      queue: 'extport-reconcile',
+      messages: [
+        {
+          body: { tenantId, extensionId },
+          attempts,
+          ack: () => outcomes.push('ack'),
+          retry: (o: unknown) => outcomes.push(['retry', o]),
+        },
+      ],
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- hand-built MessageBatch covers only what the handler reads
+    await worker.queue!(batch as any, env)
+    return { outcomes, calls }
+  }
+
+  it('comes back later instead of dropping the request', async () => {
+    const { outcomes, calls } = await runJob(1)
+    expect(calls).toHaveLength(0)
+    expect(outcomes).toEqual([['retry', { delaySeconds: 240 }]])
+  })
+
+  it('gives up after its retries — a lock that old is reclaimable by then anyway', async () => {
+    expect((await runJob(4)).outcomes).toEqual(['ack'])
+  })
+})
+
+describe('isReconciling', () => {
+  const now = Date.parse('2026-11-17T19:30:00Z')
+  it('is true for a fresh claim and false once it is stale enough to reclaim', () => {
+    expect(isReconciling({ reconcilingSince: null }, now)).toBe(false)
+    expect(isReconciling({ reconcilingSince: '2026-11-17T19:28:22Z' }, now)).toBe(true)
+    expect(isReconciling({ reconcilingSince: '2026-11-17T19:19:00Z' }, now)).toBe(false)
+  })
+})
+
 describe('POST /v1/extensions/:id/reconcile — manual trigger', () => {
-  it('reconciles just the requested extension and returns a summary', async () => {
+  it('queues the reconcile instead of running it inside the request', async () => {
     const { sessionCookie } = await seedTenantWithUser()
     const extension = await createExtension(sessionCookie)
-    // No publish target configured — reconcile should be a safe no-op (0 processed), not an error.
     const res = await request(`/api/v1/extensions/${extension.id}/reconcile`, {
       method: 'POST',
       headers: { cookie: sessionCookie },
     })
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as { summary: { processed: number } }
-    expect(body.summary.processed).toBe(0)
+    expect(res.status).toBe(202)
+    expect(await res.json()).toEqual({ queued: true })
   })
 
   it('requires auth and scopes to the owning tenant', async () => {
@@ -1665,6 +1710,6 @@ describe('POST /v1/extensions/:id/reconcile — manual trigger', () => {
       method: 'POST',
       headers: { authorization: `Bearer ${key}` },
     })
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(202)
   })
 })

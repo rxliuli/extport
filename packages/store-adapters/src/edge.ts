@@ -1,5 +1,5 @@
 import type { CredentialCheck, EdgeCredentials, StoreAdapter, StoreState, StoreTarget, SubmissionResult } from './types'
-import { pollUntil, truncate, type FetchLike, storeApiError, submitFailure } from './util'
+import { pollUntil, truncate, type FetchLike, storeApiError, submitFailure, fetchWithTimeout } from './util'
 
 const API_BASE = 'https://api.addons.microsoftedge.microsoft.com'
 const PROBE_ID = '00000000-0000-0000-0000-000000000000'
@@ -230,9 +230,10 @@ async function getState(target: StoreTarget, fetchImpl: FetchLike): Promise<Stor
  * → 401/403, valid credentials → 404 for the dummy id.
  */
 export function createEdgeAdapter(
-  fetchImpl: FetchLike = (i, o) => fetch(i, o),
+  rawFetchImpl: FetchLike = (i, o) => fetch(i, o),
   poll: PollOptions = DEFAULT_POLL,
 ): StoreAdapter<EdgeCredentials> {
+  const fetchImpl = fetchWithTimeout(rawFetchImpl, 'edge')
   return {
     store: 'edge',
     async verifyCredentials(credentials): Promise<CredentialCheck> {

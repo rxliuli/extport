@@ -1,6 +1,6 @@
 import type { ChromeCredentials, CredentialCheck, StoreAdapter, StoreState, SubmissionResult, VersionKnowledge } from './types'
 import { signJwtRS256 } from './jwt'
-import { truncate, type FetchLike, storeApiError, submitFailure } from './util'
+import { truncate, type FetchLike, storeApiError, submitFailure, fetchWithTimeout } from './util'
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const API_BASE = 'https://chromewebstore.googleapis.com/v2'
@@ -165,7 +165,8 @@ async function withdraw(credentials: ChromeCredentials, storeItemId: string, fet
  * fields and the setup a tenant needs to do once in the Cloud Console +
  * Web Store Developer Dashboard.
  */
-export function createChromeAdapter(fetchImpl: FetchLike = (i, o) => fetch(i, o)): StoreAdapter<ChromeCredentials> {
+export function createChromeAdapter(rawFetchImpl: FetchLike = (i, o) => fetch(i, o)): StoreAdapter<ChromeCredentials> {
+  const fetchImpl = fetchWithTimeout(rawFetchImpl, 'chrome')
   return {
     store: 'chrome',
     verifyCredentials: (credentials) => verifyCredentials(credentials, fetchImpl),

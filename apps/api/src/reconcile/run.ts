@@ -54,6 +54,11 @@ const STALE_REVIEW_DEDUPE_MS = 20 * 60 * 60 * 1000
 // exists to rule out.
 const RECONCILE_LOCK_STALE_MS = 10 * 60 * 1000
 
+/** A reconcile currently holds this target — a live claim, not one stale enough to reclaim. */
+export function isReconciling(target: Pick<PublishTarget, 'reconcilingSince'>, now = Date.now()): boolean {
+  return target.reconcilingSince !== null && now - new Date(target.reconcilingSince).getTime() < RECONCILE_LOCK_STALE_MS
+}
+
 // getState()'s two calls (addon detail, then /versions/) aren't one atomic
 // read — a store whose review is fast enough (Firefox's is "near-instant"
 // for most submissions) can have a real, freshly-approved version land
