@@ -17,24 +17,30 @@ const CONSOLE_LABEL: Record<Store, string> = {
   safari: 'App Store Connect',
 }
 
-type Tone = 'ok' | 'pending' | 'bad' | 'off'
+// progress is normal publishing (in review, queued) — blue, untinted, since
+// it's how most stores sit for days; warn is reserved for what's drifted past
+// a threshold (overdue review, expiring credential).
+type Tone = 'ok' | 'progress' | 'warn' | 'bad' | 'off'
 
 const PILL: Record<Tone, string> = {
   ok: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
-  pending: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+  progress: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
+  warn: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
   bad: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
   off: 'bg-muted text-muted-foreground',
 }
 const PILL_DOT: Record<Tone, string> = {
   ok: 'bg-green-600 dark:bg-green-400',
-  pending: 'bg-amber-500 dark:bg-amber-400',
+  progress: 'bg-blue-500 dark:bg-blue-400',
+  warn: 'bg-amber-500 dark:bg-amber-400',
   bad: 'bg-red-600 dark:bg-red-400',
   off: 'bg-muted-foreground/60',
 }
 // Healthy rows stay plain; only rows that need a look get a tint.
 const ROW_TINT: Record<Tone, string> = {
   ok: '',
-  pending: 'bg-amber-50/70 dark:bg-amber-400/5',
+  progress: '',
+  warn: 'bg-amber-50/70 dark:bg-amber-400/5',
   bad: 'bg-red-50/70 dark:bg-red-400/5',
   off: '',
 }
@@ -45,7 +51,7 @@ interface Line {
   note?: string
   /** Hover text, e.g. the exact submission date behind "6 days". */
   title?: string
-  tone?: 'pending' | 'bad'
+  tone?: 'progress' | 'warn' | 'bad'
 }
 
 function describe(
@@ -78,6 +84,7 @@ function describe(
   }
 
   const age = ageDays(l.submittedAt)
+  const stale = !!l.inReviewVersion && age !== null && age >= staleDays
   if (l.inReviewVersion) {
     const since = l.submittedAt ? formatDate(l.submittedAt) : null
     lines.push({
@@ -85,7 +92,7 @@ function describe(
       version: l.inReviewVersion,
       note: l.submittedAt ? formatElapsed(l.submittedAt) : undefined,
       title: since ? `Submitted ${since}` : undefined,
-      tone: 'pending',
+      tone: stale ? 'warn' : 'progress',
     })
   }
   if (l.queuedVersion) {
@@ -93,7 +100,7 @@ function describe(
       label: 'Queued next',
       version: l.queuedVersion,
       note: l.inReviewVersion ? 'after this review' : undefined,
-      tone: 'pending',
+      tone: 'progress',
     })
   }
   if (l.rejectedVersion) lines.push({ label: 'Rejected', version: l.rejectedVersion, tone: 'bad' })
@@ -105,18 +112,17 @@ function describe(
   }
   if (l.status === 'rejected') return { tone: 'bad', pill: 'Rejected', lines, detail: l.statusDetail }
   if (l.inReviewVersion) {
-    const stale = age !== null && age >= staleDays
     return {
-      tone: 'pending',
+      tone: stale ? 'warn' : 'progress',
       pill: stale ? 'Review overdue' : 'In review',
       lines,
       detail: stale ? `Past your ${staleDays}-day review threshold for this store.` : l.statusDetail,
     }
   }
-  if (l.queuedVersion) return { tone: 'pending', pill: 'Queued', lines, detail: l.statusDetail }
+  if (l.queuedVersion) return { tone: 'progress', pill: 'Queued', lines, detail: l.statusDetail }
   if (target.credentialStatus === 'expiring') {
     return {
-      tone: 'pending',
+      tone: 'warn',
       pill: 'Credential expiring',
       lines,
       detail: `Renew the “${target.credentialLabel}” credential in Settings.`,
@@ -175,9 +181,11 @@ export function StoreStatusSection({ extensionId }: { extensionId: string }) {
                     <span className="text-muted-foreground">{line.label} </span>
                     <span
                       className={`font-mono font-semibold ${
-                        line.tone === 'pending'
-                          ? 'text-amber-700 dark:text-amber-400'
-                          : line.tone === 'bad'
+                        line.tone === 'progress'
+                          ? 'text-blue-700 dark:text-blue-400'
+                          : line.tone === 'warn'
+                            ? 'text-amber-700 dark:text-amber-400'
+                            : line.tone === 'bad'
                             ? 'text-red-700 dark:text-red-400'
                             : ''
                       }`}

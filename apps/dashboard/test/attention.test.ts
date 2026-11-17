@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MatrixExtension, MatrixTarget, Store, TargetLifecycle } from '../src/api'
-import { affectedExtensions, classifyFleet, errorSummary, groupActions } from '../src/attention'
+import { affectedExtensions, classifyFleet, errorSummary, groupActions, isReviewOverdue } from '../src/attention'
 
 const NOW = new Date('2026-11-17T12:00:00Z').getTime()
 const STALE: Record<Store, number> = { chrome: 3, firefox: 3, edge: 10, safari: 3 }
@@ -274,5 +274,20 @@ describe('groupActions', () => {
       NOW,
     )
     expect(groupActions(actions).map((e) => e.type)).toEqual(['item', 'item', 'item'])
+  })
+})
+
+describe('isReviewOverdue', () => {
+  const at = (iso: string) => ({ inReviewVersion: '1.0.0', submittedAt: iso })
+  it('flips at the per-store threshold, not before', () => {
+    // NOW is 2026-11-17T12:00Z; chrome's threshold is 3 days, edge's 10.
+    expect(isReviewOverdue('chrome', at('2026-11-15T12:00:00Z'), STALE, NOW)).toBe(false)
+    expect(isReviewOverdue('chrome', at('2026-11-14T12:00:00Z'), STALE, NOW)).toBe(true)
+    expect(isReviewOverdue('edge', at('2026-11-14T12:00:00Z'), STALE, NOW)).toBe(false)
+  })
+
+  it('never judges a review with no submit time, or no review at all', () => {
+    expect(isReviewOverdue('chrome', { inReviewVersion: '1.0.0', submittedAt: null }, STALE, NOW)).toBe(false)
+    expect(isReviewOverdue('chrome', { inReviewVersion: null, submittedAt: '2026-01-01T00:00:00Z' }, STALE, NOW)).toBe(false)
   })
 })

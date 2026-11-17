@@ -1,7 +1,8 @@
-import { api, ApiError, type MatrixExtension, type MatrixTarget, type SafariPlatform, type Store } from '@/api'
+import { api, ApiError, type MatrixExtension, type MatrixTarget, type SafariPlatform, type Store, type TargetLifecycle } from '@/api'
 import {
   affectedExtensions,
   classifyFleet,
+  isReviewOverdue,
   groupActions,
   platformLabel,
   STORE_LABEL,
@@ -41,7 +42,17 @@ const STORES = [...new Set(COLUMNS.map((c) => c.store))]
 
 const DASH = <span className="text-muted-foreground/50">—</span>
 
-function targetCells(target: MatrixTarget | undefined, columns: typeof COLUMNS) {
+function targetCells(
+  target: MatrixTarget | undefined,
+  columns: typeof COLUMNS,
+  staleReviewDays: Record<Store, number>,
+) {
+  const summary = (lifecycle: TargetLifecycle) => (
+    <VersionSummary
+      lifecycle={lifecycle}
+      overdue={!!target && isReviewOverdue(target.store, lifecycle, staleReviewDays)}
+    />
+  )
   const dim = target && !target.enabled ? 'opacity-50' : undefined
   // A Safari target with no platform-tagged rows yet (nothing published, or
   // the first publish failed) has one platform-less lifecycle: span it across
@@ -50,7 +61,7 @@ function targetCells(target: MatrixTarget | undefined, columns: typeof COLUMNS) 
     const lifecycle = target.lifecycles[0]
     return [
       <TableCell key="all" colSpan={columns.length} className={dim}>
-        {lifecycle ? <VersionSummary lifecycle={lifecycle} /> : DASH}
+        {lifecycle ? summary(lifecycle) : DASH}
       </TableCell>,
     ]
   }
@@ -58,7 +69,7 @@ function targetCells(target: MatrixTarget | undefined, columns: typeof COLUMNS) 
     const lifecycle = target?.lifecycles.find((l) => l.platform === c.platform)
     return (
       <TableCell key={c.platform ?? 'default'} className={dim}>
-        {lifecycle ? <VersionSummary lifecycle={lifecycle} /> : DASH}
+        {lifecycle ? summary(lifecycle) : DASH}
       </TableCell>
     )
   })
@@ -211,7 +222,7 @@ function ExtensionsPage() {
                         className="flex flex-wrap items-baseline gap-x-2.5"
                       >
                         <span
-                          className="size-1.5 shrink-0 self-center rounded-full bg-amber-500 dark:bg-amber-400"
+                          className="size-1.5 shrink-0 self-center rounded-full bg-blue-500 dark:bg-blue-400"
                           aria-hidden="true"
                         />
                         <Link
@@ -253,7 +264,10 @@ function ExtensionsPage() {
                   <span className="size-1.5 rounded-full bg-green-600 dark:bg-green-400" /> Live
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <span className="size-1.5 rounded-full bg-amber-500 dark:bg-amber-400" /> Live → in review
+                  <span className="size-1.5 rounded-full bg-blue-500 dark:bg-blue-400" /> Live → in review
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-amber-500 dark:bg-amber-400" /> Review overdue
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <span className="size-1.5 rounded-full bg-red-600 dark:bg-red-400" /> Rejected / failed
@@ -292,6 +306,7 @@ function ExtensionsPage() {
                         targetCells(
                           ext.targets.find((t) => t.store === s),
                           COLUMNS.filter((c) => c.store === s),
+                          settings?.staleReviewDays ?? DEFAULT_STALE_REVIEW_DAYS,
                         ),
                       )}
                     </TableRow>

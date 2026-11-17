@@ -155,6 +155,23 @@ export function errorSummary(store: Store, error: TargetError | null): { summary
   return { summary, raw: error.message }
 }
 
+/**
+ * A review past the tenant's per-store threshold. The one point where "in
+ * review" stops being normal progress (blue) and becomes something to keep
+ * an eye on (amber) — shared by the needs-action list and the version matrix
+ * so the two can't disagree. A review with no known submit time can't be
+ * judged, so it never counts.
+ */
+export function isReviewOverdue(
+  store: Store,
+  l: Pick<TargetLifecycle, 'inReviewVersion' | 'submittedAt'>,
+  staleReviewDays: Record<Store, number>,
+  now: number = Date.now(),
+): boolean {
+  if (!l.inReviewVersion || !l.submittedAt) return false
+  return (ageDays(l.submittedAt, now) ?? 0) >= staleReviewDays[store]
+}
+
 function liveClause(l: TargetLifecycle): string {
   return l.liveVersion ? `${l.liveVersion} is still live.` : 'Nothing is live on this store yet.'
 }
@@ -200,9 +217,8 @@ function classifyLifecycle(
 
   const reviewing = l.inReviewVersion
   if (reviewing) {
-    const age = l.submittedAt ? ageDays(l.submittedAt, now) : null
     const queuedClause = l.queuedVersion ? ` ${l.queuedVersion} is queued and goes out once this review finishes.` : ''
-    if (age !== null && age >= staleReviewDays[target.store]) {
+    if (isReviewOverdue(target.store, l, staleReviewDays, now)) {
       return {
         action: {
           ...base,

@@ -7,10 +7,15 @@ import { TriangleAlert } from 'lucide-react'
 // next to whatever is pending, so "what are users running" is never hidden
 // behind "what's waiting". statusDetail (rate limits, rejection notes) is on
 // hover; the Extensions page spells it out in its needs-action list.
+//
+// Color is meaning, not lifecycle stage: blue is normal progress (a review
+// or a queued version is how publishing works, often for days), amber only
+// once a review is past the tenant's threshold, red when something failed.
 const DOT = {
   live: 'bg-green-600 dark:bg-green-400',
-  pending: 'bg-amber-500 dark:bg-amber-400',
-  queued: 'bg-amber-500/50 dark:bg-amber-400/50',
+  progress: 'bg-blue-500 dark:bg-blue-400',
+  queued: 'bg-blue-500/50 dark:bg-blue-400/50',
+  overdue: 'bg-amber-500 dark:bg-amber-400',
   bad: 'bg-red-600 dark:bg-red-400',
 }
 
@@ -19,7 +24,7 @@ function Dot({ tone }: { tone: keyof typeof DOT }) {
 }
 
 /** A single lifecycle — one store, or one Safari platform — as one line. */
-export function VersionSummary({ lifecycle }: { lifecycle: TargetLifecycle }) {
+export function VersionSummary({ lifecycle, overdue = false }: { lifecycle: TargetLifecycle; overdue?: boolean }) {
   const live = lifecycle.liveVersion
   if (lifecycle.status === 'error') {
     return (
@@ -50,12 +55,15 @@ export function VersionSummary({ lifecycle }: { lifecycle: TargetLifecycle }) {
   const pending = lifecycle.inReviewVersion ?? lifecycle.queuedVersion
   if (pending) {
     const inReview = lifecycle.inReviewVersion !== null
+    const late = inReview && overdue
     return (
       <span
-        className="inline-flex items-center gap-1.5 font-mono text-sm text-amber-700 dark:text-amber-400"
-        title={inReview ? 'in review' : (lifecycle.statusDetail ?? 'queued')}
+        className={`inline-flex items-center gap-1.5 font-mono text-sm ${
+          late ? 'text-amber-700 dark:text-amber-400' : 'text-blue-700 dark:text-blue-400'
+        }`}
+        title={late ? 'in review past your threshold' : inReview ? 'in review' : (lifecycle.statusDetail ?? 'queued')}
       >
-        <Dot tone={inReview ? 'pending' : 'queued'} />
+        <Dot tone={late ? 'overdue' : inReview ? 'progress' : 'queued'} />
         {live ? `${live} → ${pending}` : pending}
       </span>
     )

@@ -345,8 +345,8 @@ export function TargetsSection({ extensionId }: { extensionId: string }) {
 // color only reinforces it (color alone is invisible to color-blind readers).
 const CELL: Record<DeploymentVersion['status'], { Icon: LucideIcon; className: string; label: string }> = {
   online: { Icon: CircleCheck, className: 'text-green-700 dark:text-green-500', label: 'live' },
-  in_review: { Icon: Clock, className: 'text-amber-600 dark:text-amber-400', label: 'in review' },
-  queued: { Icon: CircleDashed, className: 'text-amber-600 dark:text-amber-400', label: 'queued' },
+  in_review: { Icon: Clock, className: 'text-blue-600 dark:text-blue-400', label: 'in review' },
+  queued: { Icon: CircleDashed, className: 'text-blue-600 dark:text-blue-400', label: 'queued' },
   skipped: { Icon: SkipForward, className: 'text-muted-foreground', label: 'skipped' },
   rejected: { Icon: CircleX, className: 'text-red-600 dark:text-red-400', label: 'rejected' },
 }
