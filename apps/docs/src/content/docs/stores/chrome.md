@@ -20,8 +20,8 @@ To create the service account: in [Google Cloud Console](https://console.cloud.g
 enable the **Chrome Web Store API** for your project, create a service account, generate a JSON key for it, then
 grant that service account access from the Chrome Web Store Developer Dashboard's account settings.
 
-To rotate, generate a new JSON key for the same service account and **Rotate…** the credential in extport's
-Settings — only the private key is asked for; the Publisher ID and service account email stay as they are.
+To rotate, generate a new JSON key for the *same* service account (a new service account would need its access
+granted again) and **Rotate…** the credential in extport's Settings.
 
 ![The Settings → Profile page in the Chrome Web Store Developer Dashboard, showing the Publisher ID field](../../../assets/screenshots/chrome-publisher-id.png)
 

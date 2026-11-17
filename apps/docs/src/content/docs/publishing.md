@@ -24,10 +24,8 @@ See the per-store pages for exactly which fields you need and where to find them
 - [Safari](/stores/safari/)
 
 When a key changes, use **Rotate…** from the credential's row menu instead of deleting and re-adding it — the
-credential keeps its id, so every store target using it keeps working. Rotating only asks for the fields that
-actually change (Edge's API key, Chrome's private key, Safari's key pair); account identifiers like the Edge
-Client ID or Safari Issuer ID keep their current value unless you click **Change**. The new combination is
-verified against the store before it replaces the old one.
+credential keeps its id, so every store target using it keeps working, and you're only asked for the fields that
+change.
 
 ## 2. Connect a store target
 

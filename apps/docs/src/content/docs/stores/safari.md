@@ -26,7 +26,7 @@ which is what `extport safari-build` uses) needs an API key with the **Admin** r
 column in the screenshot above. Developer or App Manager roles can authenticate fine but fail partway through
 signing with a "Cloud signing permission error" — confirmed against Apple's real API, not just the docs. If you hit
 that error, generate a new key with the Admin role and rotate the credential in both extport's Settings and your CI
-secrets. Rotating only asks for the new Key ID and .p8 — the Issuer ID is account-wide and stays the same.
+secrets.
 
 ## Store item id
 

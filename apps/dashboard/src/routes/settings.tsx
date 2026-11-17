@@ -153,7 +153,7 @@ const CREDENTIAL_FIELDS: Record<
   ],
 }
 
-/** Edge Partner Center API keys last ~72 days — prefilled so the tenant only confirms. */
+/** Edge Partner Center API keys expire exactly 72 days after creation — prefilled so the tenant only confirms. */
 function defaultEdgeExpiry(): Date {
   const d = new Date()
   d.setHours(0, 0, 0, 0)
@@ -360,7 +360,7 @@ function CredentialsSection() {
               {store === 'edge' && (
                 <div className="grid gap-1.5">
                   <Label htmlFor="expiry" className="text-xs text-muted-foreground">
-                    API key expiry (rotates every ~72 days)
+                    API key expiry (keys expire 72 days after creation)
                   </Label>
                   <DatePicker id="expiry" value={expiresAt} onChange={setExpiresAt} />
                 </div>
@@ -466,7 +466,7 @@ function CredentialsSection() {
               {rotatingRow.store === 'edge' && (
                 <div className="grid gap-1.5">
                   <Label htmlFor="rotate-expiry" className="text-xs text-muted-foreground">
-                    New API key expiry (rotates every ~72 days)
+                    New API key expiry (keys expire 72 days after creation)
                   </Label>
                   <DatePicker id="rotate-expiry" value={rotateExpiresAt} onChange={setRotateExpiresAt} />
                 </div>
