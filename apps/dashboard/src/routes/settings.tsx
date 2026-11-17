@@ -4,7 +4,7 @@ import { DatePicker } from '@/components/date-picker'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/extra/card'
+import { PageHeader, Section, sectionBodyClass, sectionEmptyClass, sectionToolbarClass } from '@/components/Section'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import {
   DropdownMenu,
@@ -38,7 +38,8 @@ function ApiKeysSection() {
   const [freshKey, setFreshKey] = useState<string | null>(null)
 
   const create = useMutation({
-    mutationFn: (name: string) => api<{ key: string }>('/api/v1/keys', { method: 'POST', body: JSON.stringify({ name }) }),
+    mutationFn: (name: string) =>
+      api<{ key: string }>('/api/v1/keys', { method: 'POST', body: JSON.stringify({ name }) }),
     onSuccess: (created) => {
       setFreshKey(created.key)
       setName('')
@@ -54,32 +55,28 @@ function ApiKeysSection() {
   })
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle id="api-keys">API keys</CardTitle>
-        <CardDescription>Used by the CLI and CI (`EXTPORT_API_KEY`) to push artifacts.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <form
-          className="flex items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (name.trim()) create.mutate(name.trim())
-          }}
-        >
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Key name (e.g. ci)"
-            className="h-8 w-full max-w-56"
-            required
-          />
-          <Button type="submit" size="sm" aria-label="Create API key" disabled={create.isPending}>
-            <Plus /> <span className="hidden sm:inline">Create</span>
-          </Button>
-        </form>
+    <Section id="api-keys" title="API keys" description="Used by the CLI and CI (`EXTPORT_API_KEY`) to push artifacts.">
+      <form
+        className={sectionToolbarClass}
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (name.trim()) create.mutate(name.trim())
+        }}
+      >
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Key name (e.g. ci)"
+          className="h-8 w-full max-w-56"
+          required
+        />
+        <Button type="submit" size="sm" aria-label="Create API key" disabled={create.isPending}>
+          <Plus /> <span className="hidden sm:inline">Create</span>
+        </Button>
+      </form>
 
-        {freshKey && (
+      {freshKey && (
+        <div className="border-b border-border/60 p-5">
           <Alert>
             <KeyRound />
             <AlertTitle>Copy now — shown once</AlertTitle>
@@ -100,30 +97,30 @@ function ApiKeysSection() {
               </Button>
             </AlertDescription>
           </Alert>
-        )}
+        </div>
+      )}
 
-        {keys.length > 0 && (
-          <Table>
-            <TableBody>
-              {keys.map((k: ApiKeyRow) => (
-                <TableRow key={k.id}>
-                  <TableCell>
-                    <code className="text-xs">{k.masked}</code>
-                  </TableCell>
-                  <TableCell>{k.name}</TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="outline" size="sm" onClick={() => revoke.mutate(k.id)} disabled={revoke.isPending}>
-                      Revoke
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-        {keys.length === 0 && <p className="text-sm text-muted-foreground">No API keys yet.</p>}
-      </CardContent>
-    </Card>
+      {keys.length > 0 && (
+        <Table>
+          <TableBody>
+            {keys.map((k: ApiKeyRow) => (
+              <TableRow key={k.id}>
+                <TableCell>
+                  <code className="text-xs">{k.masked}</code>
+                </TableCell>
+                <TableCell>{k.name}</TableCell>
+                <TableCell className="text-right">
+                  <Button variant="outline" size="sm" onClick={() => revoke.mutate(k.id)} disabled={revoke.isPending}>
+                    Revoke
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+      {keys.length === 0 && <p className={sectionEmptyClass}>No API keys yet.</p>}
+    </Section>
   )
 }
 
@@ -245,7 +242,8 @@ function CredentialsSection() {
   })
 
   const verify = useMutation({
-    mutationFn: (id: string) => api<{ credential: CredentialRow; reason?: string }>(`/api/v1/credentials/${id}/verify`, { method: 'POST' }),
+    mutationFn: (id: string) =>
+      api<{ credential: CredentialRow; reason?: string }>(`/api/v1/credentials/${id}/verify`, { method: 'POST' }),
     onSuccess: ({ credential, reason }) => {
       if (credential.status === 'active') {
         toast.success(`${credential.store} credential verified — active`)
@@ -266,7 +264,15 @@ function CredentialsSection() {
   // Same id, fresh secret — any publish target pointing at it keeps working
   // with nothing to re-link, which is the whole point over delete-and-recreate.
   const rotate = useMutation({
-    mutationFn: ({ id, credentials, expiresAt }: { id: string; credentials: Record<string, string>; expiresAt?: Date }) =>
+    mutationFn: ({
+      id,
+      credentials,
+      expiresAt,
+    }: {
+      id: string
+      credentials: Record<string, string>
+      expiresAt?: Date
+    }) =>
       api(`/api/v1/credentials/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ credentials, expiresAt: expiresAt ? expiresAt.toISOString() : undefined }),
@@ -283,127 +289,123 @@ function CredentialsSection() {
   const rotatingRow = rows.find((r) => r.id === rotatingId)
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle id="store-credentials">Store credentials</CardTitle>
-        <CardDescription>
-          Verified against the live store API before saving, then envelope-encrypted — only the last four characters
-          are ever shown again.
-        </CardDescription>
-        <CardAction>
-          <Dialog open={addOpen} onOpenChange={setAddOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm" aria-label="Add credential">
-                <Plus /> <span className="hidden sm:inline">Add credential</span>
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add credential</DialogTitle>
-              </DialogHeader>
-              <form
-                className="flex flex-col gap-3"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  add.mutate()
+    <Section
+      id="store-credentials"
+      title="Store credentials"
+      description="Verified against the live store API before saving, then envelope-encrypted — only the last four characters are ever shown again."
+      action={
+        <Dialog open={addOpen} onOpenChange={setAddOpen}>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="sm" aria-label="Add credential">
+              <Plus /> <span className="hidden sm:inline">Add credential</span>
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add credential</DialogTitle>
+            </DialogHeader>
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={(e) => {
+                e.preventDefault()
+                add.mutate()
+              }}
+            >
+              <Select
+                value={store}
+                onValueChange={(value: string) => {
+                  setStore(value as CredentialRow['store'])
+                  setFields({})
                 }}
               >
-                <Select
-                  value={store}
-                  onValueChange={(value: string) => {
-                    setStore(value as CredentialRow['store'])
-                    setFields({})
-                  }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.keys(STORE_OPTION_LABEL) as CredentialRow['store'][]).map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {STORE_OPTION_LABEL[s]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label (optional)" />
-                <CredentialFieldInputs store={store} fields={fields} onChange={setFields} />
-                {store === 'edge' && (
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="expiry" className="text-xs text-muted-foreground">
-                      API key expiry (rotates every ~72 days)
-                    </Label>
-                    <DatePicker id="expiry" value={expiresAt} onChange={setExpiresAt} />
-                  </div>
-                )}
-                <Button type="submit" disabled={add.isPending} className="justify-self-start">
-                  {add.isPending && <Loader2 className="animate-spin" />}
-                  {add.isPending ? 'Verifying…' : 'Verify & save'}
-                </Button>
-              </form>
-            </DialogContent>
-          </Dialog>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {rows.length > 0 && (
-          <Table>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="font-medium">{row.store}</TableCell>
-                  <TableCell>{row.label}</TableCell>
-                  <TableCell>
-                    <code className="text-xs">…{row.hint}</code>
-                  </TableCell>
-                  <TableCell className={`font-semibold ${CREDENTIAL_STATUS_CLASS[row.status]}`}>{row.status}</TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${row.store} credential`}>
-                          <MoreHorizontal />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          disabled={verify.isPending && verify.variables === row.id}
-                          onSelect={() => verify.mutate(row.id)}
-                        >
-                          Verify
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            setRotateFields({})
-                            setRotateExpiresAt(undefined)
-                            setRotatingId(row.id)
-                          }}
-                        >
-                          Rotate…
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          disabled={remove.isPending && remove.variables === row.id}
-                          onSelect={() => remove.mutate(row.id)}
-                        >
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-        {rows.length === 0 && <p className="text-sm text-muted-foreground">No credentials yet.</p>}
-      </CardContent>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(STORE_OPTION_LABEL) as CredentialRow['store'][]).map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {STORE_OPTION_LABEL[s]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label (optional)" />
+              <CredentialFieldInputs store={store} fields={fields} onChange={setFields} />
+              {store === 'edge' && (
+                <div className="grid gap-1.5">
+                  <Label htmlFor="expiry" className="text-xs text-muted-foreground">
+                    API key expiry (rotates every ~72 days)
+                  </Label>
+                  <DatePicker id="expiry" value={expiresAt} onChange={setExpiresAt} />
+                </div>
+              )}
+              <Button type="submit" disabled={add.isPending} className="justify-self-start">
+                {add.isPending && <Loader2 className="animate-spin" />}
+                {add.isPending ? 'Verifying…' : 'Verify & save'}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
+      }
+    >
+      {rows.length > 0 && (
+        <Table>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={row.id}>
+                <TableCell className="font-medium">{STORE_OPTION_LABEL[row.store]}</TableCell>
+                <TableCell>{row.label}</TableCell>
+                <TableCell>
+                  <code className="text-xs">…{row.hint}</code>
+                </TableCell>
+                <TableCell className={`font-semibold ${CREDENTIAL_STATUS_CLASS[row.status]}`}>{row.status}</TableCell>
+                <TableCell className="text-right">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${row.store} credential`}>
+                        <MoreHorizontal />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        disabled={verify.isPending && verify.variables === row.id}
+                        onSelect={() => verify.mutate(row.id)}
+                      >
+                        Verify
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setRotateFields({})
+                          setRotateExpiresAt(undefined)
+                          setRotatingId(row.id)
+                        }}
+                      >
+                        Rotate…
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        variant="destructive"
+                        disabled={remove.isPending && remove.variables === row.id}
+                        onSelect={() => remove.mutate(row.id)}
+                      >
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+      {rows.length === 0 && <p className={sectionEmptyClass}>No credentials yet.</p>}
 
       <Dialog open={rotatingId !== null} onOpenChange={(open: boolean) => !open && setRotatingId(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Rotate {rotatingRow && (rotatingRow.label || `${STORE_OPTION_LABEL[rotatingRow.store]} …${rotatingRow.hint}`)}
+              Rotate{' '}
+              {rotatingRow && (rotatingRow.label || `${STORE_OPTION_LABEL[rotatingRow.store]} …${rotatingRow.hint}`)}
             </DialogTitle>
           </DialogHeader>
           {rotatingRow && (
@@ -415,8 +417,8 @@ function CredentialsSection() {
               }}
             >
               <p className="text-xs text-muted-foreground">
-                New {STORE_OPTION_LABEL[rotatingRow.store]} credentials — verified the same way as adding one, kept under
-                the same id so nothing referencing it needs to change.
+                New {STORE_OPTION_LABEL[rotatingRow.store]} credentials — verified the same way as adding one, kept
+                under the same id so nothing referencing it needs to change.
               </p>
               <CredentialFieldInputs store={rotatingRow.store} fields={rotateFields} onChange={setRotateFields} />
               {rotatingRow.store === 'edge' && (
@@ -435,7 +437,7 @@ function CredentialsSection() {
           )}
         </DialogContent>
       </Dialog>
-    </Card>
+    </Section>
   )
 }
 
@@ -461,18 +463,15 @@ function PaymentCredentialsSection() {
   })
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle id="payment-credentials">Payment credentials</CardTitle>
-        <CardDescription>
-          Your Stripe webhook signing secret (whsec_…) — used only to verify licensing fulfillment webhooks. The
-          secret itself is write-only and never shown again.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <Section
+      id="payment-credentials"
+      title="Payment credentials"
+      description="Your Stripe webhook signing secret (whsec_…) — used only to verify licensing fulfillment webhooks. The secret itself is write-only and never shown again."
+    >
+      <div className={`space-y-4 ${sectionBodyClass}`}>
         {stripe && !editing ? (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border px-3 py-2 text-sm">
-            <span className="font-medium">stripe</span>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+            <span className="font-medium">Stripe</span>
             <code className="text-muted-foreground">whsec_…{stripe.hint}</code>
             <div className="ml-auto flex items-center gap-3">
               <span className="text-xs whitespace-nowrap text-muted-foreground">
@@ -514,8 +513,8 @@ function PaymentCredentialsSection() {
           and live mode have separate secrets — store whichever mode your sales currently run in.
         </p>
         <WebhookUrlRow />
-      </CardContent>
-    </Card>
+      </div>
+    </Section>
   )
 }
 
@@ -570,7 +569,8 @@ function SettingsPage() {
   }, [isFetching])
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      <PageHeader title="Settings" />
       <ApiKeysSection />
       <CredentialsSection />
       <PaymentCredentialsSection />

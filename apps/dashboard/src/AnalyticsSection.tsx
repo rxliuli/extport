@@ -1,5 +1,5 @@
 import type { AnalyticsSeriesRow, DimensionShare, Extension } from '@/api'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/extra/card'
+import { EmptyBox, Section, sectionBodyClass, StatTile } from '@/components/Section'
 import {
   ChartContainer,
   ChartLegend,
@@ -75,7 +75,10 @@ const BROWSER_ORDER = Object.keys(BROWSER_COLORS)
  * Per-domain-day rolling-7-day WAU pivoted to one column per browser —
  * CWS's weekly users, plotted daily.
  */
-export function activitySeries(rows: AnalyticsSeriesRow[], domain: string[]): {
+export function activitySeries(
+  rows: AnalyticsSeriesRow[],
+  domain: string[],
+): {
   data: Record<string, string | number>[]
   browsers: string[]
 } {
@@ -115,7 +118,10 @@ function safeKey(version: string): string {
  * geometry stays continuous. The trim self-corrects daily: a version that
  * pings again tomorrow just extends its own span.
  */
-function versionSeries(rows: AnalyticsSeriesRow[], domain: string[]): {
+function versionSeries(
+  rows: AnalyticsSeriesRow[],
+  domain: string[],
+): {
   data: Record<string, string | number | null>[]
   series: { key: string; label: string }[]
 } {
@@ -242,7 +248,15 @@ export function languageLabel(code: string): string {
     return code
   }
 }
-const OS_LABELS: Record<string, string> = { windows: 'Windows', macos: 'macOS', linux: 'Linux', android: 'Android', chromeos: 'ChromeOS', ios: 'iOS', unknown: 'Unknown' }
+const OS_LABELS: Record<string, string> = {
+  windows: 'Windows',
+  macos: 'macOS',
+  linux: 'Linux',
+  android: 'Android',
+  chromeos: 'ChromeOS',
+  ios: 'iOS',
+  unknown: 'Unknown',
+}
 export const osLabel = (value: string) => OS_LABELS[value] ?? value
 
 /** Numeric-aware compare, same semantics as @extport/shared's compareVersions (1.10 > 1.9). */
@@ -273,23 +287,21 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
 
   if (totalRows.length === 0) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>No analytics yet</CardTitle>
-          <CardDescription>
-            Counting starts once a release ships <code>@extport/sdk/analytics</code> (or the{' '}
-            <code>@wxt-dev/analytics</code> provider) — one anonymous ping per install per day, nothing else. Charts
-            appear after the first nightly rollup.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <EmptyBox title="No analytics yet">
+        Counting starts once a release ships <code>@extport/sdk/analytics</code> (or the <code>@wxt-dev/analytics</code>{' '}
+        provider) — one anonymous ping per install per day, nothing else. Charts appear after the first nightly rollup.
+      </EmptyBox>
     )
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="grid gap-4 *:min-w-0 sm:grid-cols-3">
-        <StatCard label="Weekly active users" hint="rolling 7 days, same as the chart" value={overview ? String(overview.weeklyActives) : '—'} />
+        <StatCard
+          label="Weekly active users"
+          hint="rolling 7 days, same as the chart"
+          value={overview ? String(overview.weeklyActives) : '—'}
+        />
         <StatCard label="All-time installs" value={overview ? String(overview.allTimeInstalls) : '—'} />
         <StatCard
           label="Latest version adoption"
@@ -298,7 +310,8 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
             overview && overview.versions.length > 0
               ? (() => {
                   const latest = overview.versions.reduce((a, b) => (compareVersions(b.version, a.version) > 0 ? b : a))
-                  const pct = overview.weeklyActives > 0 ? Math.round((latest.weeklyUsers / overview.weeklyActives) * 100) : 0
+                  const pct =
+                    overview.weeklyActives > 0 ? Math.round((latest.weeklyUsers / overview.weeklyActives) * 100) : 0
                   return `${latest.version} (${pct}%)`
                 })()
               : '—'
@@ -306,19 +319,22 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
         />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Active users</CardTitle>
-          <CardDescription>
+      <Section
+        title="Active users"
+        description={
+          <>
             Weekly actives (rolling 7 days, same as the CWS console), one line per store — the view no single console
             can draw. Days are UTC.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+          </>
+        }
+      >
+        <div className={sectionBodyClass}>
           <ChartContainer
-            config={Object.fromEntries(
-              activity.browsers.map((b) => [b, { label: b, color: BROWSER_COLORS[b] }]),
-            ) satisfies ChartConfig}
+            config={
+              Object.fromEntries(
+                activity.browsers.map((b) => [b, { label: b, color: BROWSER_COLORS[b] }]),
+              ) satisfies ChartConfig
+            }
             className="h-64 w-full"
           >
             <LineChart data={activity.data} margin={{ left: 4, right: 4 }}>
@@ -339,27 +355,26 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
               ))}
             </LineChart>
           </ChartContainer>
-        </CardContent>
-      </Card>
+        </div>
+      </Section>
 
-      <div className="grid gap-6 *:min-w-0 lg:grid-cols-3">
+      <div className="grid gap-8 *:min-w-0 lg:grid-cols-3">
         <BreakdownCard title="Weekly users by country" shares={overview?.country ?? []} format={countryLabel} />
         <BreakdownCard title="Weekly users by language" shares={overview?.language ?? []} format={languageLabel} />
         <BreakdownCard title="Weekly users by OS" shares={overview?.os ?? []} format={osLabel} />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Installs</CardTitle>
-          <CardDescription>
-            Same-day exact: one bar per day for installs first seen that day, all stores combined. Days are UTC.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <Section
+        title="Installs"
+        description="Same-day exact: one bar per day for installs first seen that day, all stores combined. Days are UTC."
+      >
+        <div className={sectionBodyClass}>
           <ChartContainer
-            config={{
-              installs: { label: 'Installs', color: 'var(--chart-2)' },
-            } satisfies ChartConfig}
+            config={
+              {
+                installs: { label: 'Installs', color: 'var(--chart-2)' },
+              } satisfies ChartConfig
+            }
             className="h-56 w-full"
           >
             <BarChart data={daily} margin={{ left: 4, right: 4 }}>
@@ -367,21 +382,28 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
               <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={shortDate} minTickGap={32} />
               <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} />
               <ChartTooltip content={<ChartTooltipContent />} />
-              <Bar dataKey="installs" fill="var(--color-installs)" radius={2} maxBarSize={40} isAnimationActive={false} />
+              <Bar
+                dataKey="installs"
+                fill="var(--color-installs)"
+                radius={2}
+                maxBarSize={40}
+                isAnimationActive={false}
+              />
             </BarChart>
           </ChartContainer>
-        </CardContent>
-      </Card>
+        </div>
+      </Section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Version saturation</CardTitle>
-          <CardDescription>
+      <Section
+        title="Version saturation"
+        description={
+          <>
             Daily actives by version — new releases eat the stack from below. The flip gate for anything riding an
             update is the top layer's share.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+          </>
+        }
+      >
+        <div className={sectionBodyClass}>
           <ChartContainer
             config={Object.fromEntries(
               versions.series.map(({ key, label }, i) => [key, { label, color: `var(--chart-${(i % 5) + 1})` }]),
@@ -407,8 +429,8 @@ export function AnalyticsSection({ extension }: { extension: Extension }) {
               ))}
             </AreaChart>
           </ChartContainer>
-        </CardContent>
-      </Card>
+        </div>
+      </Section>
     </div>
   )
 }
@@ -429,12 +451,8 @@ function BreakdownCard({
   }))
   const axisWidth = yAxisWidth(data.map((d) => truncateTick(d.name)))
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
-        <CardDescription>Rolling 7 days, latest rolled-up day</CardDescription>
-      </CardHeader>
-      <CardContent>
+    <Section title={title} description="Rolling 7 days, latest rolled-up day">
+      <div className={sectionBodyClass}>
         {data.length === 0 ? (
           <p className="text-sm text-muted-foreground">No data yet.</p>
         ) : (
@@ -451,7 +469,15 @@ function BreakdownCard({
                   axis column is already sized to the text by yAxisWidth
                   above — wrapping has no job here, so give the tick a width
                   its 16px math can never exceed with the 24-char cap. */}
-              <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tick={{ width: 300 }} width={axisWidth} tickFormatter={truncateTick} />
+              <YAxis
+                dataKey="name"
+                type="category"
+                tickLine={false}
+                axisLine={false}
+                tick={{ width: 300 }}
+                width={axisWidth}
+                tickFormatter={truncateTick}
+              />
               <ChartTooltip content={<ChartTooltipContent />} cursor={false} />
               <Bar dataKey="wau" fill="var(--color-wau)" radius={4} maxBarSize={20} isAnimationActive={false}>
                 <LabelList dataKey="share" position="right" className="fill-foreground text-xs" />
@@ -459,21 +485,11 @@ function BreakdownCard({
             </BarChart>
           </ChartContainer>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </Section>
   )
 }
 
 function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <Card className="gap-1 py-4">
-      <CardHeader className="px-4">
-        <CardDescription>{label}</CardDescription>
-      </CardHeader>
-      <CardContent className="px-4">
-        <p className="text-xl font-semibold tracking-tight">{value}</p>
-        {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
-      </CardContent>
-    </Card>
-  )
+  return <StatTile label={label} value={value} hint={hint} />
 }

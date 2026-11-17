@@ -17,6 +17,7 @@ import {
   type Plan,
   type PublishEvent,
   type PublishTarget,
+  type Store,
 } from './api'
 
 export const meQuery = queryOptions({
@@ -109,7 +110,11 @@ export const licensesOverviewQuery = queryOptions({
 
 // 30 days is the CWS default too; a range picker joins once there is
 // enough history to make one meaningful.
-export const analyticsSeriesQuery = (extensionId: string, dim: 'total' | 'version' | 'country' | 'language' | 'os', days = 30) =>
+export const analyticsSeriesQuery = (
+  extensionId: string,
+  dim: 'total' | 'version' | 'country' | 'language' | 'os',
+  days = 30,
+) =>
   queryOptions({
     queryKey: ['analytics', extensionId, dim, days],
     queryFn: () => api<AnalyticsSeries>(`/api/v1/analytics/series?extension=${extensionId}&dim=${dim}&days=${days}`),
@@ -134,7 +139,8 @@ export const fleetAnalyticsSeriesQuery = (days = 30) =>
 
 export const fleetAnalyticsExtensionsQuery = queryOptions({
   queryKey: ['analytics', 'fleet', 'extensions'],
-  queryFn: () => api<{ extensions: FleetExtensionAnalytics[] }>('/api/v1/analytics/fleet/extensions').then((r) => r.extensions),
+  queryFn: () =>
+    api<{ extensions: FleetExtensionAnalytics[] }>('/api/v1/analytics/fleet/extensions').then((r) => r.extensions),
 })
 
 export const credentialsQuery = queryOptions({
@@ -144,11 +150,19 @@ export const credentialsQuery = queryOptions({
 
 export const paymentCredentialsQuery = queryOptions({
   queryKey: ['payment-credentials'],
-  queryFn: () =>
-    api<{ credentials: PaymentCredentialRow[] }>('/api/v1/payment-credentials').then((r) => r.credentials),
+  queryFn: () => api<{ credentials: PaymentCredentialRow[] }>('/api/v1/payment-credentials').then((r) => r.credentials),
 })
 
 export const keysQuery = queryOptions({
   queryKey: ['keys'],
   queryFn: () => api<{ keys: ApiKeyRow[] }>('/api/v1/keys').then((r) => r.keys),
+})
+
+// Review-staleness thresholds (days per store) — the same numbers reconcile
+// uses for stale_review emails, so the dashboard and the inbox agree on what
+// "taking too long" means. Tenant-configurable; defaults come from the API.
+export const tenantSettingsQuery = queryOptions({
+  queryKey: ['tenant', 'settings'],
+  queryFn: () => api<{ staleReviewDays: Record<Store, number> }>('/api/v1/tenant/settings'),
+  staleTime: 5 * 60_000,
 })

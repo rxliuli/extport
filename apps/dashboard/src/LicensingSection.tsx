@@ -1,7 +1,7 @@
 import { api, ApiError, type ActivationRow, type Extension, type LicenseRow, type Plan } from '@/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/extra/card'
+import { Section, sectionBodyClass, sectionEmptyClass } from '@/components/Section'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -24,45 +24,51 @@ function errorMessage(err: unknown): string {
 /** amountTotal is Stripe's smallest currency unit; null for manual/imported rows not yet backfilled. */
 export function formatAmount(amountTotal: number | null, currency: string | null): string {
   if (amountTotal === null || currency === null) return '—'
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase() }).format(amountTotal / 100)
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase() }).format(
+    amountTotal / 100,
+  )
 }
 
 export function LicensingSection({ extension }: { extension: Extension }) {
   const queryClient = useQueryClient()
   const toggle = useMutation({
     mutationFn: (enabled: boolean) =>
-      api(`/api/v1/extensions/${extension.id}`, { method: 'PATCH', body: JSON.stringify({ licensingEnabled: enabled }) }),
+      api(`/api/v1/extensions/${extension.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ licensingEnabled: enabled }),
+      }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['extensions'] }),
     onError: (err) => toast.error(errorMessage(err)),
   })
 
   if (!extension.licensingEnabled) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Licensing is off</CardTitle>
-          <CardDescription>
-            Sell activation codes for this extension: define a plan, issue codes manually or through your Stripe
-            Payment Link, and let the extension verify them via @extport/sdk. Enabling only turns the public
-            verification endpoints on — nothing changes for users until your extension ships licensing code.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <Section
+        title="Licensing is off"
+        description={
+          <>
+            Sell activation codes for this extension: define a plan, issue codes manually or through your Stripe Payment
+            Link, and let the extension verify them via @extport/sdk. Enabling only turns the public verification
+            endpoints on — nothing changes for users until your extension ships licensing code.
+          </>
+        }
+      >
+        <div className={sectionBodyClass}>
           <Button onClick={() => toggle.mutate(true)} disabled={toggle.isPending}>
             Enable licensing
           </Button>
-        </CardContent>
-      </Card>
+        </div>
+      </Section>
     )
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PlansCard extension={extension} />
       <LicensesCard extension={extension} />
       <p className="text-sm text-muted-foreground">
-        Licensing can be switched off at any time — already-activated devices keep their entitlement from local
-        state, but new activations stop.{' '}
+        Licensing can be switched off at any time — already-activated devices keep their entitlement from local state,
+        but new activations stop.{' '}
         <button className="underline underline-offset-4 hover:text-foreground" onClick={() => toggle.mutate(false)}>
           Disable licensing
         </button>
@@ -97,91 +103,92 @@ function PlansCard({ extension }: { extension: Extension }) {
   })
 
   return (
-    <Card>
-      <CardHeader className="flex items-center justify-between">
-        <CardTitle>Plans</CardTitle>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm" aria-label="Add a plan">
-              <Plus /> <span className="hidden sm:inline">Add a plan</span>
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add a plan</DialogTitle>
-            </DialogHeader>
-            <form
-              className="flex flex-col gap-3"
-              onSubmit={(e) => {
-                e.preventDefault()
-                if (tier.trim()) add.mutate()
-              }}
-            >
-              <p className="text-xs text-muted-foreground">
-                A plan belongs to this extension — licenses verify against its id (<code>ext_…</code>), which is
-                fixed; the name is just a label.
-              </p>
-              <label className="text-sm font-medium">
-                Tier
-                <Input className="mt-1" value={tier} onChange={(e) => setTier(e.target.value)} />
-                <span className="mt-1 block text-xs font-normal text-muted-foreground">
-                  The tier the SDK resolves (e.g. <code>pro</code>). One plan per tier; <code>free</code> is reserved.
-                </span>
-              </label>
-              <label className="text-sm font-medium">
-                Max devices per license
-                <Input
-                  className="mt-1"
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={maxActivations}
-                  onChange={(e) => setMaxActivations(e.target.value)}
-                />
-              </label>
-              <Button type="submit" disabled={add.isPending}>
-                Create plan
+    <Section
+      title="Plans"
+      action={
+        <>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" aria-label="Add a plan">
+                <Plus /> <span className="hidden sm:inline">Add a plan</span>
               </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </CardHeader>
-      <CardContent>
-        {plans.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No plans yet. A plan is what a license is sold for — a (product, tier) pair with its device limit. Create
-            one to start issuing codes.
-          </p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Tier</TableHead>
-                <TableHead>Max devices</TableHead>
-                <TableHead>Stripe metadata</TableHead>
-                <TableHead />
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add a plan</DialogTitle>
+              </DialogHeader>
+              <form
+                className="flex flex-col gap-3"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  if (tier.trim()) add.mutate()
+                }}
+              >
+                <p className="text-xs text-muted-foreground">
+                  A plan belongs to this extension — licenses verify against its id (<code>ext_…</code>), which is
+                  fixed; the name is just a label.
+                </p>
+                <label className="text-sm font-medium">
+                  Tier
+                  <Input className="mt-1" value={tier} onChange={(e) => setTier(e.target.value)} />
+                  <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                    The tier the SDK resolves (e.g. <code>pro</code>). One plan per tier; <code>free</code> is reserved.
+                  </span>
+                </label>
+                <label className="text-sm font-medium">
+                  Max devices per license
+                  <Input
+                    className="mt-1"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={maxActivations}
+                    onChange={(e) => setMaxActivations(e.target.value)}
+                  />
+                </label>
+                <Button type="submit" disabled={add.isPending}>
+                  Create plan
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </>
+      }
+    >
+      {plans.length === 0 ? (
+        <p className={sectionEmptyClass}>
+          No plans yet. A plan is what a license is sold for — a (product, tier) pair with its device limit. Create one
+          to start issuing codes.
+        </p>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Tier</TableHead>
+              <TableHead>Max devices</TableHead>
+              <TableHead>Stripe metadata</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {plans.map((plan) => (
+              <TableRow key={plan.id}>
+                <TableCell>
+                  <Badge variant="secondary">{plan.tier}</Badge>
+                </TableCell>
+                <TableCell>{plan.maxActivations}</TableCell>
+                <TableCell>
+                  <code className="text-xs text-muted-foreground">extport_plan={plan.id}</code>
+                </TableCell>
+                <TableCell>
+                  <PlanEditDialog plan={plan} extensionId={extension.id} />
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {plans.map((plan) => (
-                <TableRow key={plan.id}>
-                  <TableCell>
-                    <Badge variant="secondary">{plan.tier}</Badge>
-                  </TableCell>
-                  <TableCell>{plan.maxActivations}</TableCell>
-                  <TableCell>
-                    <code className="text-xs text-muted-foreground">extport_plan={plan.id}</code>
-                  </TableCell>
-                  <TableCell>
-                    <PlanEditDialog plan={plan} extensionId={extension.id} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </Section>
   )
 }
 
@@ -212,9 +219,7 @@ function PlanEditDialog({ plan, extensionId }: { plan: Plan; extensionId: string
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>
-            Edit {plan.tier}
-          </DialogTitle>
+          <DialogTitle>Edit {plan.tier}</DialogTitle>
         </DialogHeader>
         <form
           className="flex flex-col gap-3"
@@ -279,124 +284,124 @@ function LicensesCard({ extension }: { extension: Extension }) {
   })
 
   return (
-    <Card>
-      <CardHeader className="flex items-center justify-between">
-        <CardTitle>Licenses</CardTitle>
-        {plans.length > 0 && (
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm" aria-label="Issue a license">
-                <Plus /> <span className="hidden sm:inline">Issue a license</span>
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Issue a license</DialogTitle>
-              </DialogHeader>
-              <form
-                className="flex flex-col gap-3"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  if (selectedPlanId && buyerEmail.trim()) issue.mutate()
-                }}
-              >
-                <label className="text-sm font-medium">
-                  Plan
-                  <Select value={selectedPlanId} onValueChange={setPlanId}>
-                    <SelectTrigger className="mt-1 w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {plans.map((plan) => (
-                        <SelectItem key={plan.id} value={plan.id}>
-                          {plan.tier}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </label>
-                <label className="text-sm font-medium">
-                  Buyer email
-                  <Input
-                    className="mt-1"
-                    type="email"
-                    placeholder="buyer@example.com"
-                    value={buyerEmail}
-                    onChange={(e) => setBuyerEmail(e.target.value)}
-                  />
-                </label>
-                <Button type="submit" disabled={issue.isPending}>
-                  Issue
+    <Section
+      title="Licenses"
+      action={
+        <>
+          {plans.length > 0 && (
+            <Dialog open={open} onOpenChange={setOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" aria-label="Issue a license">
+                  <Plus /> <span className="hidden sm:inline">Issue a license</span>
                 </Button>
-              </form>
-            </DialogContent>
-          </Dialog>
-        )}
-      </CardHeader>
-      <CardContent>
-        {licenses.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No licenses yet. They appear here as your Stripe webhook fulfills purchases, or when you issue one
-            manually.
-          </p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Key</TableHead>
-                <TableHead>Plan</TableHead>
-                <TableHead>Buyer</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead>Issued</TableHead>
-                <TableHead />
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Issue a license</DialogTitle>
+                </DialogHeader>
+                <form
+                  className="flex flex-col gap-3"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    if (selectedPlanId && buyerEmail.trim()) issue.mutate()
+                  }}
+                >
+                  <label className="text-sm font-medium">
+                    Plan
+                    <Select value={selectedPlanId} onValueChange={setPlanId}>
+                      <SelectTrigger className="mt-1 w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {plans.map((plan) => (
+                          <SelectItem key={plan.id} value={plan.id}>
+                            {plan.tier}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </label>
+                  <label className="text-sm font-medium">
+                    Buyer email
+                    <Input
+                      className="mt-1"
+                      type="email"
+                      placeholder="buyer@example.com"
+                      value={buyerEmail}
+                      onChange={(e) => setBuyerEmail(e.target.value)}
+                    />
+                  </label>
+                  <Button type="submit" disabled={issue.isPending}>
+                    Issue
+                  </Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+          )}
+        </>
+      }
+    >
+      {licenses.length === 0 ? (
+        <p className={sectionEmptyClass}>
+          No licenses yet. They appear here as your Stripe webhook fulfills purchases, or when you issue one manually.
+        </p>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Key</TableHead>
+              <TableHead>Plan</TableHead>
+              <TableHead>Buyer</TableHead>
+              <TableHead>Amount</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Source</TableHead>
+              <TableHead>Issued</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {licenses.map((license) => (
+              <TableRow key={license.id}>
+                <TableCell>
+                  <code className="text-xs">{license.key}</code>
+                </TableCell>
+                <TableCell>
+                  <Badge variant="secondary">{license.tier}</Badge>
+                </TableCell>
+                <TableCell className="text-muted-foreground">{license.buyerEmail}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {formatAmount(license.amountTotal, license.currency)}
+                </TableCell>
+                <TableCell>
+                  {license.status === 'active' ? (
+                    <span className="text-muted-foreground">active</span>
+                  ) : (
+                    <Badge variant="destructive">{license.status}</Badge>
+                  )}
+                </TableCell>
+                <TableCell className="text-muted-foreground">{license.source.replace('_webhook', '')}</TableCell>
+                <TableCell className="text-muted-foreground">{formatDate(license.createdAt)}</TableCell>
+                <TableCell>
+                  <DevicesDialog license={license} />
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {licenses.map((license) => (
-                <TableRow key={license.id}>
-                  <TableCell>
-                    <code className="text-xs">{license.key}</code>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{license.tier}</Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{license.buyerEmail}</TableCell>
-                  <TableCell className="text-muted-foreground">{formatAmount(license.amountTotal, license.currency)}</TableCell>
-                  <TableCell>
-                    {license.status === 'active' ? (
-                      <span className="text-muted-foreground">active</span>
-                    ) : (
-                      <Badge variant="destructive">{license.status}</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{license.source.replace('_webhook', '')}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {formatDate(license.createdAt)}
-                  </TableCell>
-                  <TableCell>
-                    <DevicesDialog license={license} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-        {licensesPages.hasNextPage && (
-          <div className="mt-3 flex justify-center">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={licensesPages.isFetchingNextPage}
-              onClick={() => void licensesPages.fetchNextPage()}
-            >
-              Show more
-            </Button>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+      {licensesPages.hasNextPage && (
+        <div className="flex justify-center border-t border-border/60 px-5 py-3">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={licensesPages.isFetchingNextPage}
+            onClick={() => void licensesPages.fetchNextPage()}
+          >
+            Show more
+          </Button>
+        </div>
+      )}
+    </Section>
   )
 }
 
@@ -448,9 +453,7 @@ export function DevicesDialog({ license }: { license: LicenseRow }) {
                     <code className="text-xs">{device.deviceFingerprint.slice(0, 13)}…</code>
                     <p className="text-xs text-muted-foreground">
                       activated {formatDate(device.activatedAt)}
-                      {device.lastHeartbeatAt
-                        ? ` · last seen ${formatDate(device.lastHeartbeatAt)}`
-                        : ''}
+                      {device.lastHeartbeatAt ? ` · last seen ${formatDate(device.lastHeartbeatAt)}` : ''}
                     </p>
                   </div>
                   <Button

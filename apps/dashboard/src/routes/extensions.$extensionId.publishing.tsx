@@ -1,10 +1,14 @@
 import { timelineQuery } from '@/queries'
+import { StoreStatusSection } from '@/StoreStatus'
 import { useQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { TargetsSection, VersionMatrixSection } from './extensions.$extensionId'
 
 export const Route = createFileRoute('/extensions/$extensionId/publishing')({ component: PublishingPage })
 
+// Order follows the questions a visit usually answers: where does each store
+// stand right now → how did recent versions roll out → (rarely) which listing
+// IDs and credentials are wired up.
 function PublishingPage() {
   const { extensionId } = Route.useParams()
   // Same query VersionMatrixSection already makes — React Query dedupes by
@@ -14,8 +18,8 @@ function PublishingPage() {
   const hasPushedBefore = (timeline?.versions.length ?? 0) > 0
 
   return (
-    <div className="space-y-6">
-      <TargetsSection extensionId={extensionId} />
+    <div className="space-y-8">
+      <StoreStatusSection extensionId={extensionId} />
       {!hasPushedBefore && (
         <p className="text-sm text-muted-foreground">
           Haven't pushed a build yet?{' '}
@@ -31,6 +35,7 @@ function PublishingPage() {
         </p>
       )}
       <VersionMatrixSection extensionId={extensionId} />
+      <TargetsSection extensionId={extensionId} />
     </div>
   )
 }

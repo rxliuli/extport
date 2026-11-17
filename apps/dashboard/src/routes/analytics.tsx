@@ -1,6 +1,13 @@
 import { activitySeries, BROWSER_COLORS, byDate, lastNDays, shortDate } from '@/AnalyticsSection'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/extra/card'
-import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
+import { EmptyBox, PageHeader, Section, sectionBodyClass, sectionEmptyClass, StatTile } from '@/components/Section'
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from '@/components/ui/chart'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { fleetAnalyticsExtensionsQuery, fleetAnalyticsOverviewQuery, fleetAnalyticsSeriesQuery } from '@/queries'
@@ -32,10 +39,18 @@ function AnalyticsPage() {
   const activity = activitySeries(totalRows, domain)
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      <PageHeader
+        title="Analytics"
+        description="Anonymous daily pings from every install, combined across all four stores."
+      />
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Weekly active users" hint="rolling 7 days, same as the chart" value={overview ? String(overview.weeklyActives) : '—'} />
+        <StatCard
+          label="Weekly active users"
+          hint="rolling 7 days, same as the chart"
+          value={overview ? String(overview.weeklyActives) : '—'}
+        />
         <StatCard label="All-time installs" value={overview ? String(overview.allTimeInstalls) : '—'} />
         <StatCard label="Extensions reporting" value={overview ? String(overview.extensionsReporting) : '—'} />
       </div>
@@ -43,29 +58,23 @@ function AnalyticsPage() {
       {isPending ? (
         <Skeleton className="h-64 w-full" />
       ) : totalRows.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>No analytics yet</CardTitle>
-            <CardDescription>
-              Counting starts once a release ships <code>@extport/sdk/analytics</code> (or the{' '}
-              <code>@wxt-dev/analytics</code> provider) — one anonymous ping per install per day, nothing else.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <EmptyBox title="No analytics yet">
+          Counting starts once a release ships <code>@extport/sdk/analytics</code> (or the{' '}
+          <code>@wxt-dev/analytics</code> provider) — one anonymous ping per install per day, nothing else.
+        </EmptyBox>
       ) : (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle>Active users</CardTitle>
-              <CardDescription>
-                Weekly actives (rolling 7 days) across every extension, one line per store. Days are UTC.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+          <Section
+            title="Active users"
+            description="Weekly actives (rolling 7 days) across every extension, one line per store. Days are UTC."
+          >
+            <div className={sectionBodyClass}>
               <ChartContainer
-                config={Object.fromEntries(
-                  activity.browsers.map((b) => [b, { label: b, color: BROWSER_COLORS[b] }]),
-                ) satisfies ChartConfig}
+                config={
+                  Object.fromEntries(
+                    activity.browsers.map((b) => [b, { label: b, color: BROWSER_COLORS[b] }]),
+                  ) satisfies ChartConfig
+                }
                 className="h-64 w-full"
               >
                 <LineChart data={activity.data} margin={{ left: 4, right: 4 }}>
@@ -86,17 +95,14 @@ function AnalyticsPage() {
                   ))}
                 </LineChart>
               </ChartContainer>
-            </CardContent>
-          </Card>
+            </div>
+          </Section>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Installs</CardTitle>
-              <CardDescription>
-                Summed across every extension: one bar per day for installs first seen that day. Same-day exact.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+          <Section
+            title="Installs"
+            description="Summed across every extension: one bar per day for installs first seen that day. Same-day exact."
+          >
+            <div className={sectionBodyClass}>
               <ChartContainer
                 config={{
                   installs: { label: 'Installs', color: 'var(--chart-2)' },
@@ -108,68 +114,60 @@ function AnalyticsPage() {
                   <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={shortDate} minTickGap={32} />
                   <YAxis tickLine={false} axisLine={false} width={40} allowDecimals={false} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="installs" fill="var(--color-installs)" radius={2} maxBarSize={40} isAnimationActive={false} />
+                  <Bar
+                    dataKey="installs"
+                    fill="var(--color-installs)"
+                    radius={2}
+                    maxBarSize={40}
+                    isAnimationActive={false}
+                  />
                 </BarChart>
               </ChartContainer>
-            </CardContent>
-          </Card>
+            </div>
+          </Section>
         </>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>By extension</CardTitle>
-          <CardDescription>Every extension reporting analytics, ranked by weekly actives.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {extensionsPending ? (
+      <Section title="By extension" description="Every extension reporting analytics, ranked by weekly actives.">
+        {extensionsPending ? (
+          <div className={sectionBodyClass}>
             <Skeleton className="h-32 w-full" />
-          ) : extensions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No extensions reporting analytics yet.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Extension</TableHead>
-                  <TableHead>Weekly actives</TableHead>
-                  <TableHead>All-time installs</TableHead>
+          </div>
+        ) : extensions.length === 0 ? (
+          <p className={sectionEmptyClass}>No extensions reporting analytics yet.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Extension</TableHead>
+                <TableHead>Weekly actives</TableHead>
+                <TableHead>All-time installs</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {extensions.map((e) => (
+                <TableRow key={e.extensionId}>
+                  <TableCell>
+                    <Link
+                      to="/extensions/$extensionId/analytics"
+                      params={{ extensionId: e.extensionId }}
+                      className="font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      {e.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell>{e.weeklyActives}</TableCell>
+                  <TableCell className="text-muted-foreground">{e.allTimeInstalls}</TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {extensions.map((e) => (
-                  <TableRow key={e.extensionId}>
-                    <TableCell>
-                      <Link
-                        to="/extensions/$extensionId/analytics"
-                        params={{ extensionId: e.extensionId }}
-                        className="font-medium text-primary underline-offset-4 hover:underline"
-                      >
-                        {e.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell>{e.weeklyActives}</TableCell>
-                    <TableCell className="text-muted-foreground">{e.allTimeInstalls}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Section>
     </div>
   )
 }
 
 function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <Card className="gap-1 py-4">
-      <CardHeader className="px-4">
-        <CardDescription>{label}</CardDescription>
-      </CardHeader>
-      <CardContent className="px-4">
-        <p className="text-xl font-semibold tracking-tight">{value}</p>
-        {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
-      </CardContent>
-    </Card>
-  )
+  return <StatTile label={label} value={value} hint={hint} />
 }

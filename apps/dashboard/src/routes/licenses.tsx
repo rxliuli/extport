@@ -1,7 +1,7 @@
 import { shortDate } from '@/AnalyticsSection'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/extra/card'
+import { PageHeader, Section, sectionBodyClass, sectionEmptyClass, sectionToolbarClass } from '@/components/Section'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -34,14 +34,15 @@ function LicensesPage() {
   const licenses = pages.data?.pages.flatMap((p) => p.licenses) ?? []
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      <PageHeader title="Licenses" description="Sales and activations across all your extensions." />
 
       {overview.data && (
         // *:min-w-0 — grid items default to min-width:auto, and recharts
         // pins a measured pixel width on its wrapper, so without this the
         // track can never shrink below the chart's last width and the
         // whole page scrolls sideways on phones.
-        <div className="grid gap-6 *:min-w-0 lg:grid-cols-2">
+        <div className="grid gap-8 *:min-w-0 lg:grid-cols-2">
           <TrendCard
             title="Revenue"
             overview={overview.data}
@@ -52,12 +53,8 @@ function LicensesPage() {
         </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>All licenses</CardTitle>
-          <CardDescription>Every license across your extensions, newest first.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <Section title="All licenses" description="Every license across your extensions, newest first.">
+        <div className={sectionToolbarClass}>
           <InputGroup className="max-w-md">
             <InputGroupAddon>
               <Search />
@@ -80,79 +77,79 @@ function LicensesPage() {
               </InputGroupAddon>
             )}
           </InputGroup>
+        </div>
 
-          {licenses.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              {pages.isPending ? 'Loading…' : search ? 'No license matches your search.' : 'No licenses yet.'}
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Key</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Plan</TableHead>
-                  <TableHead>Buyer</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Issued</TableHead>
-                  <TableHead />
+        {licenses.length === 0 ? (
+          <p className={sectionEmptyClass}>
+            {pages.isPending ? 'Loading…' : search ? 'No license matches your search.' : 'No licenses yet.'}
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Key</TableHead>
+                <TableHead>Product</TableHead>
+                <TableHead>Plan</TableHead>
+                <TableHead>Buyer</TableHead>
+                <TableHead>Amount</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Source</TableHead>
+                <TableHead>Issued</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {licenses.map((license) => (
+                <TableRow key={license.id}>
+                  <TableCell>
+                    <code className="text-xs">{license.key}</code>
+                  </TableCell>
+                  <TableCell>
+                    <Link
+                      to="/extensions/$extensionId/licensing"
+                      params={{ extensionId: license.extensionId }}
+                      className="underline-offset-4 hover:underline"
+                    >
+                      {license.extensionName}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="secondary">{license.tier}</Badge>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{license.buyerEmail}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {formatAmount(license.amountTotal, license.currency)}
+                  </TableCell>
+                  <TableCell>
+                    {license.status === 'active' ? (
+                      <span className="text-muted-foreground">active</span>
+                    ) : (
+                      <Badge variant="destructive">{license.status}</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{license.source.replace('_webhook', '')}</TableCell>
+                  <TableCell className="text-muted-foreground">{formatDate(license.createdAt)}</TableCell>
+                  <TableCell>
+                    <DevicesDialog license={license} />
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {licenses.map((license) => (
-                  <TableRow key={license.id}>
-                    <TableCell>
-                      <code className="text-xs">{license.key}</code>
-                    </TableCell>
-                    <TableCell>
-                      <Link
-                        to="/extensions/$extensionId/licensing"
-                        params={{ extensionId: license.extensionId }}
-                        className="underline-offset-4 hover:underline"
-                      >
-                        {license.extensionName}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">{license.tier}</Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{license.buyerEmail}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatAmount(license.amountTotal, license.currency)}
-                    </TableCell>
-                    <TableCell>
-                      {license.status === 'active' ? (
-                        <span className="text-muted-foreground">active</span>
-                      ) : (
-                        <Badge variant="destructive">{license.status}</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{license.source.replace('_webhook', '')}</TableCell>
-                    <TableCell className="text-muted-foreground">{formatDate(license.createdAt)}</TableCell>
-                    <TableCell>
-                      <DevicesDialog license={license} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-          {pages.hasNextPage && (
-            <div className="flex justify-center">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={pages.isFetchingNextPage}
-                onClick={() => void pages.fetchNextPage()}
-              >
-                Show more
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        {pages.hasNextPage && (
+          <div className="flex justify-center border-t border-border/60 px-5 py-3">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pages.isFetchingNextPage}
+              onClick={() => void pages.fetchNextPage()}
+            >
+              Show more
+            </Button>
+          </div>
+        )}
+      </Section>
     </div>
   )
 }
@@ -182,30 +179,31 @@ function TrendCard({
   const prevTotal = metric === 'revenue' ? overview.totals.prevRevenue : overview.totals.prevCount
   const delta = prevTotal > 0 ? ((total - prevTotal) / prevTotal) * 100 : null
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
-        <p className="text-2xl font-semibold tracking-tight">{format(total)}</p>
-        <CardDescription>
-          {delta !== null ? (
-            <>
-              <span className={delta < 0 ? 'text-destructive' : 'text-primary'}>
-                {delta >= 0 ? '+' : ''}
-                {delta.toFixed(1)}%
-              </span>{' '}
-              vs. {format(prevTotal)} previous 30 days
-            </>
-          ) : (
-            'Last 30 days — no sales in the 30 days before'
-          )}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+    <Section title={title}>
+      <div className={`space-y-4 ${sectionBodyClass}`}>
+        <div className="space-y-1">
+          <p className="text-2xl font-semibold tracking-tight">{format(total)}</p>
+          <p className="text-sm text-muted-foreground">
+            {delta !== null ? (
+              <>
+                <span className={delta < 0 ? 'text-destructive' : 'text-primary'}>
+                  {delta >= 0 ? '+' : ''}
+                  {delta.toFixed(1)}%
+                </span>{' '}
+                vs. {format(prevTotal)} previous 30 days
+              </>
+            ) : (
+              'Last 30 days — no sales in the 30 days before'
+            )}
+          </p>
+        </div>
         <ChartContainer
-          config={{
-            current: { label: 'Last 30 days', color: 'var(--chart-1)' },
-            previous: { label: 'Previous 30 days', color: 'var(--muted-foreground)' },
-          } satisfies ChartConfig}
+          config={
+            {
+              current: { label: 'Last 30 days', color: 'var(--chart-1)' },
+              previous: { label: 'Previous 30 days', color: 'var(--muted-foreground)' },
+            } satisfies ChartConfig
+          }
           className="h-48 w-full"
         >
           <LineChart data={data} margin={{ left: 4, right: 4 }}>
@@ -234,7 +232,13 @@ function TrendCard({
                 />
               }
             />
-            <Line dataKey="current" stroke="var(--color-current)" strokeWidth={2} dot={false} isAnimationActive={false} />
+            <Line
+              dataKey="current"
+              stroke="var(--color-current)"
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+            />
             <Line
               dataKey="previous"
               stroke="var(--color-previous)"
@@ -245,7 +249,7 @@ function TrendCard({
             />
           </LineChart>
         </ChartContainer>
-      </CardContent>
-    </Card>
+      </div>
+    </Section>
   )
 }
