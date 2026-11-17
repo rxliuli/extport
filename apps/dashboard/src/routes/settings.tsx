@@ -124,25 +124,39 @@ function ApiKeysSection() {
   )
 }
 
-const CREDENTIAL_FIELDS: Record<CredentialRow['store'], { key: string; label: string; textarea?: boolean }[]> = {
+// `rotates` marks what a routine rotation actually replaces; the rest are
+// account identifiers that stay put, so the Rotate dialog keeps them (the
+// API merges omitted fields from the stored credential) behind a "Change".
+const CREDENTIAL_FIELDS: Record<
+  CredentialRow['store'],
+  { key: string; label: string; textarea?: boolean; rotates?: boolean }[]
+> = {
   chrome: [
     { key: 'publisherId', label: 'Publisher ID' },
     { key: 'clientEmail', label: 'Service Account Email' },
-    { key: 'privateKey', label: 'Service Account Private Key', textarea: true },
+    { key: 'privateKey', label: 'Service Account Private Key', textarea: true, rotates: true },
   ],
   firefox: [
-    { key: 'jwtIssuer', label: 'JWT Issuer' },
-    { key: 'jwtSecret', label: 'JWT Secret' },
+    { key: 'jwtIssuer', label: 'JWT Issuer', rotates: true },
+    { key: 'jwtSecret', label: 'JWT Secret', rotates: true },
   ],
   edge: [
     { key: 'clientId', label: 'Client ID' },
-    { key: 'apiKey', label: 'API Key' },
+    { key: 'apiKey', label: 'API Key', rotates: true },
   ],
   safari: [
-    { key: 'keyId', label: 'Key ID' },
+    { key: 'keyId', label: 'Key ID', rotates: true },
     { key: 'issuerId', label: 'Issuer ID' },
-    { key: 'privateKeyP8', label: '.p8 Private Key', textarea: true },
+    { key: 'privateKeyP8', label: '.p8 Private Key', textarea: true, rotates: true },
   ],
+}
+
+/** Edge Partner Center API keys last ~72 days — prefilled so the tenant only confirms. */
+function defaultEdgeExpiry(): Date {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() + 72)
+  return d
 }
 
 const STORE_OPTION_LABEL: Record<CredentialRow['store'], string> = {
@@ -158,18 +172,21 @@ const CREDENTIAL_STATUS_CLASS: Record<CredentialRow['status'], string> = {
   invalid: 'text-red-600 dark:text-red-400',
 }
 
-// Shared by the "Add credential" form and the inline "Rotate" form — same
-// fields either way, since rotating is just providing a fresh secret for the
-// same store, verified the same way a new credential would be.
+// Shared by the "Add credential" form and the "Rotate" dialog. Rotating
+// only asks for the fields that actually rotate; the stable identifiers are
+// kept server-side unless the tenant explicitly opens them up to change.
 function CredentialFieldInputs({
   store,
   fields,
   onChange,
+  rotating = false,
 }: {
   store: CredentialRow['store']
   fields: Record<string, string>
   onChange: (fields: Record<string, string>) => void
+  rotating?: boolean
 }) {
+  const [unlocked, setUnlocked] = useState<string[]>([])
   return (
     <>
       <p className="text-sm text-muted-foreground">
@@ -182,26 +199,32 @@ function CredentialFieldInputs({
           How to get these credentials
         </a>
       </p>
-      {CREDENTIAL_FIELDS[store].map((f) =>
-        f.textarea ? (
-          <Textarea
-            key={f.key}
-            rows={5}
-            placeholder={f.label}
-            value={fields[f.key] ?? ''}
-            onChange={(e) => onChange({ ...fields, [f.key]: e.target.value })}
-            required
-          />
+      {CREDENTIAL_FIELDS[store].map((f) => {
+        const kept = rotating && !f.rotates
+        if (kept && !unlocked.includes(f.key)) {
+          return (
+            <div key={f.key} className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-muted-foreground">
+                {f.label} <span className="text-foreground">· keeps current value</span>
+              </span>
+              <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => setUnlocked([...unlocked, f.key])}>
+                Change
+              </Button>
+            </div>
+          )
+        }
+        const props = {
+          placeholder: kept ? `${f.label} (empty keeps current)` : f.label,
+          value: fields[f.key] ?? '',
+          required: !kept,
+          'data-rotates': rotating && f.rotates ? '' : undefined,
+        }
+        return f.textarea ? (
+          <Textarea key={f.key} rows={5} {...props} onChange={(e) => onChange({ ...fields, [f.key]: e.target.value })} />
         ) : (
-          <Input
-            key={f.key}
-            placeholder={f.label}
-            value={fields[f.key] ?? ''}
-            onChange={(e) => onChange({ ...fields, [f.key]: e.target.value })}
-            required
-          />
-        ),
-      )}
+          <Input key={f.key} {...props} onChange={(e) => onChange({ ...fields, [f.key]: e.target.value })} />
+        )
+      })}
     </>
   )
 }
@@ -234,7 +257,7 @@ function CredentialsSection() {
     onSuccess: () => {
       setFields({})
       setLabel('')
-      setExpiresAt(undefined)
+      setExpiresAt(store === 'edge' ? defaultEdgeExpiry() : undefined)
       setAddOpen(false)
       void invalidate()
     },
@@ -316,6 +339,7 @@ function CredentialsSection() {
                 onValueChange={(value: string) => {
                   setStore(value as CredentialRow['store'])
                   setFields({})
+                  setExpiresAt(value === 'edge' ? defaultEdgeExpiry() : undefined)
                 }}
               >
                 <SelectTrigger className="w-full">
@@ -376,7 +400,7 @@ function CredentialsSection() {
                       <DropdownMenuItem
                         onSelect={() => {
                           setRotateFields({})
-                          setRotateExpiresAt(undefined)
+                          setRotateExpiresAt(row.store === 'edge' ? defaultEdgeExpiry() : undefined)
                           setRotatingId(row.id)
                         }}
                       >
@@ -401,7 +425,16 @@ function CredentialsSection() {
       {rows.length === 0 && <p className={sectionEmptyClass}>No credentials yet.</p>}
 
       <Dialog open={rotatingId !== null} onOpenChange={(open: boolean) => !open && setRotatingId(null)}>
-        <DialogContent>
+        <DialogContent
+          // Radix would focus the first tabbable — a kept field's "Change" — instead of what's being rotated.
+          onOpenAutoFocus={(e: Event) => {
+            const field = (e.currentTarget as HTMLElement).querySelector<HTMLElement>('[data-rotates]')
+            if (field) {
+              e.preventDefault()
+              field.focus()
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle>
               Rotate{' '}
@@ -418,9 +451,16 @@ function CredentialsSection() {
             >
               <p className="text-xs text-muted-foreground">
                 New {STORE_OPTION_LABEL[rotatingRow.store]} credentials — verified the same way as adding one, kept
-                under the same id so nothing referencing it needs to change.
+                under the same id so nothing referencing it needs to change. Fields you don't fill in keep their
+                current value.
               </p>
-              <CredentialFieldInputs store={rotatingRow.store} fields={rotateFields} onChange={setRotateFields} />
+              <CredentialFieldInputs
+                key={rotatingRow.id}
+                store={rotatingRow.store}
+                fields={rotateFields}
+                onChange={setRotateFields}
+                rotating
+              />
               {rotatingRow.store === 'edge' && (
                 <div className="grid gap-1.5">
                   <Label htmlFor="rotate-expiry" className="text-xs text-muted-foreground">

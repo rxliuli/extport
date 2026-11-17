@@ -156,14 +156,17 @@ const patchBodySchema = v.object({
 
 // Rotates the secret in place — same id, so any publish_target referencing
 // it keeps working with no re-linking. The store itself can't change (that's
-// a different credential, not a rotation); everything else about creating
-// one applies unchanged: fresh input verified against the live store API,
-// never the previous plaintext.
+// a different credential, not a rotation). Fields left out (or empty) keep
+// their current value — rotating Edge is a new apiKey under the same
+// clientId, so making the tenant re-enter the unchanged half only invites
+// typos. The merge happens here, never in the browser, so nothing secret
+// ever leaves the server; the merged result is verified against the live
+// store exactly like a new credential, so a mismatched mix never persists.
 route.patch(
   '/:id',
   describeRoute({
     summary: 'Rotate a store credential',
-    description: 'Same shape as adding one — verified the same way, kept under the same id.',
+    description: 'Same shape as adding one, except omitted or empty fields keep their current value — verified the same way, kept under the same id.',
     tags: ['Store credentials'],
     security: [{ session: [] }],
     responses: {
@@ -185,9 +188,29 @@ route.patch(
     const body = c.req.valid('json')
     const expiresAt = body.expiresAt !== undefined ? body.expiresAt : row.expiresAt
 
+    const provided: Record<string, string> = {}
+    if (typeof body.credentials === 'object' && body.credentials !== null) {
+      for (const [key, value] of Object.entries(body.credentials)) {
+        if (typeof value === 'string' && value.trim()) provided[key] = value
+      }
+    }
+    if (Object.keys(provided).length === 0) {
+      return c.json({ error: 'nothing to rotate — provide at least one new credential field' }, 400)
+    }
+
+    const dek = await tenantDek(c.env, tenant)
+    // An undecryptable current payload just means nothing to inherit — the
+    // tenant then has to supply every field, and parseCredentials says which.
+    let current: Record<string, unknown> = {}
+    try {
+      current = (await decryptJson(dek, row.encryptedPayload)) as Record<string, unknown>
+    } catch {
+      // fall through with nothing inherited
+    }
+
     let parsed
     try {
-      parsed = parseCredentials(row.store, body.credentials)
+      parsed = parseCredentials(row.store, { ...current, ...provided })
     } catch (err) {
       if (err instanceof CredentialValidationError) return c.json({ error: err.message }, 400)
       throw err
@@ -203,7 +226,6 @@ route.patch(
       return c.json({ error: 'credential verification failed', reason: check.reason }, 422)
     }
 
-    const dek = await tenantDek(c.env, tenant)
     const encryptedPayload = await encryptJson(dek, parsed)
     const finalExpiresAt = check.expiresAt ? check.expiresAt.toISOString() : expiresAt
 

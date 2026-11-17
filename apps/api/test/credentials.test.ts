@@ -323,6 +323,42 @@ describe('credentials', () => {
     expect(after!.hint).toBe(before!.hint)
   })
 
+  it('rotating with only some fields keeps the rest — Edge: new apiKey, same clientId', async () => {
+    stubStoreApi(404, 'not found')
+    const { db, sessionCookie, tenantId } = await seedTenantWithUser()
+    const created = (await (
+      await post(sessionCookie, JSON.stringify({ store: 'edge', credentials: { clientId: 'client-kept', apiKey: 'edge-key-1234' } }))
+    ).json()) as { credential: { id: string } }
+
+    const res = await request(`/api/v1/credentials/${created.credential.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ credentials: { clientId: '', apiKey: 'edge-key-5678' } }),
+    })
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { credential: { hint: string } }).credential.hint).toBe('5678')
+
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId))
+    const [row] = await db.select().from(storeCredentials).where(eq(storeCredentials.id, created.credential.id))
+    const decrypted = await decryptJson<{ clientId: string; apiKey: string }>(await tenantDek(env, tenant!), row!.encryptedPayload)
+    expect(decrypted).toEqual({ clientId: 'client-kept', apiKey: 'edge-key-5678' })
+  })
+
+  it('refuses a rotation that provides no new field', async () => {
+    stubStoreApi(404, 'not found')
+    const { sessionCookie } = await seedTenantWithUser()
+    const created = (await (
+      await post(sessionCookie, JSON.stringify({ store: 'edge', credentials: { clientId: 'c', apiKey: 'edge-key-1234' } }))
+    ).json()) as { credential: { id: string } }
+
+    const res = await request(`/api/v1/credentials/${created.credential.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ credentials: { apiKey: '  ' } }),
+    })
+    expect(res.status).toBe(400)
+  })
+
   it('404s rotating a credential that does not exist', async () => {
     const { sessionCookie } = await seedTenantWithUser()
     const res = await request(`/api/v1/credentials/${newId('storeCredential')}`, {
