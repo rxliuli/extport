@@ -61,8 +61,42 @@ async function makeP8(): Promise<string> {
   return `-----BEGIN PRIVATE KEY-----\n${btoa(binary)}\n-----END PRIVATE KEY-----`
 }
 
-// Static test-only RSA key (openssl genpkey) — see credentials.test.ts for provenance.
+// Chrome credential verification signs a real JWT-bearer assertion before
+// the stubbed fetch, so it needs a real PKCS8 RSA key.
+async function makeRsaPem(): Promise<string> {
+  const pair = (await crypto.subtle.generateKey(
+    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true,
+    ['sign'],
+  )) as CryptoKeyPair
+  const pkcs8 = new Uint8Array((await crypto.subtle.exportKey('pkcs8', pair.privateKey)) as ArrayBuffer)
+  let binary = ''
+  for (const b of pkcs8) binary += String.fromCharCode(b)
+  return `-----BEGIN PRIVATE KEY-----\n${btoa(binary)}\n-----END PRIVATE KEY-----`
+}
+
 describe('publish targets', () => {
+  it('lists each target with a developer-console deep link, Chrome using the publisherId from its credential', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const chrome = await createCredential(sessionCookie, 'chrome', {
+      publisherId: 'pub-0000abcd',
+      clientEmail: 'extport@my-project.iam.gserviceaccount.com',
+      privateKey: await makeRsaPem(),
+    })
+    const edge = await createCredential(sessionCookie, 'edge', EDGE_FIELDS)
+    expect((await addTarget(extension.id, sessionCookie, { store: 'chrome', storeItemId: 'abcdefghijklmnop', credentialId: chrome.id })).status).toBe(201)
+    expect((await addTarget(extension.id, sessionCookie, { store: 'edge', storeItemId: 'product-1', credentialId: edge.id })).status).toBe(201)
+
+    const res = await request(`/api/v1/extensions/${extension.id}/targets`, { headers: { cookie: sessionCookie } })
+    const { targets } = (await res.json()) as { targets: Array<{ store: string; consoleUrl: string }> }
+    const byStore = Object.fromEntries(targets.map((t) => [t.store, t.consoleUrl]))
+    expect(byStore).toEqual({
+      chrome: 'https://chrome.google.com/webstore/devconsole/pub-0000abcd/abcdefghijklmnop/edit',
+      edge: 'https://partner.microsoft.com/en-us/dashboard/microsoftedge/product-1/packages/dashboard',
+    })
+  })
+
   it('creates, lists, updates, and deletes a target scoped to the extension', async () => {
     const { sessionCookie } = await seedTenantWithUser()
     const extension = await createExtension(sessionCookie)

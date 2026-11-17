@@ -6,6 +6,7 @@ import { describeRoute, resolver, validator } from 'hono-openapi'
 import * as v from 'valibot'
 import { artifacts, deploymentVersions, extensions, licenses, plans, publishEvents, publishTargets, storeCredentials, type Db } from '../db'
 import { tenantDek } from '../lib/kms'
+import { storeConsoleUrl } from '../lib/store-links'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
 import { enqueueReconcile, queueLatestArtifact } from '../reconcile/queue'
@@ -301,6 +302,30 @@ route.get(
       else versionsByStore.set(v.store, [v])
     }
 
+    // Chrome's console deep link needs the publisherId, which only lives
+    // inside the encrypted credential — decrypt once per distinct Chrome
+    // credential. Best-effort: a credential that fails to decrypt just gets
+    // storeConsoleUrl's public-listing fallback, never a failed request.
+    const publisherIds = new Map<string, string>()
+    const chromeCredentials = new Map(rows.filter((r) => r.target.store === 'chrome').map((r) => [r.credential.id, r.credential]))
+    if (chromeCredentials.size > 0) {
+      try {
+        const dek = await tenantDek(c.env, tenant)
+        await Promise.all(
+          Array.from(chromeCredentials.values(), async (credential) => {
+            try {
+              const { publisherId } = (await decryptJson(dek, credential.encryptedPayload)) as { publisherId?: unknown }
+              if (typeof publisherId === 'string' && publisherId) publisherIds.set(credential.id, publisherId)
+            } catch {
+              // fall through to the public-listing link
+            }
+          }),
+        )
+      } catch {
+        // no DEK — same fallback
+      }
+    }
+
     return c.json({
       targets: rows.map((r) => ({
         id: r.target.id,
@@ -315,7 +340,19 @@ route.get(
         credentialId: r.credential.id,
         credentialLabel: r.credential.label,
         credentialStatus: r.credential.status,
-        lifecycles: deriveTargetLifecycles(versionsByStore.get(r.target.store) ?? [], r.target.lastErrorDetail),
+        // Target-level link for the "nothing published yet" row; each
+        // lifecycle carries its own so Safari's iOS row opens the iOS side.
+        consoleUrl: storeConsoleUrl(r.target.store, r.target.storeItemId, {
+          platform: r.target.platforms?.[0],
+          publisherId: publisherIds.get(r.credential.id),
+        }),
+        lifecycles: deriveTargetLifecycles(versionsByStore.get(r.target.store) ?? [], r.target.lastErrorDetail).map((l) => ({
+          ...l,
+          consoleUrl: storeConsoleUrl(r.target.store, r.target.storeItemId, {
+            platform: l.platform ?? r.target.platforms?.[0],
+            publisherId: publisherIds.get(r.credential.id),
+          }),
+        })),
       })),
     })
   },

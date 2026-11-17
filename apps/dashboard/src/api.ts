@@ -66,7 +66,9 @@ export interface PublishTarget {
   credentialId: string
   credentialLabel: string
   credentialStatus: 'active' | 'invalid' | 'expiring'
-  lifecycles: TargetLifecycle[]
+  /** Store developer console deep link (computed server-side — Chrome's needs the publisherId inside the encrypted credential). */
+  consoleUrl: string
+  lifecycles: (TargetLifecycle & { consoleUrl: string })[]
 }
 
 /** One row per (extension, store, version) push — the Timeline's main content. See apps/api's deployment_versions table. */

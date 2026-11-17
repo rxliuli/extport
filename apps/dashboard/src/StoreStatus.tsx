@@ -9,21 +9,11 @@ import { ExternalLink } from 'lucide-react'
 
 const DEFAULT_STALE_REVIEW_DAYS: Record<Store, number> = { chrome: 3, firefox: 3, edge: 10, safari: 3 }
 
-/** Where a human goes to see what the store itself says (rejection notes, review state). */
-function consoleLink(target: PublishTarget): { href: string; label: string } {
-  switch (target.store) {
-    case 'chrome':
-      return { href: 'https://chrome.google.com/webstore/devconsole', label: 'Developer Dashboard' }
-    case 'firefox':
-      return {
-        href: `https://addons.mozilla.org/developers/addon/${encodeURIComponent(target.storeItemId)}/versions`,
-        label: 'Developer Hub',
-      }
-    case 'edge':
-      return { href: 'https://partner.microsoft.com/dashboard/microsoftedge/overview', label: 'Partner Center' }
-    case 'safari':
-      return { href: 'https://appstoreconnect.apple.com/apps', label: 'App Store Connect' }
-  }
+const CONSOLE_LABEL: Record<Store, string> = {
+  chrome: 'Developer Dashboard',
+  firefox: 'Developer Hub',
+  edge: 'Partner Center',
+  safari: 'App Store Connect',
 }
 
 type Tone = 'ok' | 'pending' | 'bad' | 'off'
@@ -159,7 +149,7 @@ export function StoreStatusSection({ extensionId }: { extensionId: string }) {
                 lines: [],
                 detail: 'No version has gone through this store yet.',
               }
-          const link = consoleLink(target)
+          const link = { href: lifecycle?.consoleUrl ?? target.consoleUrl, label: CONSOLE_LABEL[target.store] }
           return (
             <li
               key={`${target.id}:${lifecycle?.platform ?? ''}`}
