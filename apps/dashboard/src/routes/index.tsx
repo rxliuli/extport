@@ -1,5 +1,6 @@
 import { api, ApiError, type MatrixExtension, type MatrixTarget, type SafariPlatform, type Store } from '@/api'
 import { classifyFleet, storeName, type ActionItem, type ExtensionHealth } from '@/attention'
+import { RawDetails } from '@/components/RawDetails'
 import { PageHeader } from '@/components/Section'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -199,7 +200,8 @@ function ExtensionsPage() {
                               {item.label}
                             </span>
                           </div>
-                          <p className="text-sm leading-relaxed text-muted-foreground">{item.message}</p>
+                          <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{item.message}</p>
+                          {item.raw && <RawDetails text={item.raw} />}
                         </div>
                         <Button variant="outline" size="sm" asChild className="shrink-0">
                           {item.kind === 'credential' ? (

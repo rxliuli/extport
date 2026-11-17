@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createSafariAdapter } from '../src/safari'
+import { StoreApiError } from '../src/util'
 import { queueFetch, unreachableFetch } from './fetch-stub'
 
 const APP_ID = 'app-123'
@@ -62,6 +63,17 @@ describe('safari adapter — getState', () => {
     const { fetch, calls } = queueFetch([{ status: 500, body: 'oops' }])
     await expect(createSafariAdapter(fetch, FAST_RETRY).getState(await creds(), { storeItemId: APP_ID })).rejects.toThrow(/versions lookup failed/)
     expect(calls).toHaveLength(FAST_RETRY.attempts)
+  })
+
+  it('reports the HTTP status and ASC error code as data, not just text', async () => {
+    const body = { errors: [{ status: '500', code: 'UNEXPECTED_ERROR', title: 'An unexpected error occurred.' }] }
+    const { fetch } = queueFetch([{ status: 500, body }, { status: 500, body }, { status: 500, body }])
+    const err = await createSafariAdapter(fetch, FAST_RETRY)
+      .getState(await creds(), { storeItemId: APP_ID })
+      .catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(StoreApiError)
+    expect(err).toMatchObject({ status: 500, code: 'UNEXPECTED_ERROR' })
+    expect((err as Error).message).toMatch(/^app store connect versions lookup failed \(500\): \{/)
   })
 
   it('retries a transient 5xx and succeeds once the store recovers', async () => {

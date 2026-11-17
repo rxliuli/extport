@@ -1,5 +1,6 @@
 import type { PublishTarget, Store, TargetLifecycle } from './api'
-import { storeName } from './attention'
+import { errorSummary, storeName } from './attention'
+import { RawDetails } from './components/RawDetails'
 import { Section, sectionRowClass } from './components/Section'
 import { Skeleton } from './components/ui/skeleton'
 import { targetsQuery, tenantSettingsQuery } from './queries'
@@ -51,7 +52,7 @@ function describe(
   target: PublishTarget,
   l: TargetLifecycle,
   staleDays: number,
-): { tone: Tone; pill: string; lines: Line[]; detail: string | null } {
+): { tone: Tone; pill: string; lines: Line[]; detail: string | null; raw?: string | null } {
   const lines: Line[] = []
   if (l.liveVersion) lines.push({ label: 'Live', version: l.liveVersion })
 
@@ -97,7 +98,11 @@ function describe(
   }
   if (l.rejectedVersion) lines.push({ label: 'Rejected', version: l.rejectedVersion, tone: 'bad' })
 
-  if (l.status === 'error') return { tone: 'bad', pill: 'Publishing failed', lines, detail: l.statusDetail }
+  if (l.status === 'error') {
+    if (!l.error) return { tone: 'bad', pill: 'Publishing failed', lines, detail: l.statusDetail }
+    const { summary, raw } = errorSummary(target.store, l.error)
+    return { tone: 'bad', pill: 'Publishing failed', lines, detail: summary, raw }
+  }
   if (l.status === 'rejected') return { tone: 'bad', pill: 'Rejected', lines, detail: l.statusDetail }
   if (l.inReviewVersion) {
     const stale = age !== null && age >= staleDays
@@ -192,9 +197,10 @@ export function StoreStatusSection({ extensionId }: { extensionId: string }) {
                 {link.label} <ExternalLink className="size-3.5" aria-hidden="true" />
               </a>
               {info.detail && (
-                <p className="text-sm leading-relaxed text-muted-foreground sm:col-start-3 sm:col-end-5">
-                  {info.detail}
-                </p>
+                <div className="space-y-1 sm:col-start-3 sm:col-end-5">
+                  <p className="text-sm leading-relaxed text-muted-foreground">{info.detail}</p>
+                  {'raw' in info && info.raw && <RawDetails text={info.raw} />}
+                </div>
               )}
             </li>
           )

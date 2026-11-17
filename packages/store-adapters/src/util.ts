@@ -9,6 +9,59 @@ export function truncate(text: string, max = 1000): string {
   return text.length > max ? `${text.slice(0, max)}…` : text
 }
 
+/**
+ * A store API answered with a non-success status. Carries the status and the
+ * store's own error code so reconcile can record them as data (see
+ * TargetError) — the message is the same human/log line it always was.
+ */
+export class StoreApiError extends Error {
+  readonly status: number
+  readonly code: string | null
+  constructor(message: string, status: number, code: string | null = null) {
+    super(message)
+    this.name = 'StoreApiError'
+    this.status = status
+    this.code = code
+  }
+}
+
+/** `${what} (${status}): ${body}` — the message shape every adapter already used. */
+export function storeApiError(what: string, status: number, body?: string): StoreApiError {
+  const message = body === undefined ? `${what} (${status})` : `${what} (${status}): ${truncate(body)}`
+  return new StoreApiError(message, status, errorCode(body))
+}
+
+/** A plain (non-waiting) submit failure from a store API response — same detail text as storeApiError's message. */
+export function submitFailure(
+  what: string,
+  status: number,
+  body: string,
+): { submitted: false; detail: string; status: number; code: string | null } {
+  const err = storeApiError(what, status, body)
+  return { submitted: false, detail: err.message, status, code: err.code }
+}
+
+// Best effort across the stores' error bodies: ASC/JSON:API `errors[0].code`,
+// Google APIs `error.status`, OAuth `error` (a string), plain `code`.
+function errorCode(body: string | undefined): string | null {
+  if (!body) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const p = parsed as { errors?: { code?: unknown }[]; error?: unknown; code?: unknown }
+  const candidates = [
+    Array.isArray(p.errors) ? p.errors[0]?.code : undefined,
+    p.error && typeof p.error === 'object' ? (p.error as { status?: unknown }).status : p.error,
+    p.code,
+  ]
+  const code = candidates.find((c) => typeof c === 'string' && c.length > 0 && c.length <= 64)
+  return (code as string | undefined) ?? null
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }

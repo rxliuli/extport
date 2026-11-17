@@ -1,5 +1,12 @@
-import { compareVersions, DEFAULT_STALE_REVIEW_DAYS, decryptJson, newId, type Store } from '@extport/shared'
-import { getAdapter, type StoreAdapter } from '@extport/store-adapters'
+import {
+  compareVersions,
+  DEFAULT_STALE_REVIEW_DAYS,
+  decryptJson,
+  newId,
+  type Store,
+  type TargetError,
+} from '@extport/shared'
+import { getAdapter, StoreApiError, type StoreAdapter } from '@extport/store-adapters'
 import { and, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
 import {
   artifacts,
@@ -87,6 +94,27 @@ export interface ReconcileSummary {
 // second platform's line before its error code (Redirector, 2026-08-21).
 function truncate(text: string, max = 2500): string {
   return text.length > max ? `${text.slice(0, max)}…` : text
+}
+
+function toTargetError(err: unknown, platform: string | null): TargetError {
+  const message = truncate(err instanceof Error ? err.message : String(err))
+  if (err instanceof StoreApiError) return { platform, status: err.status, code: err.code, message }
+  return { platform, status: null, code: null, message }
+}
+
+/** A target-level failure that isn't a store response (bad credential, missing artifact). */
+function targetError(message: string): TargetError[] {
+  return [{ platform: null, status: null, code: null, message: truncate(message) }]
+}
+
+/** What reconcileOne throws: every failing lifecycle, so each keeps its own status/code. */
+class TargetFailure extends Error {
+  readonly errors: TargetError[]
+  constructor(errors: TargetError[]) {
+    super(errors.map((e) => (e.platform ? `${e.platform}: ${e.message}` : e.message)).join('\n'))
+    this.name = 'TargetFailure'
+    this.errors = errors
+  }
 }
 
 function groupByCredential(rows: JoinedRow[]): JoinedRow[][] {
@@ -239,11 +267,11 @@ async function persistError(
   db: Db,
   notifier: Notifier,
   row: JoinedRow,
-  message: string,
+  errors: TargetError[],
   credentials: unknown = undefined,
   version?: string,
 ): Promise<void> {
-  const detail = truncate(message)
+  const detail = truncate(new TargetFailure(errors).message)
   // The event and the email mark the healthy → erroring TRANSITION, not every
   // failing tick — a credential left broken for a week must not produce 48
   // identical emails a day (cron runs every 30 minutes). Same philosophy as
@@ -255,9 +283,10 @@ async function persistError(
   const isTransition = row.target.lastErrorDetail === null
   await db
     .update(publishTargets)
-    .set({ lastErrorDetail: detail, lastErrorAt: new Date().toISOString() })
+    .set({ lastErrorDetail: detail, lastErrors: errors, lastErrorAt: new Date().toISOString() })
     .where(eq(publishTargets.id, row.target.id))
   row.target.lastErrorDetail = detail
+  row.target.lastErrors = errors
   if (!isTransition) return
 
   await db.insert(publishEvents).values({
@@ -555,7 +584,10 @@ async function reconcileLifecycle(
         .where(eq(deploymentVersions.id, queued!.id))
       return 'noop'
     }
-    throw new Error(result.detail ?? `${target.store} submit failed without a detail message`)
+    const detail = result.detail ?? `${target.store} submit failed without a detail message`
+    throw result.status !== undefined
+      ? new StoreApiError(detail, result.status, result.code ?? null)
+      : new Error(detail)
   }
 
   await db
@@ -604,7 +636,7 @@ async function reconcileOne(
 
   let submitted = false
   let blocked = false
-  const failures: string[] = []
+  const failures: TargetError[] = []
   for (const platform of platforms) {
     const lifecycleRows = versionRows.filter((v) => (v.platform ?? null) === (platform ?? null))
     try {
@@ -615,7 +647,7 @@ async function reconcileOne(
       // One platform's failure must not abandon its siblings — a macOS
       // metadata problem shouldn't stall the iOS submission. Collected and
       // rethrown below so the caller records the target's error as usual.
-      failures.push(platform ? `${platform}: ${(err as Error).message}` : (err as Error).message)
+      failures.push(toTargetError(err, platform ?? null))
     }
   }
 
@@ -627,7 +659,7 @@ async function reconcileOne(
   if (failures.length === 0 && target.lastErrorDetail) {
     await db
       .update(publishTargets)
-      .set({ lastErrorDetail: null, lastErrorAt: null })
+      .set({ lastErrorDetail: null, lastErrors: null, lastErrorAt: null })
       .where(eq(publishTargets.id, target.id))
     await db.insert(publishEvents).values({
       id: newId('publishEvent'),
@@ -638,12 +670,13 @@ async function reconcileOne(
       payload: {},
     })
     target.lastErrorDetail = null
+    target.lastErrors = null
   }
   await db
     .update(publishTargets)
     .set({ lastReconciledAt: new Date().toISOString() })
     .where(eq(publishTargets.id, target.id))
-  if (failures.length > 0) throw new Error(failures.join('\n'))
+  if (failures.length > 0) throw new TargetFailure(failures)
 
   return submitted ? 'submitted' : blocked ? 'blocked' : 'noop'
 }
@@ -806,7 +839,7 @@ export async function runReconciliation(
             db,
             notifier,
             row,
-            `store credential "${credential.label}" failed verification — reverify it in Settings`,
+            targetError(`store credential "${credential.label}" failed verification — reverify it in Settings`),
           ),
         )
         if (outcome === 'skipped') {
@@ -826,7 +859,7 @@ export async function runReconciliation(
     } catch (err) {
       for (const row of group) {
         const outcome = await withTargetLock(db, row, () =>
-          persistError(db, notifier, row, `credential decryption failed: ${(err as Error).message}`),
+          persistError(db, notifier, row, targetError(`credential decryption failed: ${(err as Error).message}`)),
         )
         if (outcome === 'skipped') {
           summary.skipped++
@@ -849,7 +882,8 @@ export async function runReconciliation(
           return await reconcileOne(env, db, notifier, row, credentials, vRows)
         } catch (err) {
           const queuedVersion = vRows.find((v) => v.status === 'queued')?.version
-          await persistError(db, notifier, row, (err as Error).message, credentials, queuedVersion)
+          const errors = err instanceof TargetFailure ? err.errors : [toTargetError(err, null)]
+          await persistError(db, notifier, row, errors, credentials, queuedVersion)
           return 'error' as const
         }
       })

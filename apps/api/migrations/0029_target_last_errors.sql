@@ -1,0 +1,1 @@
+ALTER TABLE `publish_targets` ADD `last_errors` text;

@@ -1,4 +1,4 @@
-import type { MatrixExtension, MatrixTarget, SafariPlatform, Store, TargetLifecycle } from './api'
+import type { MatrixExtension, MatrixTarget, SafariPlatform, Store, TargetError, TargetLifecycle } from './api'
 import { ageDays, formatElapsed } from './status'
 
 /**
@@ -23,6 +23,8 @@ export interface ActionItem {
   label: string
   /** One sentence on what happened and what's live meanwhile. */
   message: string
+  /** The raw store response behind `message`, for a collapsed disclosure. */
+  raw?: string | null
 }
 
 export interface InFlightItem {
@@ -55,6 +57,42 @@ export function storeName(store: Store, platform: SafariPlatform | null): string
   return platform ? `${STORE_LABEL[store]} (${PLATFORM_LABEL[platform]})` : STORE_LABEL[store]
 }
 
+// Who answered — the summary names the store's API, not extport.
+const STORE_API: Record<Store, string> = {
+  chrome: 'Chrome Web Store',
+  firefox: 'addons.mozilla.org',
+  edge: 'Partner Center',
+  safari: 'App Store Connect',
+}
+
+// Past this, an extport-written message is probably carrying a store body
+// too (a submit detail with no status) — still offer the full text.
+const LONG_MESSAGE = 160
+
+/**
+ * A failed publish in one sentence. Store API failures are summarized from
+ * their status and code — a 500 says "the store had a server error", not a
+ * screenful of JSON — with the full response kept for the disclosure.
+ * Everything else is a sentence extport wrote itself and is shown as is.
+ */
+export function errorSummary(store: Store, error: TargetError | null): { summary: string; raw: string | null } {
+  if (!error) return { summary: 'The last publish attempt failed.', raw: null }
+  if (error.status === null) {
+    return { summary: error.message, raw: error.message.length > LONG_MESSAGE ? error.message : null }
+  }
+  const api = STORE_API[store]
+  const what = error.code ? `${error.status} ${error.code}` : String(error.status)
+  const summary =
+    error.status >= 500
+      ? `${api} returned a server error (${what}). The problem is on the store's side; extport keeps retrying.`
+      : error.status === 429
+        ? `${api} is rate limiting requests (${what}); extport keeps retrying.`
+        : error.status === 401 || error.status === 403
+          ? `${api} refused the credential (${what}). Check it in Settings.`
+          : `${api} rejected a request (${what}).`
+  return { summary, raw: error.message }
+}
+
 function liveClause(l: TargetLifecycle): string {
   return l.liveVersion ? `${l.liveVersion} is still live.` : 'Nothing is live on this store yet.'
 }
@@ -69,12 +107,20 @@ function classifyLifecycle(
   const base = { extensionId: ext.id, extensionName: ext.name, store: target.store, platform: l.platform }
 
   if (l.status === 'error') {
+    // An API that predates `error` only has the text.
+    const { summary, raw } = l.error
+      ? errorSummary(target.store, l.error)
+      : errorSummary(
+          target.store,
+          l.statusDetail ? { platform: null, status: null, code: null, message: l.statusDetail } : null,
+        )
     return {
       action: {
         ...base,
         kind: 'error',
         label: 'Publishing failed',
-        message: `${l.statusDetail ?? 'The last publish attempt failed.'} ${liveClause(l)}`,
+        message: `${summary} ${liveClause(l)}`,
+        raw,
       },
     }
   }

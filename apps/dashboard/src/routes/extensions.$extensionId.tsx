@@ -12,6 +12,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { STORE_LABEL as STORE_NAME, storeName } from '@/attention'
+import { RawDetails } from '@/components/RawDetails'
 import { Section, sectionEmptyClass, sectionFooterClass, sectionRowClass } from '@/components/Section'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import {
@@ -577,14 +578,7 @@ export function VersionMatrixSection({ extensionId }: { extensionId: string }) {
                       </span>
                     </div>
                     <p className="text-sm leading-relaxed">{text}</p>
-                    {raw && (
-                      <details className="text-xs text-muted-foreground">
-                        <summary className="cursor-pointer select-none">Raw details</summary>
-                        <pre className="mt-2 rounded-md border bg-muted/50 p-3 font-mono whitespace-pre-wrap break-all text-foreground">
-                          {raw}
-                        </pre>
-                      </details>
-                    )}
+                    {raw && <RawDetails text={raw} />}
                   </div>
                 </li>
               )

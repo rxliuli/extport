@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MatrixExtension, MatrixTarget, Store, TargetLifecycle } from '../src/api'
-import { classifyFleet } from '../src/attention'
+import { classifyFleet, errorSummary } from '../src/attention'
 
 const NOW = new Date('2026-11-17T12:00:00Z').getTime()
 const STALE: Record<Store, number> = { chrome: 3, firefox: 3, edge: 10, safari: 3 }
@@ -15,6 +15,7 @@ function lifecycle(partial: Partial<TargetLifecycle>): TargetLifecycle {
     rejectedVersion: null,
     statusDetail: null,
     submittedAt: null,
+    error: null,
     ...partial,
   }
 }
@@ -126,6 +127,59 @@ describe('classifyFleet', () => {
     )
     expect(actions.map((a) => a.kind)).toEqual(['error', 'rejected', 'credential'])
   })
+  it('summarizes a store server error in a sentence and keeps the raw response aside', () => {
+    const raw = 'version lookup failed (500): { "errors": [{ "code": "UNEXPECTED_ERROR" }] }'
+    const { actions } = classifyFleet(
+      [
+        ext('imp', [
+          target('safari', [
+            lifecycle({ platform: 'macos', liveVersion: '0.2.9' }),
+            lifecycle({
+              platform: 'ios',
+              status: 'error',
+              liveVersion: '0.2.9',
+              statusDetail: raw,
+              error: { platform: 'ios', status: 500, code: 'UNEXPECTED_ERROR', message: raw },
+            }),
+          ]),
+        ]),
+      ],
+      STALE,
+      NOW,
+    )
+    expect(actions).toMatchObject([
+      {
+        platform: 'ios',
+        message:
+          "App Store Connect returned a server error (500 UNEXPECTED_ERROR). The problem is on the store's side; extport keeps retrying. 0.2.9 is still live.",
+        raw,
+      },
+    ])
+  })
+
+  it('shows extport-written errors as is, and falls back to statusDetail without a structured error', () => {
+    expect(
+      errorSummary('chrome', { platform: null, status: null, code: null, message: 'artifact missing from R2' }),
+    ).toEqual({
+      summary: 'artifact missing from R2',
+      raw: null,
+    })
+    const { actions } = classifyFleet(
+      [ext('a', [target('chrome', [lifecycle({ status: 'error', statusDetail: 'boom' })])])],
+      STALE,
+      NOW,
+    )
+    expect(actions[0]).toMatchObject({ message: 'boom 1.0.0 is still live.', raw: null })
+  })
+
+  it.each([
+    [429, 'is rate limiting requests'],
+    [401, 'refused the credential'],
+    [404, 'rejected a request'],
+  ])('words a %i from the store', (status, phrase) => {
+    expect(errorSummary('firefox', { platform: null, status, code: null, message: 'x' }).summary).toContain(phrase)
+  })
+
   it('shows hours for a review under a day old instead of "since today"', () => {
     const { inFlight } = classifyFleet(
       [

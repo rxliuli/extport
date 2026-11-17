@@ -1,6 +1,6 @@
 import type { ChromeCredentials, CredentialCheck, StoreAdapter, StoreState, SubmissionResult, VersionKnowledge } from './types'
 import { signJwtRS256 } from './jwt'
-import { truncate, type FetchLike } from './util'
+import { truncate, type FetchLike, storeApiError, submitFailure } from './util'
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const API_BASE = 'https://chromewebstore.googleapis.com/v2'
@@ -43,7 +43,7 @@ async function requestAccessToken(credentials: ChromeCredentials, fetchImpl: Fet
 
 async function getAccessToken(credentials: ChromeCredentials, fetchImpl: FetchLike): Promise<string> {
   const result = await requestAccessToken(credentials, fetchImpl)
-  if (!result.ok) throw new Error(`google oauth token exchange failed (${result.status}): ${truncate(result.body)}`)
+  if (!result.ok) throw storeApiError('google oauth token exchange failed', result.status, result.body)
   return result.token
 }
 
@@ -55,7 +55,7 @@ async function verifyCredentials(credentials: ChromeCredentials, fetchImpl: Fetc
     return { ok: false, reason: 'invalid service account private key (could not sign JWT)' }
   }
   if (result.ok) return { ok: true }
-  if (result.status >= 500) throw new Error(`google oauth unavailable (${result.status})`)
+  if (result.status >= 500) throw storeApiError('google oauth unavailable', result.status)
   return { ok: false, reason: `service account rejected: ${truncate(result.body)}` }
 }
 
@@ -68,7 +68,7 @@ async function getState(
   const res = await fetchImpl(`${API_BASE}/${itemName(credentials, storeItemId)}:fetchStatus`, {
     headers: { authorization: `Bearer ${token}`, ...API_VERSION_HEADER },
   })
-  if (!res.ok) throw new Error(`chrome fetchStatus failed (${res.status}): ${truncate(await res.text())}`)
+  if (!res.ok) throw storeApiError('chrome fetchStatus failed', res.status, await res.text())
   const body = (await res.json()) as {
     publishedItemRevisionStatus?: { state?: string; distributionChannels?: { crxVersion?: string }[] }
     submittedItemRevisionStatus?: { state?: string; distributionChannels?: { crxVersion?: string }[] }
@@ -127,7 +127,7 @@ async function submit(
     body: artifact,
   })
   if (!uploadRes.ok) {
-    return { submitted: false, detail: `upload failed (${uploadRes.status}): ${truncate(await uploadRes.text())}` }
+    return submitFailure('upload failed', uploadRes.status, await uploadRes.text())
   }
   // V2 upload is synchronous — no polling needed, just check uploadState.
   const uploadBody = (await uploadRes.json()) as { uploadState?: string; itemError?: unknown }
@@ -144,7 +144,7 @@ async function submit(
     body: JSON.stringify({ publishType: 'DEFAULT_PUBLISH' }),
   })
   if (!publishRes.ok) {
-    return { submitted: false, detail: `publish failed (${publishRes.status}): ${truncate(await publishRes.text())}` }
+    return submitFailure('publish failed', publishRes.status, await publishRes.text())
   }
   return { submitted: true }
 }
@@ -156,7 +156,7 @@ async function withdraw(credentials: ChromeCredentials, storeItemId: string, fet
     headers: { authorization: `Bearer ${token}`, ...API_VERSION_HEADER, 'content-type': 'application/json' },
     body: '{}',
   })
-  if (!res.ok) throw new Error(`chrome cancelSubmission failed (${res.status}): ${truncate(await res.text())}`)
+  if (!res.ok) throw storeApiError('chrome cancelSubmission failed', res.status, await res.text())
 }
 
 /**

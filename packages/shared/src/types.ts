@@ -17,6 +17,24 @@ export type DeploymentStatus =
   | 'error'
 
 /**
+ * One failure behind publish_targets.lastErrorDetail, kept structured so the
+ * dashboard can say what happened in a sentence (and show each Safari
+ * platform only its own failure) instead of echoing the raw store response.
+ * lastErrorDetail stays the "is this target erroring" flag and the email
+ * text; this is display data only.
+ */
+export interface TargetError {
+  /** The Safari lifecycle that failed; null = the whole target (credential problems, every non-Safari store). */
+  platform: string | null
+  /** HTTP status the store API answered with — null when the failure wasn't a store API response. */
+  status: number | null
+  /** The store's machine-readable code from the response body, when it sent one (ASC: UNEXPECTED_ERROR). */
+  code: string | null
+  /** Full message, raw store body included — for the "raw details" disclosure. */
+  message: string
+}
+
+/**
  * Only things that aren't about a specific version's lifecycle — see
  * deployment_versions.status for that. error/recovered are transition
  * markers (entering and leaving the error state), never per-tick records.

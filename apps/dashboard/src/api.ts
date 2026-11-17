@@ -16,6 +16,18 @@ export type DeploymentStatus = 'synced' | 'queued' | 'in_review' | 'blocked' | '
 
 export type SafariPlatform = 'macos' | 'ios'
 
+/** One failure behind a lifecycle's error status — see @extport/shared's TargetError. */
+export interface TargetError {
+  /** null = the whole target (credential problems, single-lifecycle stores). */
+  platform: SafariPlatform | null
+  /** HTTP status of the store API response; null when the failure wasn't one. */
+  status: number | null
+  /** The store's own error code, e.g. App Store Connect's UNEXPECTED_ERROR. */
+  code: string | null
+  /** Full message including the raw store response. */
+  message: string
+}
+
 /**
  * One lifecycle's current state. Most stores have exactly one (platform
  * null); Safari has one per platform the app actually ships.
@@ -33,6 +45,8 @@ export interface TargetLifecycle {
   statusDetail: string | null
   /** ISO date string (Date -> JSON) */
   submittedAt: string | null
+  /** Set only while status is 'error' — this lifecycle's own failure. */
+  error: TargetError | null
 }
 
 export interface MatrixTarget {

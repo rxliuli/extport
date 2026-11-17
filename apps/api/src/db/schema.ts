@@ -1,4 +1,4 @@
-import type { TenantSettings } from '@extport/shared'
+import type { TargetError, TenantSettings } from '@extport/shared'
 import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 // No SQL-level FOREIGN KEY constraints anywhere in this schema — every
@@ -185,6 +185,12 @@ export const publishTargets = sqliteTable(
     lastReconciledAt: text('last_reconciled_at'),
     lastErrorDetail: text('last_error_detail'),
     lastErrorAt: text('last_error_at'),
+    // The same failure as lastErrorDetail, one entry per failing lifecycle,
+    // as data (store HTTP status + error code) — for the dashboard only.
+    // lastErrorDetail stays the erroring flag every reconcile decision keys
+    // on. Null on rows that started erroring before this column existed;
+    // readers fall back to the text.
+    lastErrors: text('last_errors', { mode: 'json' }).$type<TargetError[]>(),
     // Claimed by whichever reconcile invocation (cron, post-push, "reconcile
     // now", post-add-target — see runReconciliation's doc comment) gets to
     // this target first, so a second concurrent invocation doesn't also

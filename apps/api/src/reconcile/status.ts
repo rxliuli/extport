@@ -1,4 +1,4 @@
-import { maxVersion, type DeploymentStatus } from '@extport/shared'
+import { maxVersion, type DeploymentStatus, type TargetError } from '@extport/shared'
 import type { DeploymentVersion } from '../db'
 
 export interface DerivedTargetStatus {
@@ -68,24 +68,59 @@ export function deriveTargetStatus(rows: DeploymentVersion[], lastErrorDetail: s
   }
 }
 
-export type TargetLifecycle = { platform: DeploymentVersion['platform'] } & DerivedTargetStatus
+export type TargetLifecycle = {
+  platform: DeploymentVersion['platform']
+  /** This lifecycle's own failure, when the target is erroring and it's one of the lifecycles that failed. */
+  error: TargetError | null
+} & DerivedTargetStatus
+
+/** The publish_targets error fields a lifecycle derivation needs. */
+export interface TargetErrorState {
+  lastErrorDetail: string | null
+  lastErrors: TargetError[] | null
+}
 
 /**
  * A target's rows grouped into lifecycles — one per platform observed in the
  * rows (Safari: macos/ios), or a single unnamed lifecycle for every other
- * store (and for a fresh multi-platform target with no rows yet). The
- * target-level lastErrorDetail applies to every lifecycle: it means
- * reconcile couldn't even reach the store, which is true for all of them.
+ * store (and for a fresh multi-platform target with no rows yet).
+ *
+ * Errors are per lifecycle: a Safari target whose iOS lookup failed while
+ * macOS went through shows the failure on iOS only, with iOS's own message.
+ * An error with platform null (credential problems, every single-lifecycle
+ * store) applies to every lifecycle. A platform that failed before it ever
+ * got a row (its first getState threw) still gets a lifecycle, so the
+ * failure can't go unseen. Targets that started erroring before lastErrors
+ * existed have only the text, which — as before — applies to every lifecycle.
  */
-export function deriveTargetLifecycles(rows: DeploymentVersion[], lastErrorDetail: string | null): TargetLifecycle[] {
+export function deriveTargetLifecycles(rows: DeploymentVersion[], target: TargetErrorState): TargetLifecycle[] {
+  const errors: TargetError[] | null =
+    target.lastErrorDetail === null
+      ? null
+      : target.lastErrors && target.lastErrors.length > 0
+        ? target.lastErrors
+        : [{ platform: null, status: null, code: null, message: target.lastErrorDetail }]
+
   const order = (p: DeploymentVersion['platform']) => (p === null ? 0 : p === 'macos' ? 1 : 2)
-  const platforms = [...new Set(rows.map((v) => v.platform ?? null))].sort((a, b) => order(a) - order(b))
+  const seen = new Set<DeploymentVersion['platform']>(rows.map((v) => v.platform ?? null))
+  for (const e of errors ?? []) {
+    if (e.platform !== null) seen.add(e.platform as DeploymentVersion['platform'])
+  }
+  // A null lifecycle only stands in for "no rows yet" — drop it once a
+  // failing platform has given the target a real one.
+  if (seen.size > 1 && rows.every((v) => v.platform !== null)) seen.delete(null)
+  const platforms = [...seen].sort((a, b) => order(a) - order(b))
   if (platforms.length === 0) platforms.push(null)
-  return platforms.map((platform) => ({
-    platform,
-    ...deriveTargetStatus(
-      rows.filter((v) => (v.platform ?? null) === platform),
-      lastErrorDetail,
-    ),
-  }))
+
+  return platforms.map((platform) => {
+    const error = errors?.find((e) => e.platform === null || platform === null || e.platform === platform) ?? null
+    return {
+      platform,
+      error,
+      ...deriveTargetStatus(
+        rows.filter((v) => (v.platform ?? null) === platform),
+        error?.message ?? null,
+      ),
+    }
+  })
 }

@@ -353,6 +353,7 @@ describe('runReconciliation — routine sweep leaves settled targets alone', () 
     await runReconciliation(env, db, {}, notifier)
     expect(calls.some((c) => c.url.endsWith(':fetchStatus'))).toBe(true)
     expect((await targetFor(db, extensionId)).lastErrorDetail).toBeNull()
+    expect((await targetFor(db, extensionId)).lastErrors).toBeNull()
     expect(await eventsFor(db, extensionId)).toMatchObject([{ type: 'recovered' }])
     expect(sent).toHaveLength(0)
   })
@@ -806,6 +807,7 @@ describe('runReconciliation — failure isolation', () => {
 
     const badTarget = await targetFor(good.db, bad.extensionId)
     expect(badTarget.lastErrorDetail).toMatch(/failed verification/)
+    expect(badTarget.lastErrors).toMatchObject([{ platform: null, status: null, code: null }])
     expect((await eventsFor(good.db, bad.extensionId))[0]).toMatchObject({ type: 'error' })
     expect(await versionsFor(good.db, bad.extensionId)).toMatchObject([{ version: '1.0.0', status: 'queued' }])
 
@@ -1450,6 +1452,16 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
 
     const target = await targetFor(db, extensionId)
     expect(target.lastErrorDetail).toMatch(/macos: .*localizations lookup failed/)
+    // Structured too: only macOS failed, so only macOS carries an error, and
+    // the HTTP status survives as data.
+    expect(target.lastErrors).toEqual([
+      {
+        platform: 'macos',
+        status: 500,
+        code: null,
+        message: expect.stringMatching(/^localizations lookup failed \(500\)/),
+      },
+    ])
 
     const events = await eventsFor(db, extensionId)
     expect(events.filter((e) => e.type === 'error')).toHaveLength(1)

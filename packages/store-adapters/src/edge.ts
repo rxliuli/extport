@@ -1,5 +1,5 @@
 import type { CredentialCheck, EdgeCredentials, StoreAdapter, StoreState, StoreTarget, SubmissionResult } from './types'
-import { pollUntil, truncate, type FetchLike } from './util'
+import { pollUntil, truncate, type FetchLike, storeApiError, submitFailure } from './util'
 
 const API_BASE = 'https://api.addons.microsoftedge.microsoft.com'
 const PROBE_ID = '00000000-0000-0000-0000-000000000000'
@@ -69,7 +69,7 @@ async function submit(
   if (uploadRes.status !== 202) {
     const body = await uploadRes.text()
     console.log(`${tag} upload rejected (${uploadRes.status}): ${body}`)
-    return { submitted: false, detail: `package upload rejected (${uploadRes.status}): ${truncate(body)}` }
+    return submitFailure('package upload rejected', uploadRes.status, body)
   }
   const uploadOperationId = operationIdFromLocation(uploadRes)
   if (!uploadOperationId) {
@@ -118,7 +118,7 @@ async function submit(
     if (body.includes('InProgressSubmission')) {
       return { submitted: false, waiting: true, detail: 'Edge is still reviewing an earlier submission — will retry next reconcile' }
     }
-    return { submitted: false, detail: `submission rejected (${submitRes.status}): ${truncate(body)}` }
+    return submitFailure('submission rejected', submitRes.status, body)
   }
   const submitOperationId = operationIdFromLocation(submitRes)
   if (!submitOperationId) {
@@ -244,7 +244,7 @@ export function createEdgeAdapter(
         return { ok: false, reason: `edge api rejected the credentials: ${truncate(await res.text())}` }
       }
       if (res.status === 404 || res.ok) return { ok: true }
-      throw new Error(`edge api unexpected response (${res.status})`)
+      throw storeApiError('edge api unexpected response', res.status)
     },
     getState: (_credentials, target) => getState(target, fetchImpl),
     submit: (credentials, target, artifact) => submit(credentials, target.storeItemId, artifact, fetchImpl, poll),

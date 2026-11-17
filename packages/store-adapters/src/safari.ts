@@ -1,7 +1,7 @@
 import { compareVersions } from '@extport/shared'
 import type { SafariCredentials, CredentialCheck, StoreAdapter, StoreState, StoreTarget, SubmissionResult } from './types'
 import { signJwtES256 } from './jwt'
-import { DEFAULT_RETRY, fetchWithRetry, truncate, type FetchLike, type RetryOptions } from './util'
+import { DEFAULT_RETRY, fetchWithRetry, truncate, type FetchLike, type RetryOptions, storeApiError, submitFailure } from './util'
 
 const API_BASE = 'https://api.appstoreconnect.apple.com'
 
@@ -88,7 +88,7 @@ async function getState(credentials: SafariCredentials, appId: string, platform:
     `${API_BASE}/v1/apps/${appId}/appStoreVersions?limit=10&filter[platform]=${ascPlatform(platform)}&filter[appVersionState]=${RELEVANT_STATES.join(',')}&fields[appStoreVersions]=versionString,appVersionState`,
     { headers: { authorization } },
   )
-  if (!res.ok) throw new Error(`app store connect versions lookup failed (${res.status}): ${truncate(await res.text())}`)
+  if (!res.ok) throw storeApiError('app store connect versions lookup failed', res.status, await res.text())
   const body = (await res.json()) as {
     data?: { attributes?: { versionString?: string; appVersionState?: string } }[]
   }
@@ -146,10 +146,8 @@ async function submit(
   const headers = { authorization, 'content-type': 'application/json' }
   const platformValue = ascPlatform(platform)
 
-  const fail = async (step: string, res: Response): Promise<SubmissionResult> => ({
-    submitted: false,
-    detail: `${step} failed (${res.status}): ${truncate(await res.text())}`,
-  })
+  const fail = async (step: string, res: Response): Promise<SubmissionResult> =>
+    submitFailure(`${step} failed`, res.status, await res.text())
 
   // 1. A processed build must already exist — uploaded out-of-band by the
   //    tenant's macOS pipeline. Until it appears this is a normal wait, not
@@ -305,7 +303,7 @@ async function submit(
     if (!addItemRes.ok) {
       const body = await addItemRes.text()
       if (!(addItemRes.status === 409 && body.includes('already added'))) {
-        return { submitted: false, detail: `submission item add failed (${addItemRes.status}): ${truncate(body)}` }
+        return submitFailure('submission item add failed', addItemRes.status, body)
       }
     }
   }
@@ -329,7 +327,7 @@ async function withdraw(credentials: SafariCredentials, appId: string, platform:
     { headers: { authorization } },
   )
   if (!lookupRes.ok) {
-    throw new Error(`app store connect review submission lookup failed (${lookupRes.status}): ${truncate(await lookupRes.text())}`)
+    throw storeApiError('app store connect review submission lookup failed', lookupRes.status, await lookupRes.text())
   }
   const body = (await lookupRes.json()) as { data?: { id: string }[] }
   const submission = body.data?.[0]
@@ -343,7 +341,7 @@ async function withdraw(credentials: SafariCredentials, appId: string, platform:
     }),
   })
   if (!cancelRes.ok) {
-    throw new Error(`app store connect cancel failed (${cancelRes.status}): ${truncate(await cancelRes.text())}`)
+    throw storeApiError('app store connect cancel failed', cancelRes.status, await cancelRes.text())
   }
 }
 
@@ -376,7 +374,7 @@ export function createSafariAdapter(rawFetchImpl: FetchLike = (i, o) => fetch(i,
       }
       const res = await fetchImpl(`${API_BASE}/v1/apps?limit=1`, { headers: { authorization } })
       if (res.ok) return { ok: true }
-      if (res.status >= 500) throw new Error(`app store connect unavailable (${res.status})`)
+      if (res.status >= 500) throw storeApiError('app store connect unavailable', res.status)
       return { ok: false, reason: `app store connect rejected the key: ${truncate(await res.text())}` }
     },
     getState: (credentials, target: StoreTarget, platform?: string) => getState(credentials, target.storeItemId, platform ?? 'macos', fetchImpl),

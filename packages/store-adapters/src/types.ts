@@ -35,6 +35,9 @@ export interface SubmissionResult {
    */
   waiting?: boolean
   detail?: string
+  /** A failed store API call behind a plain failure: its HTTP status and the store's error code, if any. */
+  status?: number
+  code?: string | null
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { CredentialCheck, FirefoxCredentials, StoreAdapter, StoreState, SubmissionResult, VersionKnowledge } from './types'
 import { signJwtHS256 } from './jwt'
-import { pollUntil, truncate, type FetchLike } from './util'
+import { pollUntil, truncate, type FetchLike, storeApiError, submitFailure } from './util'
 
 const BASE = 'https://addons.mozilla.org'
 const PROFILE_URL = `${BASE}/api/v5/accounts/profile/`
@@ -34,7 +34,7 @@ async function getState(
   const res = await fetchImpl(addonUrl(addonId, '/'), {
     headers: { authorization: await amoAuthHeader(credentials) },
   })
-  if (!res.ok) throw new Error(`amo addon lookup failed (${res.status}): ${truncate(await res.text())}`)
+  if (!res.ok) throw storeApiError('amo addon lookup failed', res.status, await res.text())
   const addon = (await res.json()) as { current_version?: { version?: string } | null }
   const liveVersion = addon.current_version?.version
   const live: VersionKnowledge = { known: true, version: liveVersion }
@@ -90,7 +90,7 @@ async function submit(
   })
   if (uploadRes.status === 429) return rateLimited(uploadRes, 'upload')
   if (!uploadRes.ok) {
-    return { submitted: false, detail: `upload rejected (${uploadRes.status}): ${truncate(await uploadRes.text())}` }
+    return submitFailure('upload rejected', uploadRes.status, await uploadRes.text())
   }
   const uploadBody = (await uploadRes.json()) as { uuid: string }
   const uuid = uploadBody.uuid
@@ -143,7 +143,7 @@ async function submit(
   })
   if (versionRes.status === 429) return rateLimited(versionRes, 'version creation')
   if (!versionRes.ok) {
-    return { submitted: false, detail: `version creation failed (${versionRes.status}): ${truncate(await versionRes.text())}` }
+    return submitFailure('version creation failed', versionRes.status, await versionRes.text())
   }
   return { submitted: true }
 }
@@ -192,7 +192,7 @@ async function confirmAbsent(credentials: FirefoxCredentials, addonId: string, v
     headers: { authorization: await amoAuthHeader(credentials) },
   })
   if (res.status === 404) return true
-  if (!res.ok) throw new Error(`amo version lookup failed (${res.status}): ${truncate(await res.text())}`)
+  if (!res.ok) throw storeApiError('amo version lookup failed', res.status, await res.text())
   return false
 }
 
@@ -216,7 +216,7 @@ export function createFirefoxAdapter(
         headers: { authorization: await amoAuthHeader(credentials) },
       })
       if (res.ok) return { ok: true }
-      if (res.status >= 500) throw new Error(`amo unavailable (${res.status})`)
+      if (res.status >= 500) throw storeApiError('amo unavailable', res.status)
       return { ok: false, reason: `amo rejected the JWT credentials: ${truncate(await res.text())}` }
     },
     getState: (credentials, target) => getState(credentials, target.storeItemId, fetchImpl),

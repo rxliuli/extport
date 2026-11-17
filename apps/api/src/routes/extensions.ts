@@ -80,7 +80,7 @@ route.get(
         enabled: row.target.enabled,
         credentialLabel: row.credential.label,
         credentialStatus: row.credential.status,
-        lifecycles: deriveTargetLifecycles(rows, row.target.lastErrorDetail),
+        lifecycles: deriveTargetLifecycles(rows, row.target),
         lastReconciledAt: row.target.lastReconciledAt,
       }
       const list = targetsByExtension.get(row.target.extensionId)
@@ -346,7 +346,7 @@ route.get(
           platform: r.target.platforms?.[0],
           publisherId: publisherIds.get(r.credential.id),
         }),
-        lifecycles: deriveTargetLifecycles(versionsByStore.get(r.target.store) ?? [], r.target.lastErrorDetail).map((l) => ({
+        lifecycles: deriveTargetLifecycles(versionsByStore.get(r.target.store) ?? [], r.target).map((l) => ({
           ...l,
           consoleUrl: storeConsoleUrl(r.target.store, r.target.storeItemId, {
             platform: l.platform ?? r.target.platforms?.[0],
