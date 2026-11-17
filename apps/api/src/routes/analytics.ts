@@ -39,12 +39,6 @@ analyticsPublicRoutes.post(
     const db = c.get('db')
     const body = c.req.valid('json')
 
-    // Unknown extensions get the same 204 as accepted pings: a public,
-    // unauthenticated endpoint should not be an extension-id oracle.
-    const [extension] = await db.select().from(extensions).where(eq(extensions.id, body.extensionId))
-    if (!extension) return c.body(null, 204)
-
-    const today = isoDay(new Date())
     const ua = c.req.header('user-agent')
     // Automation filter: CI e2e suites load production builds into headless
     // browsers, and every test context is a fresh "install" — one workflow
@@ -67,14 +61,7 @@ analyticsPublicRoutes.post(
     // a "1.0" series in charts for an extension with no iOS build at all.
     if (browser === 'other') return c.body(null, 204)
 
-    // Server-side idempotency gate: the SDK already dedups per UTC day, but
-    // a misbehaving client must not be able to inflate anything.
-    const [install] = await db
-      .select()
-      .from(analyticsInstalls)
-      .where(and(eq(analyticsInstalls.extensionId, extension.id), eq(analyticsInstalls.installId, body.installId)))
-    if (install?.lastSeen === today) return c.body(null, 204)
-
+    const today = isoDay(new Date())
     const cf = (c.req.raw as Request & { cf?: { country?: string } }).cf
     const os = parseOs(ua)
     const country = cf?.country?.toLowerCase() ?? null
@@ -84,33 +71,41 @@ analyticsPublicRoutes.post(
     // state (first_seen/last_seen) that an append-only event store can't
     // hold. The ping itself goes to WAE below.
     //
-    // These two writes are deliberately not atomic, and can't be — they're
-    // different systems. A torn-down Worker can leave an install row whose
-    // ping never reached WAE, which undercounts that day's DAU by one while
-    // installs stays right. That is the same ~0.07% drift measured across the
-    // dual-write period, and the reason DAU/WAU are described as approximate.
-    await db
-      .insert(analyticsInstalls)
-      .values({
-        extensionId: extension.id,
-        installId: body.installId,
-        tenantId: extension.tenantId,
-        browser,
-        firstSeen: today,
-        lastSeen: today,
-        lastVersion: body.version,
-      })
-      // Two same-day pings racing past the gate resolve here; the duplicate
-      // data point they leave in WAE is neutralized by the rollup's
-      // count(DISTINCT install_id).
-      .onConflictDoUpdate({
-        target: [analyticsInstalls.extensionId, analyticsInstalls.installId],
-        set: { lastSeen: today, lastVersion: body.version },
-      })
+    // One statement does the whole D1 side — this endpoint is nearly all of
+    // D1's query volume (every active install, daily), and it used to be
+    // three: extension lookup, idempotency read, upsert.
+    // - INSERT … SELECT FROM extensions: an unknown extension inserts
+    //   nothing. It still gets the same 204 as an accepted ping — a public,
+    //   unauthenticated endpoint should not be an extension-id oracle.
+    // - DO UPDATE … WHERE last_seen differs: the server-side idempotency gate.
+    //   The SDK already dedups per UTC day, but a misbehaving client must not
+    //   be able to inflate anything; a same-day repeat writes nothing, and
+    //   concurrent repeats serialize on the primary key, so exactly one wins.
+    // - RETURNING: a row only when something was inserted or updated — both
+    //   gates above come back empty, and nothing reaches WAE.
+    //
+    // The D1 and WAE writes are deliberately not atomic, and can't be —
+    // they're different systems. A torn-down Worker can leave an install row
+    // whose ping never reached WAE, which undercounts that day's DAU by one
+    // while installs stays right. That is the same ~0.07% drift measured
+    // across the dual-write period, and the reason DAU/WAU are described as
+    // approximate.
+    const recorded = await db.$client
+      .prepare(
+        `INSERT INTO analytics_installs (extension_id, install_id, tenant_id, browser, first_seen, last_seen, last_version)
+         SELECT id, ?1, tenant_id, ?2, ?3, ?3, ?4 FROM extensions WHERE id = ?5
+         ON CONFLICT (extension_id, install_id)
+         DO UPDATE SET last_seen = excluded.last_seen, last_version = excluded.last_version
+         WHERE analytics_installs.last_seen <> excluded.last_seen
+         RETURNING extension_id, tenant_id`,
+      )
+      .bind(body.installId, browser, today, body.version, body.extensionId)
+      .first<{ extension_id: string; tenant_id: string }>()
+    if (!recorded) return c.body(null, 204)
 
     c.env.ANALYTICS.writeDataPoint({
-      indexes: [extension.id],
-      blobs: [body.installId, extension.tenantId, browser, body.version, os, country, language],
+      indexes: [recorded.extension_id],
+      blobs: [body.installId, recorded.tenant_id, browser, body.version, os, country, language],
     })
 
     return c.body(null, 204)
@@ -329,7 +324,13 @@ analyticsTenantRoutes.get(
     const [active] = await db
       .select({ weeklyActives: sql<number>`sum(${analyticsDaily.wau})` })
       .from(analyticsDaily)
-      .where(and(eq(analyticsDaily.extensionId, extension.id), eq(analyticsDaily.dim, 'total'), eq(analyticsDaily.date, latest.date)))
+      .where(
+        and(
+          eq(analyticsDaily.extensionId, extension.id),
+          eq(analyticsDaily.dim, 'total'),
+          eq(analyticsDaily.date, latest.date),
+        ),
+      )
     const [allTime] = await db
       .select({ allTimeInstalls: sql<number>`sum(${analyticsDaily.installs})` })
       .from(analyticsDaily)
@@ -430,7 +431,13 @@ analyticsTenantRoutes.get(
     const [active] = await db
       .select({ weeklyActives: sql<number>`sum(${analyticsDaily.wau})` })
       .from(analyticsDaily)
-      .where(and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total'), eq(analyticsDaily.date, latest.date)))
+      .where(
+        and(
+          eq(analyticsDaily.tenantId, tenant.id),
+          eq(analyticsDaily.dim, 'total'),
+          eq(analyticsDaily.date, latest.date),
+        ),
+      )
     const [allTime] = await db
       .select({ allTimeInstalls: sql<number>`sum(${analyticsDaily.installs})` })
       .from(analyticsDaily)
@@ -452,7 +459,8 @@ analyticsTenantRoutes.get(
   '/fleet/series',
   describeRoute({
     summary: 'Fleet-wide daily analytics series',
-    description: 'Same row shape as /series?dim=total, summed across every extension the tenant owns instead of one. ?days= bounds the window (default 90, max 1830). `through` is the last fully-rolled-up day, same as /series.',
+    description:
+      'Same row shape as /series?dim=total, summed across every extension the tenant owns instead of one. ?days= bounds the window (default 90, max 1830). `through` is the last fully-rolled-up day, same as /series.',
     tags: ['Analytics'],
     responses: { 200: { description: 'OK' } },
   }),
@@ -476,7 +484,9 @@ analyticsTenantRoutes.get(
         installs: sql<number>`sum(${analyticsDaily.installs})`,
       })
       .from(analyticsDaily)
-      .where(and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total'), gte(analyticsDaily.date, from)))
+      .where(
+        and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total'), gte(analyticsDaily.date, from)),
+      )
       .groupBy(analyticsDaily.date, analyticsDaily.browser)
       .orderBy(analyticsDaily.date)
     return c.json({ rows, through: latestRolledUpDay() })
@@ -496,7 +506,10 @@ analyticsTenantRoutes.get(
     const db = c.get('db')
     const tenant = c.get('tenant')
 
-    const extensionRows = await db.select({ id: extensions.id, name: extensions.name }).from(extensions).where(eq(extensions.tenantId, tenant.id))
+    const extensionRows = await db
+      .select({ id: extensions.id, name: extensions.name })
+      .from(extensions)
+      .where(eq(extensions.tenantId, tenant.id))
 
     // Fetched once and reduced here rather than per-extension SQL: each
     // extension's weekly-actives figure needs sum(wau) on *its own* latest
@@ -504,7 +517,12 @@ analyticsTenantRoutes.get(
     // newly-onboarded extension can lag behind the rest of the fleet by a
     // rollup cycle or more), which isn't a single GROUP BY.
     const totalRows = await db
-      .select({ extensionId: analyticsDaily.extensionId, date: analyticsDaily.date, wau: analyticsDaily.wau, installs: analyticsDaily.installs })
+      .select({
+        extensionId: analyticsDaily.extensionId,
+        date: analyticsDaily.date,
+        wau: analyticsDaily.wau,
+        installs: analyticsDaily.installs,
+      })
       .from(analyticsDaily)
       .where(and(eq(analyticsDaily.tenantId, tenant.id), eq(analyticsDaily.dim, 'total')))
 

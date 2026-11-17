@@ -55,10 +55,7 @@ describe('POST /v1/analytics/ping', () => {
     expect(res.status).toBe(204)
 
     const today = isoDay(new Date())
-    const [install] = await db
-      .select()
-      .from(analyticsInstalls)
-      .where(eq(analyticsInstalls.extensionId, extension.id))
+    const [install] = await db.select().from(analyticsInstalls).where(eq(analyticsInstalls.extensionId, extension.id))
     expect(install).toMatchObject({
       firstSeen: today,
       lastSeen: today,
@@ -82,7 +79,7 @@ describe('POST /v1/analytics/ping', () => {
     await ping({ installId, extensionId: extension.id, version: '1.0.0' })
     const second = await ping({ installId, extensionId: extension.id, version: '1.0.0' })
     expect(second.status).toBe(204)
-    // The gate returns before the write, so the repeat emits nothing at all.
+    // The upsert gate writes nothing for a same-day repeat, so it emits nothing either.
     expect(points).toHaveLength(1)
 
     // A day later (simulated by backdating), the same install pings with a
@@ -114,7 +111,9 @@ describe('POST /v1/analytics/ping', () => {
       'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/126.0.0.0 Safari/537.36',
     )
     expect(res.status).toBe(204)
-    expect(await db.select().from(analyticsInstalls).where(eq(analyticsInstalls.extensionId, extension.id))).toHaveLength(0)
+    expect(
+      await db.select().from(analyticsInstalls).where(eq(analyticsInstalls.extensionId, extension.id)),
+    ).toHaveLength(0)
   })
 
   it('silently drops pings whose UA parses to no known browser — WebViews and scripts must not mint installs', async () => {
@@ -128,7 +127,9 @@ describe('POST /v1/analytics/ping', () => {
     )
     restore()
     expect(res.status).toBe(204)
-    expect(await db.select().from(analyticsInstalls).where(eq(analyticsInstalls.extensionId, extension.id))).toHaveLength(0)
+    expect(
+      await db.select().from(analyticsInstalls).where(eq(analyticsInstalls.extensionId, extension.id)),
+    ).toHaveLength(0)
     expect(points).toHaveLength(0)
   })
 
@@ -137,16 +138,26 @@ describe('POST /v1/analytics/ping', () => {
     const res = await request('/api/v1/analytics/ping', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ installId: 'eeeeeeee-1111-2222-3333-444444444444', extensionId: extension.id, version: '1.0.0' }),
+      body: JSON.stringify({
+        installId: 'eeeeeeee-1111-2222-3333-444444444444',
+        extensionId: extension.id,
+        version: '1.0.0',
+      }),
     })
     expect(res.status).toBe(204)
-    expect(await db.select().from(analyticsInstalls).where(eq(analyticsInstalls.extensionId, extension.id))).toHaveLength(0)
+    expect(
+      await db.select().from(analyticsInstalls).where(eq(analyticsInstalls.extensionId, extension.id)),
+    ).toHaveLength(0)
   })
 
   it('answers 204 for unknown extensions without writing anything, 400 for bad bodies, and is CORS-open', async () => {
     await setup()
     const { points, restore } = captureDataPoints()
-    const unknown = await ping({ installId: 'cccccccc-1111-2222-3333-444444444444', extensionId: 'ext_nope', version: '1' })
+    const unknown = await ping({
+      installId: 'cccccccc-1111-2222-3333-444444444444',
+      extensionId: 'ext_nope',
+      version: '1',
+    })
     restore()
     expect(unknown.status).toBe(204)
     expect(points).toHaveLength(0)
@@ -181,7 +192,12 @@ describe('analytics rollup', () => {
    * group here rather than passing silently.
    */
   function fakeWaeQuery(pings: SeedPing[], tenantId: string, extensionId: string): WaeQuery {
-    const columnField: Record<string, keyof SeedPing> = { blob4: 'version', blob5: 'os', blob6: 'country', blob7: 'language' }
+    const columnField: Record<string, keyof SeedPing> = {
+      blob4: 'version',
+      blob5: 'os',
+      blob6: 'country',
+      blob7: 'language',
+    }
     return async (sql: string) => {
       const window = sql.match(/timestamp >= toDateTime\('([\d-]+) [^']*'\) AND timestamp < toDateTime\('([\d-]+) /)
       if (!window) throw new Error(`fake WAE: could not read a day range out of: ${sql}`)
@@ -198,7 +214,13 @@ describe('analytics rollup', () => {
       }
       return [...groups].map(([key, installs]) => {
         const [tenant_id, extension_id, browser, dim_value] = key.split('\x00')
-        return { tenant_id: tenant_id!, extension_id: extension_id!, browser: browser!, dim_value: dim_value!, n: String(installs.size) }
+        return {
+          tenant_id: tenant_id!,
+          extension_id: extension_id!,
+          browser: browser!,
+          dim_value: dim_value!,
+          n: String(installs.size),
+        }
       })
     }
   }
@@ -224,18 +246,60 @@ describe('analytics rollup', () => {
     }
 
     const rawRows = [
-      { installId: 'i1', date: day(-1), browser: 'chrome', version: '1.0.1', country: 'us', language: 'en-us', os: 'macos' },
+      {
+        installId: 'i1',
+        date: day(-1),
+        browser: 'chrome',
+        version: '1.0.1',
+        country: 'us',
+        language: 'en-us',
+        os: 'macos',
+      },
       // Duplicate raced row for i1 — must not inflate dau.
-      { installId: 'i1', date: day(-1), browser: 'chrome', version: '1.0.1', country: 'us', language: 'en-us', os: 'macos' },
-      { installId: 'i2', date: day(-1), browser: 'chrome', version: '1.0.1', country: 'de', language: 'de', os: 'windows' },
+      {
+        installId: 'i1',
+        date: day(-1),
+        browser: 'chrome',
+        version: '1.0.1',
+        country: 'us',
+        language: 'en-us',
+        os: 'macos',
+      },
+      {
+        installId: 'i2',
+        date: day(-1),
+        browser: 'chrome',
+        version: '1.0.1',
+        country: 'de',
+        language: 'de',
+        os: 'windows',
+      },
       // i4's only ping this week — inside the 7-day WAU window but not
       // yesterday, so it counts for wau and not dau.
-      { installId: 'i4', date: day(-5), browser: 'firefox', version: '1.0.0', country: 'fr', language: 'fr', os: 'linux' },
+      {
+        installId: 'i4',
+        date: day(-5),
+        browser: 'firefox',
+        version: '1.0.0',
+        country: 'fr',
+        language: 'fr',
+        os: 'linux',
+      },
       // Ancient ping past the 90-day window — pruned by the rollup.
-      { installId: 'i3', date: day(-120), browser: 'chrome', version: '1.0.0', country: null, language: null, os: null },
+      {
+        installId: 'i3',
+        date: day(-120),
+        browser: 'chrome',
+        version: '1.0.0',
+        country: null,
+        language: null,
+        os: null,
+      },
     ]
     for (const row of rawRows) {
-      await db.insert(analyticsPings).values({ id: newId('analyticsPing'), tenantId: extension.id, extensionId: extension.id, ...row })
+      await db
+        .insert(analyticsPings)
+        .values({ id: newId('analyticsPing'), tenantId: extension.id, extensionId: extension.id, ...row })
     }
     const waeQuery = fakeWaeQuery(rawRows, extension.id, extension.id)
     // The versions real users could have installed, for the endpoints' version
@@ -243,8 +307,22 @@ describe('analytics rollup', () => {
     // would otherwise surface as a phantom series (real case: a 0.0.68 for an
     // extension whose latest published release was 0.0.67).
     await db.insert(deploymentVersions).values([
-      { id: newId('deploymentVersion'), tenantId: extension.id, extensionId: extension.id, store: 'chrome', version: '1.0.0', status: 'online' },
-      { id: newId('deploymentVersion'), tenantId: extension.id, extensionId: extension.id, store: 'chrome', version: '1.0.1', status: 'online' },
+      {
+        id: newId('deploymentVersion'),
+        tenantId: extension.id,
+        extensionId: extension.id,
+        store: 'chrome',
+        version: '1.0.0',
+        status: 'online',
+      },
+      {
+        id: newId('deploymentVersion'),
+        tenantId: extension.id,
+        extensionId: extension.id,
+        store: 'chrome',
+        version: '1.0.1',
+        status: 'online',
+      },
     ])
     return { db, extension, sessionCookie, now, day, waeQuery }
   }
@@ -384,33 +462,109 @@ describe('analytics rollup', () => {
     // "only drop what's ahead of the max" filter, which used to let an
     // under-the-max straggler through.
     await db.insert(deploymentVersions).values([
-      { id: newId('deploymentVersion'), tenantId, extensionId: extension.id, store: 'chrome', version: '1.0.0', status: 'online' },
-      { id: newId('deploymentVersion'), tenantId, extensionId: extension.id, store: 'chrome', version: '1.0.1', status: 'online' },
+      {
+        id: newId('deploymentVersion'),
+        tenantId,
+        extensionId: extension.id,
+        store: 'chrome',
+        version: '1.0.0',
+        status: 'online',
+      },
+      {
+        id: newId('deploymentVersion'),
+        tenantId,
+        extensionId: extension.id,
+        store: 'chrome',
+        version: '1.0.1',
+        status: 'online',
+      },
     ])
 
     await db.insert(analyticsDaily).values([
-      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'total', dimValue: '', dau: 20, wau: 20, installs: 2 },
+      {
+        tenantId,
+        extensionId: extension.id,
+        date,
+        browser: 'chrome',
+        dim: 'total',
+        dimValue: '',
+        dau: 20,
+        wau: 20,
+        installs: 2,
+      },
       // Below the earliest published version — a real straggler on a release
       // that predates the extension's onboarding to extport, or just never
       // published through it. No deployment_versions row exists for it, so
       // the whitelist has no way to know it's real; hidden is the accepted
       // cost of a plain whitelist.
-      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '0.9.0', dau: 2, wau: 2, installs: 0 },
+      {
+        tenantId,
+        extensionId: extension.id,
+        date,
+        browser: 'chrome',
+        dim: 'version',
+        dimValue: '0.9.0',
+        dau: 2,
+        wau: 2,
+        installs: 0,
+      },
       // In the whitelist — shown.
-      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.0', dau: 3, wau: 3, installs: 0 },
+      {
+        tenantId,
+        extensionId: extension.id,
+        date,
+        browser: 'chrome',
+        dim: 'version',
+        dimValue: '1.0.0',
+        dau: 3,
+        wau: 3,
+        installs: 0,
+      },
       // Between the two published versions (e.g. a hotfix build no store
       // ever shipped) — not itself in the whitelist, hidden even though it
       // sits "inside" the published range.
-      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.0.5', dau: 5, wau: 5, installs: 0 },
+      {
+        tenantId,
+        extensionId: extension.id,
+        date,
+        browser: 'chrome',
+        dim: 'version',
+        dimValue: '1.0.0.5',
+        dau: 5,
+        wau: 5,
+        installs: 0,
+      },
       // In the whitelist — shown.
-      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.1', dau: 7, wau: 7, installs: 0 },
+      {
+        tenantId,
+        extensionId: extension.id,
+        date,
+        browser: 'chrome',
+        dim: 'version',
+        dimValue: '1.0.1',
+        dau: 7,
+        wau: 7,
+        installs: 0,
+      },
       // Ahead of the latest published version (dev/unpacked of an upcoming
       // release) — hidden.
-      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '2.0.0', dau: 1, wau: 1, installs: 0 },
+      {
+        tenantId,
+        extensionId: extension.id,
+        date,
+        browser: 'chrome',
+        dim: 'version',
+        dimValue: '2.0.0',
+        dau: 1,
+        wau: 1,
+        installs: 0,
+      },
     ])
 
     const series = (await (
-      await request(`/api/v1/analytics/series?extension=${extension.id}&dim=version`, { headers: { cookie: sessionCookie } })
+      await request(`/api/v1/analytics/series?extension=${extension.id}&dim=version`, {
+        headers: { cookie: sessionCookie },
+      })
     ).json()) as { rows: { dimValue: string }[] }
     const seriesVersions = series.rows.map((r) => r.dimValue)
     expect(seriesVersions.sort()).toEqual(['1.0.0', '1.0.1'])
@@ -430,13 +584,45 @@ describe('analytics rollup', () => {
     // No deployment_versions rows at all for this extension — never
     // published through extport, so there's nothing to whitelist against.
     await db.insert(analyticsDaily).values([
-      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'total', dimValue: '', dau: 10, wau: 10, installs: 1 },
-      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.0', dau: 6, wau: 6, installs: 0 },
-      { tenantId, extensionId: extension.id, date, browser: 'chrome', dim: 'version', dimValue: '1.0.1', dau: 4, wau: 4, installs: 0 },
+      {
+        tenantId,
+        extensionId: extension.id,
+        date,
+        browser: 'chrome',
+        dim: 'total',
+        dimValue: '',
+        dau: 10,
+        wau: 10,
+        installs: 1,
+      },
+      {
+        tenantId,
+        extensionId: extension.id,
+        date,
+        browser: 'chrome',
+        dim: 'version',
+        dimValue: '1.0.0',
+        dau: 6,
+        wau: 6,
+        installs: 0,
+      },
+      {
+        tenantId,
+        extensionId: extension.id,
+        date,
+        browser: 'chrome',
+        dim: 'version',
+        dimValue: '1.0.1',
+        dau: 4,
+        wau: 4,
+        installs: 0,
+      },
     ])
 
     const series = (await (
-      await request(`/api/v1/analytics/series?extension=${extension.id}&dim=version`, { headers: { cookie: sessionCookie } })
+      await request(`/api/v1/analytics/series?extension=${extension.id}&dim=version`, {
+        headers: { cookie: sessionCookie },
+      })
     ).json()) as { rows: { dimValue: string }[] }
     expect(series.rows.map((r) => r.dimValue).sort()).toEqual(['1.0.0', '1.0.1'])
 
@@ -459,10 +645,50 @@ describe('fleet-wide analytics', () => {
     // "extension rolled up on a different day than the rest of the fleet"
     // case gets its own test below.
     await db.insert(analyticsDaily).values([
-      { tenantId, extensionId: extA.id, date: day(-2), browser: 'chrome', dim: 'total', dimValue: '', dau: 1, wau: 1, installs: 1 },
-      { tenantId, extensionId: extA.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 2, wau: 2, installs: 0 },
-      { tenantId, extensionId: extA.id, date: day(-1), browser: 'firefox', dim: 'total', dimValue: '', dau: 1, wau: 1, installs: 1 },
-      { tenantId, extensionId: extB.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 5, wau: 5, installs: 1 },
+      {
+        tenantId,
+        extensionId: extA.id,
+        date: day(-2),
+        browser: 'chrome',
+        dim: 'total',
+        dimValue: '',
+        dau: 1,
+        wau: 1,
+        installs: 1,
+      },
+      {
+        tenantId,
+        extensionId: extA.id,
+        date: day(-1),
+        browser: 'chrome',
+        dim: 'total',
+        dimValue: '',
+        dau: 2,
+        wau: 2,
+        installs: 0,
+      },
+      {
+        tenantId,
+        extensionId: extA.id,
+        date: day(-1),
+        browser: 'firefox',
+        dim: 'total',
+        dimValue: '',
+        dau: 1,
+        wau: 1,
+        installs: 1,
+      },
+      {
+        tenantId,
+        extensionId: extB.id,
+        date: day(-1),
+        browser: 'chrome',
+        dim: 'total',
+        dimValue: '',
+        dau: 5,
+        wau: 5,
+        installs: 1,
+      },
     ])
 
     const overview = (await (
@@ -517,9 +743,29 @@ describe('fleet-wide analytics', () => {
 
     await db.insert(analyticsDaily).values([
       // Only ever rolled up once, several days ago.
-      { tenantId, extensionId: stale.id, date: day(-5), browser: 'chrome', dim: 'total', dimValue: '', dau: 4, wau: 4, installs: 4 },
+      {
+        tenantId,
+        extensionId: stale.id,
+        date: day(-5),
+        browser: 'chrome',
+        dim: 'total',
+        dimValue: '',
+        dau: 4,
+        wau: 4,
+        installs: 4,
+      },
       // Rolled up as recently as yesterday.
-      { tenantId, extensionId: fresh.id, date: day(-1), browser: 'chrome', dim: 'total', dimValue: '', dau: 2, wau: 2, installs: 2 },
+      {
+        tenantId,
+        extensionId: fresh.id,
+        date: day(-1),
+        browser: 'chrome',
+        dim: 'total',
+        dimValue: '',
+        dau: 2,
+        wau: 2,
+        installs: 2,
+      },
     ])
 
     const list = (await (
@@ -570,7 +816,9 @@ describe('analytics caching', () => {
 
   it('marks tenant analytics private and never caches an error', async () => {
     const { sessionCookie, extension } = await setup()
-    const ok = await request(`/api/v1/analytics/overview?extension=${extension.id}`, { headers: { cookie: sessionCookie } })
+    const ok = await request(`/api/v1/analytics/overview?extension=${extension.id}`, {
+      headers: { cookie: sessionCookie },
+    })
     expect(ok.status).toBe(200)
     expect(ok.headers.get('cache-control')).toMatch(/^private, max-age=\d+$/)
 
@@ -595,7 +843,12 @@ describe('topShares', () => {
 
   it('leaves out values with no weekly actives rather than ranking them at 0%', () => {
     // The rollup upserts wau onto rows whose dau is 0, so these rows exist.
-    expect(topShares([{ value: 'a', wau: 3 }, { value: 'b', wau: 0 }])).toEqual([{ value: 'a', wau: 3, share: 1 }])
+    expect(
+      topShares([
+        { value: 'a', wau: 3 },
+        { value: 'b', wau: 0 },
+      ]),
+    ).toEqual([{ value: 'a', wau: 3, share: 1 }])
     expect(topShares([{ value: 'a', wau: 0 }])).toEqual([])
   })
 })
