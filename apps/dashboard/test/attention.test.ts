@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MatrixExtension, MatrixTarget, Store, TargetLifecycle } from '../src/api'
-import { classifyFleet, errorSummary } from '../src/attention'
+import { affectedExtensions, classifyFleet, errorSummary, groupActions } from '../src/attention'
 
 const NOW = new Date('2026-11-17T12:00:00Z').getTime()
 const STALE: Record<Store, number> = { chrome: 3, firefox: 3, edge: 10, safari: 3 }
@@ -214,5 +214,65 @@ describe('classifyFleet', () => {
       NOW,
     )
     expect(inFlight.map((i) => i.extensionName)).toEqual(['oldest', 'recent', 'queued'])
+  })
+})
+
+describe('groupActions', () => {
+  const asc500 = (platform: 'macos' | 'ios') =>
+    lifecycle({
+      platform,
+      status: 'error',
+      statusDetail: 'raw',
+      error: { platform, status: 500, code: 'UNEXPECTED_ERROR', message: `${platform} raw` },
+    })
+
+  it('collapses one store-side cause across extensions into a single entry, in order', () => {
+    const { actions } = classifyFleet(
+      [
+        ext('imp', [target('safari', [asc500('macos'), asc500('ios')])]),
+        ext('tube', [target('safari', [asc500('macos'), lifecycle({ platform: 'ios' })])]),
+        ext('other', [target('chrome', [lifecycle({ status: 'error', statusDetail: 'artifact missing from R2' })])]),
+        ext('rej', [target('firefox', [lifecycle({ status: 'rejected', rejectedVersion: '2.0.0' })])]),
+      ],
+      STALE,
+      NOW,
+    )
+    const entries = groupActions(actions)
+    expect(entries.map((e) => (e.type === 'group' ? `group:${e.group.items.length}` : e.item.kind))).toEqual([
+      'group:3',
+      'error',
+      'rejected',
+    ])
+    const group = entries[0]!.type === 'group' ? entries[0]!.group : null
+    expect(group).toMatchObject({
+      store: 'safari',
+      summary: "App Store Connect returned a server error (500 UNEXPECTED_ERROR). The problem is on the store's side; extport keeps retrying.",
+      raw: 'macos raw',
+    })
+    expect(affectedExtensions(group!)).toEqual([
+      { extensionId: 'ext_imp', name: 'imp', platforms: ['macos', 'ios'] },
+      { extensionId: 'ext_tube', name: 'tube', platforms: ['macos'] },
+    ])
+  })
+
+  it('keeps different causes apart, and a cause with one lifecycle as a plain item', () => {
+    const { actions } = classifyFleet(
+      [
+        ext('a', [target('safari', [asc500('macos')])]),
+        ext('b', [
+          target('safari', [
+            lifecycle({ platform: 'macos', status: 'error', error: { platform: 'macos', status: 503, code: null, message: 'x' } }),
+          ]),
+        ]),
+        ext('c', [
+          target('chrome', [
+            lifecycle({ status: 'error', error: { platform: null, status: 500, code: 'UNEXPECTED_ERROR', message: 'x' } }),
+          ]),
+        ]),
+      ],
+      STALE,
+      NOW,
+    )
+    expect(groupActions(actions).map((e) => e.type)).toEqual(['item', 'item', 'item'])
   })
 })

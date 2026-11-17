@@ -25,6 +25,68 @@ export interface ActionItem {
   message: string
   /** The raw store response behind `message`, for a collapsed disclosure. */
   raw?: string | null
+  /** kind 'error' only: the structured failure, what groupActions keys on. */
+  error?: TargetError | null
+}
+
+/**
+ * Failures that share one cause — same store, same HTTP status, same store
+ * error code — shown as one entry. A store outage hits every lifecycle on
+ * that store at once; listing it once per extension buries anything else
+ * that needs attention.
+ */
+export interface ActionGroup {
+  store: Store
+  summary: string
+  raw: string | null
+  items: ActionItem[]
+}
+
+export type ActionEntry = { type: 'item'; item: ActionItem } | { type: 'group'; group: ActionGroup }
+
+/**
+ * Collapses same-cause store errors into groups, in place of their first
+ * member so the list order holds. Only store API responses group (they have
+ * a status); extport-written errors stay one per lifecycle, as does a cause
+ * that only one lifecycle has.
+ */
+export function groupActions(actions: ActionItem[]): ActionEntry[] {
+  const entries: ActionEntry[] = []
+  const groups = new Map<string, ActionGroup>()
+  for (const item of actions) {
+    const error = item.kind === 'error' ? item.error : null
+    if (!error || error.status === null || !item.store) {
+      entries.push({ type: 'item', item })
+      continue
+    }
+    const key = `${item.store}:${error.status}:${error.code ?? ''}`
+    let group = groups.get(key)
+    if (!group) {
+      group = { store: item.store, summary: errorSummary(item.store, error).summary, raw: error.message, items: [] }
+      groups.set(key, group)
+      entries.push({ type: 'group', group })
+    }
+    group.items.push(item)
+  }
+  return entries.map((e) => (e.type === 'group' && e.group.items.length === 1 ? { type: 'item', item: e.group.items[0]! } : e))
+}
+
+/** A group's members by extension, platforms merged: "Imp Translate (macOS, iOS)". */
+export function affectedExtensions(group: ActionGroup): { extensionId: string; name: string; platforms: SafariPlatform[] }[] {
+  const byId = new Map<string, { extensionId: string; name: string; platforms: SafariPlatform[] }>()
+  for (const item of group.items) {
+    let entry = byId.get(item.extensionId)
+    if (!entry) {
+      entry = { extensionId: item.extensionId, name: item.extensionName, platforms: [] }
+      byId.set(item.extensionId, entry)
+    }
+    if (item.platform) entry.platforms.push(item.platform)
+  }
+  return [...byId.values()]
+}
+
+export function platformLabel(platform: SafariPlatform): string {
+  return PLATFORM_LABEL[platform]
 }
 
 export interface InFlightItem {
@@ -121,6 +183,7 @@ function classifyLifecycle(
         label: 'Publishing failed',
         message: `${summary} ${liveClause(l)}`,
         raw,
+        error: l.error,
       },
     }
   }

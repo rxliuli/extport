@@ -1,5 +1,15 @@
 import { api, ApiError, type MatrixExtension, type MatrixTarget, type SafariPlatform, type Store } from '@/api'
-import { classifyFleet, storeName, type ActionItem, type ExtensionHealth } from '@/attention'
+import {
+  affectedExtensions,
+  classifyFleet,
+  groupActions,
+  platformLabel,
+  STORE_LABEL,
+  storeName,
+  type ActionGroup,
+  type ActionItem,
+  type ExtensionHealth,
+} from '@/attention'
 import { RawDetails } from '@/components/RawDetails'
 import { PageHeader } from '@/components/Section'
 import { Button } from '@/components/ui/button'
@@ -100,6 +110,7 @@ function ExtensionsPage() {
     () => classifyFleet(all, settings?.staleReviewDays ?? DEFAULT_STALE_REVIEW_DAYS),
     [all, settings],
   )
+  const entries = useMemo(() => groupActions(attention.actions), [attention])
   const healthOf = (ext: MatrixExtension): ExtensionHealth => attention.health.get(ext.id) ?? 'ok'
   const counts = {
     all: all.length,
@@ -170,50 +181,21 @@ function ExtensionsPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3.5">
                     <h2 className="text-[15px] font-semibold">
                       Needs your action{' '}
-                      <span className="font-medium text-muted-foreground">{attention.actions.length}</span>
+                      {/* Issues, not extensions: one outage across four extensions is one entry. */}
+                      <span className="font-medium text-muted-foreground">
+                        · {entries.length} {entries.length === 1 ? 'issue' : 'issues'}
+                      </span>
                     </h2>
                     <span className="text-xs text-muted-foreground">Things extport can’t resolve on its own</span>
                   </div>
                   <ul>
-                    {attention.actions.map((item) => (
-                      <li
-                        key={`${item.extensionId}:${item.kind}:${item.store ?? ''}:${item.platform ?? ''}`}
-                        className="flex flex-wrap items-start gap-x-3.5 gap-y-2 border-b px-5 py-4 last:border-b-0"
-                      >
-                        <span
-                          className={`mt-1.5 size-2 shrink-0 rounded-full ${ACTION_DOT[item.kind]}`}
-                          aria-hidden="true"
-                        />
-                        <div className="min-w-0 flex-[1_1_420px] space-y-1">
-                          <div className="flex flex-wrap items-baseline gap-x-2">
-                            <Link
-                              to="/extensions/$extensionId"
-                              params={{ extensionId: item.extensionId }}
-                              className="font-semibold underline-offset-4 hover:underline"
-                            >
-                              {item.extensionName}
-                            </Link>
-                            <span className="text-muted-foreground">
-                              {item.store ? storeName(item.store, item.platform) : 'No stores'}
-                            </span>
-                            <span className={`text-xs font-semibold ${ACTION_LABEL_TONE[item.kind]}`}>
-                              {item.label}
-                            </span>
-                          </div>
-                          <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{item.message}</p>
-                          {item.raw && <RawDetails text={item.raw} />}
-                        </div>
-                        <Button variant="outline" size="sm" asChild className="shrink-0">
-                          {item.kind === 'credential' ? (
-                            <Link to="/settings">Open Settings</Link>
-                          ) : (
-                            <Link to="/extensions/$extensionId" params={{ extensionId: item.extensionId }}>
-                              {item.kind === 'not_set_up' ? 'Add a store' : 'View details'}
-                            </Link>
-                          )}
-                        </Button>
-                      </li>
-                    ))}
+                    {entries.map((entry) =>
+                      entry.type === 'group' ? (
+                        <GroupedErrorRow key={`group:${entry.group.store}:${entry.group.summary}`} group={entry.group} />
+                      ) : (
+                        <ActionRow key={actionKey(entry.item)} item={entry.item} />
+                      ),
+                    )}
                   </ul>
                 </>
               )}
@@ -342,5 +324,80 @@ function ExtensionsPage() {
         </>
       )}
     </div>
+  )
+}
+
+function actionKey(item: ActionItem): string {
+  return `${item.extensionId}:${item.kind}:${item.store ?? ''}:${item.platform ?? ''}`
+}
+
+function ActionRow({ item }: { item: ActionItem }) {
+  return (
+    <li className="flex flex-wrap items-start gap-x-3.5 gap-y-2 border-b px-5 py-4 last:border-b-0">
+      <span className={`mt-1.5 size-2 shrink-0 rounded-full ${ACTION_DOT[item.kind]}`} aria-hidden="true" />
+      <div className="min-w-0 flex-[1_1_420px] space-y-1">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <Link
+            to="/extensions/$extensionId"
+            params={{ extensionId: item.extensionId }}
+            className="font-semibold underline-offset-4 hover:underline"
+          >
+            {item.extensionName}
+          </Link>
+          <span className="text-muted-foreground">
+            {item.store ? storeName(item.store, item.platform) : 'No stores'}
+          </span>
+          <span className={`text-xs font-semibold ${ACTION_LABEL_TONE[item.kind]}`}>{item.label}</span>
+        </div>
+        <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{item.message}</p>
+        {item.raw && <RawDetails text={item.raw} />}
+      </div>
+      <Button variant="outline" size="sm" asChild className="shrink-0">
+        {item.kind === 'credential' ? (
+          <Link to="/settings">Open Settings</Link>
+        ) : (
+          <Link to="/extensions/$extensionId" params={{ extensionId: item.extensionId }}>
+            {item.kind === 'not_set_up' ? 'Add a store' : 'View details'}
+          </Link>
+        )}
+      </Button>
+    </li>
+  )
+}
+
+/** One store-side cause across several extensions: say it once, then list who it hits. */
+function GroupedErrorRow({ group }: { group: ActionGroup }) {
+  const affected = affectedExtensions(group)
+  return (
+    <li className="flex flex-wrap items-start gap-x-3.5 gap-y-2 border-b px-5 py-4 last:border-b-0">
+      <span className={`mt-1.5 size-2 shrink-0 rounded-full ${ACTION_DOT.error}`} aria-hidden="true" />
+      <div className="min-w-0 flex-[1_1_420px] space-y-1">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className="font-semibold">{STORE_LABEL[group.store]}</span>
+          <span className={`text-xs font-semibold ${ACTION_LABEL_TONE.error}`}>
+            Publishing failed · {affected.length} extensions
+          </span>
+        </div>
+        <p className="text-sm leading-relaxed text-muted-foreground">{group.summary}</p>
+        <p className="text-sm leading-relaxed">
+          {affected.map((ext, i) => (
+            <span key={ext.extensionId}>
+              {i > 0 && <span className="text-muted-foreground"> · </span>}
+              <Link
+                to="/extensions/$extensionId"
+                params={{ extensionId: ext.extensionId }}
+                className="font-medium underline-offset-4 hover:underline"
+              >
+                {ext.name}
+              </Link>
+              {ext.platforms.length > 0 && (
+                <span className="text-muted-foreground"> ({ext.platforms.map(platformLabel).join(', ')})</span>
+              )}
+            </span>
+          ))}
+        </p>
+        {group.raw && <RawDetails text={group.raw} />}
+      </div>
+    </li>
   )
 }
