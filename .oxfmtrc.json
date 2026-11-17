@@ -1,0 +1,16 @@
+{
+  "semi": false,
+  "singleQuote": true,
+  "printWidth": 120,
+  "trailingComma": "all",
+  "sortPackageJson": false,
+  "ignorePatterns": [
+    "**/routeTree.gen.ts",
+    "**/worker-configuration.d.ts",
+    "**/migrations/",
+    "**/dist/",
+    "**/.wrangler/",
+    "pnpm-lock.yaml",
+    "apps/dashboard/src/components/ui/"
+  ]
+}

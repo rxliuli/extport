@@ -6,10 +6,13 @@
   "scripts": {
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
-    "build": "pnpm -r --if-present build"
+    "build": "pnpm -r --if-present build",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
   },
   "packageManager": "pnpm@12.18.0",
   "devDependencies": {
+    "oxfmt": "0.78.0",
     "typescript": "^7.0.2"
   }
 }
