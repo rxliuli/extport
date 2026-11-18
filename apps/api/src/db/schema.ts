@@ -306,6 +306,27 @@ export const publishEvents = sqliteTable(
   ],
 )
 
+// A release = one (extension, version) reaching its baseline store: Chrome
+// when the extension has a Chrome target (the store announcements are
+// written against), else whichever store got it live first. Derived from
+// deployment_versions on read, never stored — this table only records that
+// the tenant has announced it (Discord etc.), so the dashboard can list
+// what's live but not yet announced. Migration 0030 backfilled every
+// release already live at the time as announced.
+export const announcedReleases = sqliteTable(
+  'announced_releases',
+  {
+    tenantId: text('tenant_id').notNull(),
+    extensionId: text('extension_id').notNull(),
+    version: text('version').notNull(),
+    announcedAt: text('announced_at').notNull().$defaultFn(now),
+  },
+  (t) => [
+    primaryKey({ columns: [t.extensionId, t.version] }),
+    index('announced_releases_tenant_idx').on(t.tenantId),
+  ],
+)
+
 // ===== Licensing 模块(Phase 2 实现,schema 先落地) =====
 
 export const plans = sqliteTable(

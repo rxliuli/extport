@@ -166,3 +166,22 @@ export const tenantSettingsQuery = queryOptions({
   queryFn: () => api<{ staleReviewDays: Record<Store, number> }>('/api/v1/tenant/settings'),
   staleTime: 5 * 60_000,
 })
+
+export interface Release {
+  extensionId: string
+  extensionName: string
+  iconUrl: string | null
+  version: string
+  onlineAt: string
+  announcedAt: string | null
+  listingUrl: string | null
+  stores: { store: Store; platform: 'macos' | 'ios' | null; status: DeploymentVersion['status'] }[]
+}
+
+// The header's release inbox. Releases flip live on the reconcile cron
+// (every 30 minutes), so a slow poll plus refetch-on-focus is plenty.
+export const releasesQuery = queryOptions({
+  queryKey: ['releases'],
+  queryFn: async () => (await api<{ releases: Release[] }>('/api/v1/releases')).releases,
+  refetchInterval: 5 * 60_000,
+})

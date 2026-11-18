@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { meQuery } from '@/queries'
+import { ReleaseInbox } from '@/ReleaseInbox'
 import type { Me } from '@/api'
 import type { QueryClient } from '@tanstack/react-query'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -137,6 +138,7 @@ function RootLayout() {
               </Link>
             </nav>
             <div className="ml-auto flex items-center gap-3 text-sm text-muted-foreground">
+              <ReleaseInbox />
               <span className="hidden sm:inline">{me.user?.displayName ?? me.user?.email}</span>
               <Badge variant="secondary">{me.tenant.plan}</Badge>
               <Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={() => void signOut()}>

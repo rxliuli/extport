@@ -13,6 +13,7 @@ import licensingRoutes from './routes/licensing'
 import paymentCredentialsRoutes from './routes/payment-credentials'
 import plansRoutes from './routes/plans'
 import portalRoutes from './routes/portal'
+import releasesRoutes from './routes/releases'
 import stripeWebhookRoutes from './routes/stripe-webhook'
 import tenantRoutes from './routes/tenant'
 
@@ -30,6 +31,7 @@ api.route('/v1/extensions', extensionsRoutes)
 api.route('/v1/artifacts', artifactsRoutes)
 api.route('/v1/credentials', credentialsRoutes)
 api.route('/v1/tenant', tenantRoutes)
+api.route('/v1/releases', releasesRoutes)
 // /v1/licensing is public — called by end users' devices, keyed by license
 // code alone; the stripe webhook receiver is public too, authenticated by
 // signature. plans/licenses/payment-credentials are tenant-authed.
