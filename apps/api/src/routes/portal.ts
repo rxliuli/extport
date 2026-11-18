@@ -3,7 +3,7 @@ import { Hono, type Context } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
-import { activations, extensions, licenses, magicLinks, plans } from '../db'
+import { activations, extensions, licenses, magicLinks, plans, tenants } from '../db'
 import {
   BUYER_SESSION_COOKIE,
   consumeMagicLink,
@@ -157,10 +157,11 @@ route.get(
     // Across tenants on purpose: these are the buyer's own purchases,
     // wherever they were bought.
     const rows = await db
-      .select({ license: licenses, plan: plans, extension: extensions })
+      .select({ license: licenses, plan: plans, extension: extensions, tenantSettings: tenants.settings })
       .from(licenses)
       .innerJoin(plans, eq(licenses.planId, plans.id))
       .innerJoin(extensions, eq(plans.extensionId, extensions.id))
+      .innerJoin(tenants, eq(extensions.tenantId, tenants.id))
       .where(eq(licenses.buyerEmail, email))
       .orderBy(desc(licenses.createdAt), desc(licenses.id))
 
@@ -177,13 +178,16 @@ route.get(
 
     return c.json({
       email,
-      licenses: rows.map(({ license, plan, extension }) => ({
+      licenses: rows.map(({ license, plan, extension, tenantSettings }) => ({
         key: license.key,
         status: license.status,
         maxActivations: license.maxActivations,
         createdAt: license.createdAt,
         productName: extension.name,
         tier: plan.tier,
+        // The selling developer's help link — each license can come from a
+        // different tenant, so it travels per license.
+        supportUrl: tenantSettings.supportUrl ?? null,
         devices: (devicesByLicense.get(license.id) ?? []).map((d) => ({
           fingerprint: d.deviceFingerprint,
           activatedAt: d.activatedAt,

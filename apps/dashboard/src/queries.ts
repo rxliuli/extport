@@ -163,7 +163,7 @@ export const keysQuery = queryOptions({
 // "taking too long" means. Tenant-configurable; defaults come from the API.
 export const tenantSettingsQuery = queryOptions({
   queryKey: ['tenant', 'settings'],
-  queryFn: () => api<{ staleReviewDays: Record<Store, number> }>('/api/v1/tenant/settings'),
+  queryFn: () => api<{ staleReviewDays: Record<Store, number>; supportUrl: string | null }>('/api/v1/tenant/settings'),
   staleTime: 5 * 60_000,
 })
 

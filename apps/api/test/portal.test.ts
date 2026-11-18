@@ -139,6 +139,25 @@ describe('GET /v1/portal/licenses', () => {
   })
 })
 
+describe('portal supportUrl', () => {
+  it("carries each selling tenant's own support link per license", async () => {
+    const a = await setupLicensed('shared@example.com')
+    const b = await setupLicensed('shared@example.com')
+    await request('/api/v1/tenant/settings', {
+      method: 'PATCH',
+      headers: { cookie: a.sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ supportUrl: 'https://a.example/support' }),
+    })
+
+    const cookie = await buyerCookie(a.db, 'shared@example.com')
+    const res = await request('/api/v1/portal/licenses', { headers: { cookie } })
+    const body = (await res.json()) as { licenses: { key: string; supportUrl: string | null }[] }
+    const byKey = new Map(body.licenses.map((l) => [l.key, l.supportUrl]))
+    expect(byKey.get(a.license.key)).toBe('https://a.example/support')
+    expect(byKey.get(b.license.key)).toBeNull()
+  })
+})
+
 describe('tenant seat release + license detail', () => {
   it('releases a seat (reset event), after which check is inactive; idempotent', async () => {
     const { db, extension, sessionCookie, license } = await setupLicensed()

@@ -1,4 +1,4 @@
-import { DEFAULT_STALE_REVIEW_DAYS, STORES, type TenantSettings } from '@extport/shared'
+import { DEFAULT_STALE_REVIEW_DAYS, isValidSupportUrl, STORES, type TenantSettings } from '@extport/shared'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { describeRoute, resolver, validator } from 'hono-openapi'
@@ -13,7 +13,17 @@ const route = new Hono<AppEnv>()
 // only — never exposed to API-key callers.
 route.use('*', requireSession, requireActiveTenant)
 
-const settingsResponseSchema = v.object({ staleReviewDays: v.record(v.picklist(STORES), v.number()) })
+const settingsResponseSchema = v.object({
+  staleReviewDays: v.record(v.picklist(STORES), v.number()),
+  supportUrl: v.nullable(v.string()),
+})
+
+function settingsResponse(settings: TenantSettings) {
+  return {
+    staleReviewDays: { ...DEFAULT_STALE_REVIEW_DAYS, ...settings.staleReviewDays },
+    supportUrl: settings.supportUrl ?? null,
+  }
+}
 
 route.get(
   '/settings',
@@ -23,12 +33,7 @@ route.get(
     security: [{ session: [] }],
     responses: { 200: { description: 'OK', content: { 'application/json': { schema: resolver(settingsResponseSchema) } } } },
   }),
-  (c) => {
-    const settings = c.get('tenant').settings
-    return c.json({
-      staleReviewDays: { ...DEFAULT_STALE_REVIEW_DAYS, ...settings.staleReviewDays },
-    })
-  },
+  (c) => c.json(settingsResponse(c.get('tenant').settings)),
 )
 
 const patchSettingsBodySchema = v.object({
@@ -39,6 +44,16 @@ const patchSettingsBodySchema = v.object({
         v.number('staleReviewDays value must be a positive number'),
         v.finite('staleReviewDays value must be a positive number'),
         v.check((n) => n > 0, 'staleReviewDays value must be a positive number'),
+      ),
+    ),
+  ),
+  // null (or an empty string) clears it.
+  supportUrl: v.optional(
+    v.nullable(
+      v.pipe(
+        v.string(),
+        v.trim(),
+        v.check((s) => s === '' || isValidSupportUrl(s), 'supportUrl must be an http(s) URL or a mailto: address'),
       ),
     ),
   ),
@@ -64,11 +79,13 @@ route.patch(
     if (body.staleReviewDays !== undefined) {
       next.staleReviewDays = { ...current.staleReviewDays, ...body.staleReviewDays }
     }
+    if (body.supportUrl !== undefined) {
+      if (body.supportUrl) next.supportUrl = body.supportUrl
+      else delete next.supportUrl
+    }
 
     await db.update(tenants).set({ settings: next }).where(eq(tenants.id, tenant.id))
-    return c.json({
-      staleReviewDays: { ...DEFAULT_STALE_REVIEW_DAYS, ...next.staleReviewDays },
-    })
+    return c.json(settingsResponse(next))
   },
 )
 

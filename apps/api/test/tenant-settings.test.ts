@@ -64,3 +64,43 @@ describe('PATCH /v1/tenant/settings', () => {
     expect(body.staleReviewDays.chrome).toBe(3)
   })
 })
+
+describe('supportUrl', () => {
+  const patch = (cookie: string, body: unknown) =>
+    request('/api/v1/tenant/settings', {
+      method: 'PATCH',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  const get = async (cookie: string) =>
+    ((await (await request('/api/v1/tenant/settings', { headers: { cookie } })).json()) as { supportUrl: string | null })
+      .supportUrl
+
+  it('is null by default, accepts https and mailto, clears with null or empty', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    expect(await get(sessionCookie)).toBeNull()
+
+    expect((await patch(sessionCookie, { supportUrl: ' https://example.com/support ' })).status).toBe(200)
+    expect(await get(sessionCookie)).toBe('https://example.com/support')
+
+    expect((await patch(sessionCookie, { supportUrl: 'mailto:help@example.com' })).status).toBe(200)
+    expect(await get(sessionCookie)).toBe('mailto:help@example.com')
+
+    // Untouched by an unrelated patch.
+    await patch(sessionCookie, { staleReviewDays: { edge: 5 } })
+    expect(await get(sessionCookie)).toBe('mailto:help@example.com')
+
+    expect((await patch(sessionCookie, { supportUrl: '' })).status).toBe(200)
+    expect(await get(sessionCookie)).toBeNull()
+    await patch(sessionCookie, { supportUrl: 'https://example.com' })
+    expect((await patch(sessionCookie, { supportUrl: null })).status).toBe(200)
+    expect(await get(sessionCookie)).toBeNull()
+  })
+
+  it('rejects anything that is not an http(s) URL or a mailto: address', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    for (const bad of ['javascript:alert(1)', 'example.com', 'mailto:', 'ftp://example.com']) {
+      expect((await patch(sessionCookie, { supportUrl: bad })).status).toBe(400)
+    }
+  })
+})

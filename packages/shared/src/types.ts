@@ -63,6 +63,23 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
 /** Tenant-level settings stored in tenants.settings. */
 export interface TenantSettings {
   staleReviewDays?: Partial<Record<Store, number>>
+  /**
+   * Where the tenant's buyers go for help — an https:// page or a mailto:
+   * address. Shown in the buyer portal and the license email; unset means
+   * no link at all (extport never falls back to the account email).
+   */
+  supportUrl?: string
+}
+
+/** True for an absolute http(s) URL or a mailto: with an address. */
+export function isValidSupportUrl(value: string): boolean {
+  if (/^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(value)) return true
+  try {
+    const url = new URL(value)
+    return (url.protocol === 'https:' || url.protocol === 'http:') && Boolean(url.hostname)
+  } catch {
+    return false
+  }
 }
 
 export const DEFAULT_STALE_REVIEW_DAYS: Record<Store, number> = {

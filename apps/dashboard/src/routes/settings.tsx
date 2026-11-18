@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { credentialsQuery, keysQuery, meQuery, paymentCredentialsQuery } from '@/queries'
+import { credentialsQuery, keysQuery, meQuery, paymentCredentialsQuery, tenantSettingsQuery } from '@/queries'
 import { useIsFetching, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { KeyRound, Loader2, MoreHorizontal, Plus } from 'lucide-react'
@@ -560,6 +560,62 @@ function PaymentCredentialsSection() {
   )
 }
 
+// Where buyers go for help: shown on each purchase in the buyer portal and
+// in the activation-code email. Unset = no link at all.
+function BuyerSupportSection() {
+  const queryClient = useQueryClient()
+  const { data: settings } = useQuery(tenantSettingsQuery)
+  const saved = settings?.supportUrl ?? ''
+  const [value, setValue] = useState<string | null>(null)
+  const current = value ?? saved
+
+  const save = useMutation({
+    mutationFn: (supportUrl: string) =>
+      api('/api/v1/tenant/settings', { method: 'PATCH', body: JSON.stringify({ supportUrl: supportUrl || null }) }),
+    onSuccess: async (_data, supportUrl) => {
+      await queryClient.invalidateQueries({ queryKey: tenantSettingsQuery.queryKey })
+      setValue(null)
+      toast.success(supportUrl ? 'Support link saved' : 'Support link removed')
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  })
+
+  return (
+    <Section
+      id="buyer-support"
+      title="Buyer support"
+      description="Where your buyers go for help — linked from every purchase in the buyer portal and from the activation-code email."
+    >
+      <div className={`space-y-2 ${sectionBodyClass}`}>
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            save.mutate(current.trim())
+          }}
+        >
+          <Input
+            type="text"
+            inputMode="url"
+            placeholder="https://example.com/support or mailto:help@example.com"
+            value={current}
+            onChange={(e) => setValue(e.target.value)}
+            aria-label="Support link"
+          />
+          <Button type="submit" disabled={save.isPending || current.trim() === saved}>
+            {save.isPending && <Loader2 className="animate-spin" />}
+            Save
+          </Button>
+        </form>
+        <p className="text-xs text-muted-foreground">
+          A support page or a mailto: address. Leave empty to show no link — extport never falls back to your account
+          email.
+        </p>
+      </div>
+    </Section>
+  )
+}
+
 // The webhook URL embeds the tenant id, which has no other UI surface —
 // this row is what the docs point at when Stripe asks for an endpoint.
 function WebhookUrlRow() {
@@ -616,6 +672,7 @@ function SettingsPage() {
       <ApiKeysSection />
       <CredentialsSection />
       <PaymentCredentialsSection />
+      <BuyerSupportSection />
     </div>
   )
 }

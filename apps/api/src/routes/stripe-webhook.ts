@@ -163,6 +163,7 @@ async function handleCheckoutCompleted(c: Context<AppEnv>, tenant: Tenant, sessi
     tier: plan.tier,
     key,
     maxActivations: plan.maxActivations,
+    supportUrl: tenant.settings.supportUrl ?? null,
   })
   return c.json({ status: 'processed' })
 }

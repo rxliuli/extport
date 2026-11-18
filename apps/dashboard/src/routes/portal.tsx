@@ -10,7 +10,7 @@ import { PortalShell } from '@/PortalShell'
 import { formatDate } from '@/status'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Check, ChevronDown, Copy, Loader2, MailCheck } from 'lucide-react'
+import { Check, ChevronDown, Copy, LifeBuoy, Loader2, MailCheck } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -32,6 +32,8 @@ interface PortalLicense {
   createdAt: string
   productName: string
   tier: string
+  /** The selling developer's help link (page or mailto:), if they set one. */
+  supportUrl: string | null
   devices: PortalDevice[]
 }
 
@@ -217,8 +219,10 @@ function LicenseList({ licenses }: { licenses: PortalLicense[] }) {
         ))}
       </ul>
       <p className="text-xs text-muted-foreground">
-        Idle devices free their seat automatically after 30 days. Need a seat released sooner? Contact the developer of
-        the extension.
+        Idle devices free their seat automatically after 30 days. Need a seat released sooner?{' '}
+        {licenses.some((l) => l.supportUrl)
+          ? 'Use Get help on that purchase to reach its developer.'
+          : 'Contact the developer of the extension.'}
       </p>
     </div>
   )
@@ -253,6 +257,20 @@ function LicenseRow({ license }: { license: PortalLicense }) {
               </button>
             ) : (
               <span>{usage}</span>
+            )}
+            {license.supportUrl && (
+              <>
+                <span aria-hidden>·</span>
+                <a
+                  href={license.supportUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  <LifeBuoy className="size-3" />
+                  Get help
+                </a>
+              </>
             )}
           </div>
         </div>
