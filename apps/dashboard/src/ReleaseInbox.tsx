@@ -2,7 +2,6 @@ import { api } from '@/api'
 import { STORE_LABEL, storeName } from '@/attention'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { releasesQuery, type Release } from '@/queries'
 import { relativeTime } from '@/status'
@@ -160,28 +159,18 @@ function ReleaseRow({ release: r, onToggle }: { release: Release; onToggle: (ite
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {r.listingUrl && !done && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-xs" aria-label="Copy store link" onClick={() => void copyLink()}>
-                <Link2 />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Copy store link</TooltipContent>
-          </Tooltip>
+          <Button variant="ghost" size="icon-xs" aria-label="Copy store link" onClick={() => void copyLink()}>
+            <Link2 />
+          </Button>
         )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant={done ? 'ghost' : 'outline'}
-              size="icon-xs"
-              aria-label={done ? 'Mark not announced' : 'Mark announced'}
-              onClick={() => onToggle([toItem(r)], !done)}
-            >
-              {done ? <RotateCcw /> : <Check />}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{done ? 'Undo' : 'Mark announced'}</TooltipContent>
-        </Tooltip>
+        <Button
+          variant={done ? 'ghost' : 'outline'}
+          size="icon-xs"
+          aria-label={done ? 'Mark not announced' : 'Mark announced'}
+          onClick={() => onToggle([toItem(r)], !done)}
+        >
+          {done ? <RotateCcw /> : <Check />}
+        </Button>
       </div>
     </li>
   )
