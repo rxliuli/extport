@@ -140,7 +140,9 @@ function RootLayout() {
             <div className="ml-auto flex items-center gap-3 text-sm text-muted-foreground">
               <ReleaseInbox />
               <span className="hidden sm:inline">{me.user?.displayName ?? me.user?.email}</span>
-              <Badge variant="secondary">{me.tenant.plan}</Badge>
+              <Badge variant="secondary" className="hidden sm:inline-flex">
+                {me.tenant.plan}
+              </Badge>
               <Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={() => void signOut()}>
                 Sign out
               </Button>
@@ -164,6 +166,12 @@ function RootLayout() {
                     <Link to="/settings">Settings</Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  {/* Account line: who's signed in and on which plan — the
+                      plan badge only sits in the header from sm up. */}
+                  <div className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm">
+                    <span className="truncate text-muted-foreground">{me.user?.displayName ?? me.user?.email}</span>
+                    <Badge variant="secondary">{me.tenant.plan}</Badge>
+                  </div>
                   <DropdownMenuItem onSelect={() => void signOut()}>Sign out</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

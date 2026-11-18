@@ -170,7 +170,6 @@ export const tenantSettingsQuery = queryOptions({
 export interface Release {
   extensionId: string
   extensionName: string
-  iconUrl: string | null
   version: string
   onlineAt: string
   announcedAt: string | null

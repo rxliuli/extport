@@ -47,7 +47,7 @@ route.get(
         .from(publishTargets)
         .where(and(eq(publishTargets.tenantId, tenantId), eq(publishTargets.store, 'chrome'))),
       db
-        .select({ id: extensions.id, name: extensions.name, iconUrl: extensions.iconUrl })
+        .select({ id: extensions.id, name: extensions.name })
         .from(extensions)
         .where(eq(extensions.tenantId, tenantId)),
       db.select().from(announcedReleases).where(eq(announcedReleases.tenantId, tenantId)),
@@ -104,7 +104,6 @@ route.get(
         return {
           extensionId: r.extensionId,
           extensionName: ext.name,
-          iconUrl: ext.iconUrl,
           version: r.version,
           onlineAt: r.onlineAt,
           announcedAt: announcedAt.get(key) ?? null,

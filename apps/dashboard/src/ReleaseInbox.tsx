@@ -71,7 +71,7 @@ export function ReleaseInbox() {
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[min(24rem,calc(100vw-2rem))] p-0">
+      <PopoverContent align="end" collisionPadding={16} className="w-[min(24rem,calc(100vw-2rem))] p-0">
         <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
           <div>
             <div className="text-sm font-semibold">Releases to announce</div>
@@ -134,11 +134,6 @@ function ReleaseRow({ release: r, onToggle }: { release: Release; onToggle: (ite
   }
   return (
     <li className={cn('flex items-start gap-3 px-4 py-3', done && 'opacity-60')}>
-      {r.iconUrl ? (
-        <img src={r.iconUrl} alt="" className="mt-0.5 size-8 shrink-0 rounded-md" />
-      ) : (
-        <div className="mt-0.5 size-8 shrink-0 rounded-md bg-muted" />
-      )}
       <div className="min-w-0 flex-1 space-y-0.5">
         <Link
           to="/extensions/$extensionId"
