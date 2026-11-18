@@ -1,0 +1,79 @@
+---
+import Layout from './Layout.astro'
+
+interface Props {
+  title: string
+  description: string
+  updated: string
+}
+
+const { title, description, updated } = Astro.props
+---
+
+<Layout title={`${title} — extport`} description={description}>
+  <div class="mx-auto flex min-h-svh max-w-3xl flex-col px-6">
+    <header class="flex items-center justify-between py-6">
+      <a href="/" class="text-lg font-bold tracking-tight">extport</a>
+    </header>
+    <main class="legal py-10">
+      <h1>{title}</h1>
+      <p class="updated">Last updated {updated}</p>
+      <slot />
+    </main>
+    <footer
+      class="mt-auto flex flex-wrap items-center justify-between gap-4 border-t border-border py-8 text-sm text-muted-foreground"
+    >
+      <a href="/" class="hover:text-foreground">extport</a>
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <a href="/privacy" class="hover:text-foreground">Privacy</a>
+        <a href="/terms" class="hover:text-foreground">Terms</a>
+        <a href="mailto:support@extport.dev" class="hover:text-foreground">support@extport.dev</a>
+      </div>
+    </footer>
+  </div>
+</Layout>
+
+<style>
+  .legal {
+    line-height: 1.7;
+  }
+  .legal :global(h1) {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+  .legal :global(.updated) {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--muted-foreground);
+  }
+  .legal :global(h2) {
+    margin-top: 2.5rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+  .legal :global(h3) {
+    margin-top: 1.5rem;
+    font-weight: 600;
+  }
+  .legal :global(p),
+  .legal :global(ul) {
+    margin-top: 0.75rem;
+  }
+  .legal :global(ul) {
+    list-style: disc;
+    padding-left: 1.25rem;
+  }
+  .legal :global(li + li) {
+    margin-top: 0.375rem;
+  }
+  .legal :global(a) {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .legal :global(.lead) {
+    margin-top: 1.5rem;
+    font-size: 1.0625rem;
+  }
+</style>

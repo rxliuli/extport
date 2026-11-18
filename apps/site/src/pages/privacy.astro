@@ -1,0 +1,158 @@
+---
+import LegalPage from '../layouts/LegalPage.astro'
+---
+
+<LegalPage
+  title="Privacy Policy"
+  description="What extport collects, why, who processes it, and how long it is kept."
+  updated="November 18, 2026"
+>
+  <p class="lead">
+    extport is a service for browser-extension developers: it publishes their extensions to the browser stores,
+    reports usage analytics, and issues and verifies license keys for the extensions they sell. This policy explains
+    what data extport handles in doing that. It is written for three groups of people:
+  </p>
+  <ul>
+    <li><strong>Developers</strong> who sign in to extport to manage their extensions.</li>
+    <li><strong>Buyers</strong> who purchased a license for an extension that uses extport licensing.</li>
+    <li>
+      <strong>Extension users</strong> who installed an extension whose developer turned on extport analytics.
+    </li>
+  </ul>
+  <p>
+    extport does not sell personal data, does not show ads, and does not use third-party tracking or advertising
+    cookies on extport.dev, dash.extport.dev, or portal.extport.dev.
+  </p>
+
+  <h2>Who is responsible for your data</h2>
+  <p>
+    For developer accounts, extport decides how that data is used and is responsible for it. For buyers and extension
+    users, the extension's developer is the one you have a relationship with: they sell the extension and decide to
+    use extport for licensing or analytics. extport processes that data on their behalf and only to provide those
+    features to them. If you have a question about an extension, contact its developer first. The buyer portal shows a
+    help link for each purchase when the developer has set one. You can always contact extport directly as well.
+  </p>
+
+  <h2>What we collect</h2>
+
+  <h3>Developers</h3>
+  <ul>
+    <li>
+      <strong>Account details from GitHub</strong> when you sign in: your GitHub user ID, email address, and display
+      name.
+    </li>
+    <li>
+      <strong>Store credentials and payment secrets</strong> you enter (for example, browser store API keys and your
+      Stripe webhook signing secret). These are encrypted with a key unique to your account before being stored, and
+      the dashboard never shows them again in full.
+    </li>
+    <li>
+      <strong>Extension packages</strong> you upload for publishing, and the publishing history for each store.
+    </li>
+    <li>
+      <strong>API keys and sessions:</strong> only a hash of each API key and session token is stored, never the
+      token itself.
+    </li>
+    <li><strong>Settings</strong> you configure, such as the support link shown to your buyers.</li>
+  </ul>
+
+  <h3>Buyers</h3>
+  <ul>
+    <li>
+      <strong>Purchase details</strong> sent by the developer's Stripe account when you complete a checkout: your
+      email address and the Stripe payment references needed to handle refunds. extport never sees or stores your card
+      or other payment details. Payment happens entirely in the developer's Stripe account.
+    </li>
+    <li><strong>Your license key</strong>, its status, and the plan it belongs to.</li>
+    <li>
+      <strong>Device activations:</strong> when you activate a license, the extension sends an identifier it
+      generates for that installation. extport stores that identifier, the time of activation, the time the device was
+      last seen, and the IP address and browser user agent of the activation request. These are used to enforce the
+      license's device limit and to help the developer investigate abuse.
+    </li>
+    <li>
+      <strong>Buyer portal sign-in:</strong> a one-time sign-in link sent to your email, and a session cookie once you
+      sign in.
+    </li>
+  </ul>
+
+  <h3>Extension users (analytics)</h3>
+  <p>
+    If a developer turns on extport analytics, the extension sends one request a day containing a random installation
+    ID (not linked to your identity, your license, or your license activations), the extension's version, and your
+    browser's language. From that request extport also derives your browser and operating system from the user agent,
+    and your country from the request's IP address. <strong>The IP address itself is not stored.</strong> Dates are
+    recorded at day granularity. No browsing activity or page content is collected.
+  </p>
+
+  <h3>Everyone</h3>
+  <p>
+    The service runs on Cloudflare, which processes standard request data (such as IP addresses) to deliver and
+    protect the service. extport sets only the cookies needed to keep you signed in.
+  </p>
+
+  <h2>How we use it</h2>
+  <ul>
+    <li>To provide the service: publishing, analytics, license fulfillment, and activation checks.</li>
+    <li>
+      To send service emails: sign-in links, activation codes, and publishing notifications. We do not send marketing
+      email.
+    </li>
+    <li>To keep the service secure and prevent abuse.</li>
+    <li>To respond when you contact us.</li>
+  </ul>
+
+  <h2>Service providers</h2>
+  <ul>
+    <li>
+      <strong>Cloudflare</strong>: hosting, database, file storage, queues, analytics storage, and email delivery.
+    </li>
+    <li><strong>GitHub</strong>: developer sign-in.</li>
+    <li>
+      <strong>Stripe</strong>: the developer's own Stripe account sends purchase and refund events to extport. extport
+      has no access to that account beyond verifying those events.
+    </li>
+    <li>
+      <strong>Browser stores</strong> (Google Chrome Web Store, Mozilla Add-ons, Microsoft Edge Add-ons, Apple App
+      Store Connect): extport calls their APIs with the developer's own credentials to publish and check review status.
+    </li>
+  </ul>
+  <p>We do not share personal data with anyone else except where required by law.</p>
+
+  <h2>How long we keep it</h2>
+  <ul>
+    <li>Developer account data: while the account exists. Ask us to delete your account at any time.</li>
+    <li>
+      License records: for as long as the developer's account keeps them, since a license is the buyer's proof of
+      purchase.
+    </li>
+    <li>Sign-in links expire after 15 minutes. Sessions expire automatically.</li>
+    <li>
+      Raw daily analytics requests: up to 90 days. After that only aggregate counts (for example, daily active users
+      per version or country) and a per-installation record of first and last day seen remain.
+    </li>
+  </ul>
+
+  <h2>Your choices and rights</h2>
+  <p>
+    You can ask us to access, correct, export, or delete your personal data by emailing
+    <a href="mailto:support@extport.dev">support@extport.dev</a>. If the request concerns data a developer controls
+    (for example, your license for their extension), we may forward it to that developer or ask you to contact them,
+    since some records, like proof of purchase, are theirs to keep. Extension users can stop analytics by uninstalling
+    the extension.
+  </p>
+
+  <h2>Children</h2>
+  <p>extport is not directed at children under 13 and we do not knowingly collect their data.</p>
+
+  <h2>Changes</h2>
+  <p>
+    If we change this policy, we will update the date at the top of this page. For significant changes we will also
+    notify developers by email or in the dashboard.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Questions about this policy or your data: <a href="mailto:support@extport.dev">support@extport.dev</a>.
+  </p>
+</LegalPage>

@@ -1,0 +1,107 @@
+---
+import LegalPage from '../layouts/LegalPage.astro'
+---
+
+<LegalPage
+  title="Terms of Service"
+  description="The terms for using the hosted extport service at extport.dev."
+  updated="November 18, 2026"
+>
+  <p class="lead">
+    These terms cover the hosted extport service at extport.dev, dash.extport.dev, and portal.extport.dev. By using
+    it you agree to them. If you self-host extport from its source code, the
+    <a href="https://github.com/rxliuli/extport">source license</a> applies instead, not these terms.
+  </p>
+
+  <h2>1. The service</h2>
+  <p>
+    extport helps browser-extension developers publish to the browser stores, see usage analytics, and sell license
+    keys through their own Stripe account. extport is currently in beta and free to use. When pricing is introduced,
+    developers will get advance notice. Anything set up during the beta will keep working, and nothing will be charged
+    retroactively.
+  </p>
+
+  <h2>2. Your account</h2>
+  <ul>
+    <li>You sign in with GitHub and are responsible for activity under your account and API keys.</li>
+    <li>
+      You must have the right to use any store accounts, credentials, and Stripe account you connect to extport.
+    </li>
+    <li>Keep your API keys secret, and revoke any you believe are exposed.</li>
+  </ul>
+
+  <h2>3. Your extensions and content</h2>
+  <p>
+    You keep all rights to your extensions and everything you upload. You give extport permission to store, process,
+    and send them to the stores you configure, only as needed to provide the service. You are responsible for your
+    extensions and for following each store's policies. Store review decisions, rejections, and any action a store
+    takes on your listing or account are between you and that store.
+  </p>
+
+  <h2>4. Selling licenses</h2>
+  <ul>
+    <li>
+      Sales happen in your own Stripe account. You are the seller: you are responsible for your prices, taxes, refunds,
+      your terms with your buyers, and supporting them.
+    </li>
+    <li>
+      extport issues and emails license keys when your Stripe account reports a completed purchase, and revokes them
+      when it reports a refund or dispute.
+    </li>
+    <li>
+      You must tell your buyers how their data is handled, including that extport processes it on your behalf as
+      described in the <a href="/privacy">Privacy Policy</a>.
+    </li>
+  </ul>
+
+  <h2>5. If you are a buyer</h2>
+  <p>
+    Your purchase is from the extension's developer, not from extport. Refunds, support, and the license terms for the
+    extension are theirs. Use the help link on your purchase in the buyer portal to reach them. extport provides the
+    portal so you can find your license keys and see which devices use them.
+  </p>
+
+  <h2>6. Acceptable use</h2>
+  <p>Do not use extport to:</p>
+  <ul>
+    <li>publish malware, or extensions that deceive users or violate store policies;</li>
+    <li>break the law or infringe anyone's rights;</li>
+    <li>
+      attack, overload, or probe the service, or access other accounts' data, including through the public licensing
+      and analytics endpoints;
+    </li>
+    <li>resell or offer the hosted service to others as your own.</li>
+  </ul>
+  <p>We may suspend accounts that do any of this, or that put the service or other users at risk.</p>
+
+  <h2>7. Availability</h2>
+  <p>
+    The service is provided "as is", without warranties of any kind, especially during the beta. We work to keep it
+    running and your data safe, but we do not guarantee uptime, and the browser stores' APIs are outside our control.
+    Keep your own copies of anything important, such as your extension source and packages.
+  </p>
+
+  <h2>8. Limitation of liability</h2>
+  <p>
+    To the extent the law allows, extport is not liable for indirect or consequential losses, such as lost sales,
+    lost data, or store penalties. Our total liability for any claim is limited to the amount you paid for the service
+    in the 12 months before the claim. While the service is free, that amount is zero.
+  </p>
+
+  <h2>9. Ending your use</h2>
+  <p>
+    You can stop using extport at any time and ask us to delete your account by emailing
+    <a href="mailto:support@extport.dev">support@extport.dev</a>. We may end or suspend access for breach of these
+    terms. If we ever shut the hosted service down, we will give reasonable notice so you can move. The source code
+    remains available for self-hosting.
+  </p>
+
+  <h2>10. Changes</h2>
+  <p>
+    We may update these terms. When we do, we will update the date at the top of this page and, for significant
+    changes, notify developers in advance. Continuing to use the service after a change means you accept it.
+  </p>
+
+  <h2>11. Contact</h2>
+  <p>Questions about these terms: <a href="mailto:support@extport.dev">support@extport.dev</a>.</p>
+</LegalPage>

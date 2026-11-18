@@ -9,6 +9,8 @@ interface Props {
 const { title, description } = Astro.props
 
 const SITE_URL = 'https://extport.dev'
+// Per-page canonical: the pathname of whichever page renders this layout.
+const CANONICAL = new URL(Astro.url.pathname, SITE_URL).href
 const OG_IMAGE = `${SITE_URL}/og.png`
 ---
 
@@ -18,12 +20,12 @@ const OG_IMAGE = `${SITE_URL}/og.png`
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <link rel="canonical" href={SITE_URL} />
+    <link rel="canonical" href={CANONICAL} />
     <meta name="description" content={description} />
     <title>{title}</title>
 
     <meta property="og:type" content="website" />
-    <meta property="og:url" content={SITE_URL} />
+    <meta property="og:url" content={CANONICAL} />
     <meta property="og:site_name" content="extport" />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
