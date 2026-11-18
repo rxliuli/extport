@@ -1,12 +1,24 @@
-import type { PublishTarget, Store, TargetLifecycle } from './api'
+import { api, ApiError, type PublishTarget, type Store, type TargetLifecycle } from './api'
 import { errorSummary, storeName } from './attention'
 import { RawDetails } from './components/RawDetails'
 import { Section, sectionRowClass } from './components/Section'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from './components/ui/alert-dialog'
 import { Skeleton } from './components/ui/skeleton'
 import { targetsQuery, tenantSettingsQuery } from './queries'
 import { ageDays, formatDate, formatElapsed } from './status'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink } from 'lucide-react'
+import { toast } from 'sonner'
 
 const DEFAULT_STALE_REVIEW_DAYS: Record<Store, number> = { chrome: 3, firefox: 3, edge: 10, safari: 3 }
 
@@ -210,10 +222,83 @@ export function StoreStatusSection({ extensionId }: { extensionId: string }) {
                   {'raw' in info && info.raw && <RawDetails text={info.raw} />}
                 </div>
               )}
+              {/* Edge only: every other store reports review state, so a review
+                  cancelled there resolves on its own (reconcile/run.ts's
+                  phantom in-review check). Edge can't, so it needs a human. */}
+              {target.store === 'edge' && lifecycle?.inReviewVersion && target.enabled && (
+                <div className="sm:col-start-3 sm:col-end-5">
+                  <WithdrawReview extensionId={extensionId} target={target} lifecycle={lifecycle} />
+                </div>
+              )}
             </li>
           )
         })}
       </ul>
     </Section>
+  )
+}
+
+/**
+ * Escape hatch for a review cancelled in Partner Center. Edge has no
+ * review-status API, so it can't tell extport the review is gone: the
+ * in-review version never resolves and everything queued behind it waits
+ * forever. (Other stores report it, and reconcile clears it automatically.)
+ * Kept low-key on purpose: a plain text button, confirmed in a dialog — it's
+ * a correction to extport's bookkeeping, not something to click routinely.
+ */
+function WithdrawReview({
+  extensionId,
+  target,
+  lifecycle,
+}: {
+  extensionId: string
+  target: PublishTarget
+  lifecycle: TargetLifecycle
+}) {
+  const queryClient = useQueryClient()
+  const version = lifecycle.inReviewVersion!
+  const consoleLabel = CONSOLE_LABEL[target.store]
+  const withdraw = useMutation({
+    mutationFn: () =>
+      api(`/api/v1/extensions/${extensionId}/targets/${target.id}/withdraw-review`, {
+        method: 'POST',
+        body: JSON.stringify({ version, platform: lifecycle.platform }),
+      }),
+    onSuccess: () => {
+      toast.success(`v${version} marked as withdrawn`)
+      void queryClient.invalidateQueries({ queryKey: ['extensions', extensionId] })
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : String(err)),
+  })
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <button
+          type="button"
+          disabled={withdraw.isPending}
+          className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground disabled:opacity-50"
+        >
+          Withdrew v{version} in {consoleLabel}?
+        </button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Mark v{version} as withdrawn?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Only do this after you have cancelled this submission in {consoleLabel}. Edge doesn't report review status,
+            so extport can't see the cancellation and keeps waiting for this review to finish.
+            {lifecycle.queuedVersion
+              ? ` Marking it withdrawn lets the queued v${lifecycle.queuedVersion} be submitted on the next sync.`
+              : ' Marking it withdrawn lets the next version you push be submitted right away.'}{' '}
+            Nothing is changed in the store itself.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={() => withdraw.mutate()}>Mark as withdrawn</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

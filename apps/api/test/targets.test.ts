@@ -411,3 +411,91 @@ describe('GET /v1/extensions/:id/timeline', () => {
     expect(res.status).toBe(404)
   })
 })
+
+describe('POST /v1/extensions/:id/targets/:targetId/withdraw-review', () => {
+  async function setup() {
+    const ctx = await seedTenantWithUser()
+    const extension = await createExtension(ctx.sessionCookie)
+    const credential = await createCredential(ctx.sessionCookie, 'edge', EDGE_FIELDS)
+    const res = await addTarget(extension.id, ctx.sessionCookie, {
+      store: 'edge',
+      storeItemId: 'product-1',
+      credentialId: credential.id,
+    })
+    const { target } = (await res.json()) as { target: { id: string } }
+    // Clear whatever baseline adding the target recorded, so each test owns its rows.
+    await ctx.db.delete(deploymentVersions).where(eq(deploymentVersions.extensionId, extension.id))
+    await ctx.db.insert(deploymentVersions).values([
+      {
+        id: newId('deploymentVersion'),
+        tenantId: ctx.tenantId,
+        extensionId: extension.id,
+        store: 'edge',
+        version: '0.8.65',
+        status: 'online',
+      },
+      {
+        id: newId('deploymentVersion'),
+        tenantId: ctx.tenantId,
+        extensionId: extension.id,
+        store: 'edge',
+        version: '0.8.66',
+        status: 'in_review',
+      },
+      {
+        id: newId('deploymentVersion'),
+        tenantId: ctx.tenantId,
+        extensionId: extension.id,
+        store: 'edge',
+        version: '0.8.70',
+        status: 'queued',
+      },
+    ])
+    const withdraw = (body: unknown, cookie = ctx.sessionCookie) =>
+      request(`/api/v1/extensions/${extension.id}/targets/${target.id}/withdraw-review`, {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    const rows = () =>
+      ctx.db
+        .select({
+          version: deploymentVersions.version,
+          status: deploymentVersions.status,
+          statusDetail: deploymentVersions.statusDetail,
+        })
+        .from(deploymentVersions)
+        .where(eq(deploymentVersions.extensionId, extension.id))
+    return { ...ctx, extension, target, withdraw, rows }
+  }
+
+  it('marks the in-review version skipped and leaves the queued one to be submitted', async () => {
+    const { withdraw, rows } = await setup()
+    const res = await withdraw({ version: '0.8.66' })
+    expect(res.status).toBe(200)
+    const byVersion = Object.fromEntries((await rows()).map((r) => [r.version, r]))
+    expect(byVersion['0.8.66']).toMatchObject({ status: 'skipped', statusDetail: expect.stringContaining('withdrawn') })
+    expect(byVersion['0.8.65']?.status).toBe('online')
+    expect(byVersion['0.8.70']?.status).toBe('queued')
+  })
+
+  it('409s when a different version is in review than the one the caller saw', async () => {
+    const { withdraw, rows } = await setup()
+    const res = await withdraw({ version: '0.8.60' })
+    expect(res.status).toBe(409)
+    expect((await rows()).find((r) => r.version === '0.8.66')?.status).toBe('in_review')
+  })
+
+  it('404s when nothing is in review', async () => {
+    const { withdraw } = await setup()
+    expect((await withdraw({ version: '0.8.66' })).status).toBe(200)
+    expect((await withdraw({ version: '0.8.66' })).status).toBe(404)
+  })
+
+  it('scopes to the owning tenant', async () => {
+    const { withdraw, rows } = await setup()
+    const other = await seedTenantWithUser()
+    expect((await withdraw({ version: '0.8.66' }, other.sessionCookie)).status).toBe(404)
+    expect((await rows()).find((r) => r.version === '0.8.66')?.status).toBe('in_review')
+  })
+})

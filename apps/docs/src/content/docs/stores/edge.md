@@ -70,6 +70,16 @@ extension's **Extension overview** there and read the version's own status:
 extport will notice neither case on its own. It emails a stale-review reminder after 10 days (vs 3 for the other
 stores, because Edge's queue is genuinely that slow) — that reminder is the safety net, not a diagnosis.
 
+## Cancelling a submission in Partner Center
+
+If you cancel a submission yourself (**Cancel submission** on the Extension overview), extport has no way to
+find out — the version never goes live and is never reported as rejected, so it stays `in_review` and every
+version queued behind it waits indefinitely.
+
+After cancelling, open the extension's **Store status** in extport and click **Withdrew vX in Partner Center?**
+under the Edge row, then confirm. extport records that version as skipped (never submitted) and submits the
+queued version on the next sync. Nothing is changed on the store itself.
+
 ## Adding a permission means filling in a new justification
 
 Edge's **Privacy** page requires a written justification for every permission in your manifest, plus a single

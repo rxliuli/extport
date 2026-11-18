@@ -1,6 +1,6 @@
 import { decryptJson, newId, PLAN_LIMITS, STORES, type Store } from '@extport/shared'
 import { getAdapter } from '@extport/store-adapters'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { describeRoute, resolver, validator } from 'hono-openapi'
 import * as v from 'valibot'
@@ -602,6 +602,78 @@ route.patch(
     }
     const [updated] = await db.select().from(publishTargets).where(eq(publishTargets.id, target.id))
     return c.json({ target: updated })
+  },
+)
+
+const withdrawReviewBodySchema = v.object({
+  // The version the dashboard showed as in review — guards against acting on
+  // a row that moved on (went live, got replaced) between render and click.
+  version: v.pipe(v.string(), v.trim(), v.minLength(1)),
+  // Safari only: which platform's lifecycle. Omitted/null for every other store.
+  platform: v.optional(v.nullable(v.picklist(['macos', 'ios']))),
+})
+
+// A review the maintainer cancelled store-side is invisible to stores without
+// a review-status API (Edge: microsoft/MicrosoftEdge-Extensions#696, declined).
+// The in_review row then never resolves — it only clears on going live or a
+// reported rejection, and a cancelled version gets neither — so every later
+// push sits queued behind it forever. This is the human saying "it's gone".
+//
+// Lands as 'skipped', same as the reconciler's own "no longer found on the
+// store" path (reconcile/run.ts): treated as never submitted. If a store CAN
+// see the review and it's actually still open, the next reconcile tick
+// re-adopts it as in_review, so a mistaken click self-corrects there.
+route.post(
+  '/:id/targets/:targetId/withdraw-review',
+  describeRoute({
+    tags: ['Extensions'],
+    summary: 'Mark an in-review submission as withdrawn in the store',
+    description:
+      'For a submission cancelled directly in the store console. Records it as skipped so the queued version can be submitted.',
+    responses: {
+      200: { description: 'OK' },
+      404: { description: 'Not found, or nothing in review' },
+      409: { description: 'A different version is in review now' },
+    },
+  }),
+  validator('json', withdrawReviewBodySchema, badRequest),
+  async (c) => {
+    const db = c.get('db')
+    const tenant = c.get('tenant')
+    const extension = await ownedExtension(db, tenant.id, c.req.param('id'))
+    if (!extension) return c.json({ error: 'not found' }, 404)
+
+    const [target] = await db
+      .select()
+      .from(publishTargets)
+      .where(and(eq(publishTargets.id, c.req.param('targetId')), eq(publishTargets.extensionId, extension.id)))
+    if (!target) return c.json({ error: 'not found' }, 404)
+
+    const body = c.req.valid('json')
+    const platform = body.platform ?? null
+    const [inReview] = await db
+      .select()
+      .from(deploymentVersions)
+      .where(
+        and(
+          eq(deploymentVersions.extensionId, extension.id),
+          eq(deploymentVersions.store, target.store),
+          eq(deploymentVersions.status, 'in_review'),
+          platform ? eq(deploymentVersions.platform, platform) : isNull(deploymentVersions.platform),
+        ),
+      )
+    if (!inReview) return c.json({ error: 'nothing is in review for this store' }, 404)
+    if (inReview.version !== body.version) {
+      return c.json({ error: `v${inReview.version} is in review now, not v${body.version}` }, 409)
+    }
+
+    await db
+      .update(deploymentVersions)
+      .set({ status: 'skipped', statusDetail: 'withdrawn in the store console — treated as never submitted' })
+      .where(and(eq(deploymentVersions.id, inReview.id), eq(deploymentVersions.status, 'in_review')))
+    // Whatever was queued behind it can go now — don't make it wait for the cron.
+    await enqueueReconcile(c.env, { tenantId: tenant.id, extensionId: extension.id })
+    return c.json({ ok: true })
   },
 )
 
