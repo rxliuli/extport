@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { describeRoute, validator } from 'hono-openapi'
@@ -162,7 +162,7 @@ route.get(
       .innerJoin(plans, eq(licenses.planId, plans.id))
       .innerJoin(extensions, eq(plans.extensionId, extensions.id))
       .where(eq(licenses.buyerEmail, email))
-      .orderBy(licenses.createdAt)
+      .orderBy(desc(licenses.createdAt), desc(licenses.id))
 
     const licenseIds = rows.map((r) => r.license.id)
     const deviceRows = licenseIds.length

@@ -5,11 +5,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 import { PortalShell } from '@/PortalShell'
 import { formatDate } from '@/status'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Check, Copy, Loader2, MailCheck } from 'lucide-react'
+import { Check, ChevronDown, Copy, Loader2, MailCheck } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -205,41 +206,64 @@ function LicenseList({ licenses }: { licenses: PortalLicense[] }) {
       </Card>
     )
   }
+  // The server sends newest first; codes that still work stay on top,
+  // refunded/locked ones sink to the bottom (order within each kept).
+  const ordered = [...licenses.filter((l) => l.status === 'active'), ...licenses.filter((l) => l.status !== 'active')]
   return (
-    <div className="space-y-4">
-      {licenses.map((license) => (
-        <Card key={license.key}>
-          <CardHeader>
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="text-lg">
-                {license.productName} <Badge variant="secondary">{license.tier}</Badge>
-              </CardTitle>
-              {license.status !== 'active' && <Badge variant="destructive">{license.status}</Badge>}
-            </div>
-            <CardDescription>
-              Purchased {formatDate(license.createdAt)} · {activeCount(license)} of{' '}
-              {license.maxActivations} devices in use
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <KeyRow value={license.key} />
-            <Devices devices={license.devices} />
-          </CardContent>
-        </Card>
-      ))}
+    <div className="space-y-3">
+      <ul className="divide-y rounded-xl border bg-card text-card-foreground shadow-sm">
+        {ordered.map((license) => (
+          <LicenseRow key={license.key} license={license} />
+        ))}
+      </ul>
       <p className="text-xs text-muted-foreground">
-        Idle devices free their seat automatically after 30 days. Need a seat released sooner? Contact the developer
-        of the extension.
+        Idle devices free their seat automatically after 30 days. Need a seat released sooner? Contact the developer of
+        the extension.
       </p>
     </div>
   )
 }
 
-function activeCount(license: PortalLicense): number {
-  return license.devices.filter((d) => !d.releasedAt).length
+function LicenseRow({ license }: { license: PortalLicense }) {
+  const [showDevices, setShowDevices] = useState(false)
+  const active = license.devices.filter((d) => !d.releasedAt)
+  const inactive = license.status !== 'active'
+  const usage = `${active.length} of ${license.maxActivations} devices in use`
+  return (
+    <li className="px-4 py-3 sm:px-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className={cn('min-w-0 space-y-1', inactive && 'opacity-60')}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold">{license.productName}</span>
+            <Badge variant="secondary">{license.tier}</Badge>
+            {inactive && <Badge variant="destructive">{license.status}</Badge>}
+          </div>
+          <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+            <span>Purchased {formatDate(license.createdAt)}</span>
+            <span aria-hidden>·</span>
+            {active.length > 0 ? (
+              <button
+                type="button"
+                className="inline-flex items-center gap-0.5 underline-offset-2 hover:text-foreground hover:underline"
+                aria-expanded={showDevices}
+                onClick={() => setShowDevices((v) => !v)}
+              >
+                {usage}
+                <ChevronDown className={cn('size-3 transition-transform', showDevices && 'rotate-180')} />
+              </button>
+            ) : (
+              <span>{usage}</span>
+            )}
+          </div>
+        </div>
+        <KeyRow value={license.key} muted={inactive} />
+      </div>
+      {showDevices && <Devices devices={active} />}
+    </li>
+  )
 }
 
-function KeyRow({ value }: { value: string }) {
+function KeyRow({ value, muted }: { value: string; muted?: boolean }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     await navigator.clipboard.writeText(value)
@@ -247,9 +271,16 @@ function KeyRow({ value }: { value: string }) {
     setTimeout(() => setCopied(false), 2000)
   }
   return (
-    <div className="flex items-center gap-2">
-      <code className="flex-1 rounded-md border bg-muted px-3 py-2 font-mono tracking-wider">{value}</code>
-      <Button variant="outline" size="icon" onClick={() => void copy()} aria-label="Copy activation code">
+    <div className="flex shrink-0 items-center gap-2">
+      <code
+        className={cn(
+          'flex-1 rounded-md border bg-muted px-2.5 py-1.5 font-mono text-sm tracking-wider sm:flex-none',
+          muted && 'text-muted-foreground line-through',
+        )}
+      >
+        {value}
+      </code>
+      <Button variant="outline" size="icon-sm" onClick={() => void copy()} aria-label="Copy activation code">
         {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
       </Button>
     </div>
@@ -257,11 +288,9 @@ function KeyRow({ value }: { value: string }) {
 }
 
 function Devices({ devices }: { devices: PortalDevice[] }) {
-  const active = devices.filter((d) => !d.releasedAt)
-  if (active.length === 0) return null
   return (
-    <ul className="divide-y rounded-md border text-sm">
-      {active.map((device) => (
+    <ul className="mt-3 divide-y rounded-md border text-sm">
+      {devices.map((device) => (
         <li
           key={device.fingerprint}
           className="flex flex-col gap-0.5 px-3 py-2 text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:gap-3"
