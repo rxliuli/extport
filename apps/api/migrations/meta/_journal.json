@@ -218,6 +218,13 @@
       "when": 1794992284848,
       "tag": "0030_announced_releases",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1795078563607,
+      "tag": "0031_deployment_versions_tenant_indexes",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,2 @@
+CREATE INDEX `deployment_versions_tenant_status_idx` ON `deployment_versions` (`tenant_id`,`status`);--> statement-breakpoint
+CREATE INDEX `deployment_versions_tenant_version_idx` ON `deployment_versions` (`tenant_id`,`version`);

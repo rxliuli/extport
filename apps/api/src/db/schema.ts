@@ -284,6 +284,8 @@ export const deploymentVersions = sqliteTable(
     index('deployment_versions_ext_store_idx').on(t.extensionId, t.store),
     index('deployment_versions_ext_store_status_idx').on(t.extensionId, t.store, t.status),
     index('deployment_versions_tenant_idx').on(t.tenantId),
+    index('deployment_versions_tenant_status_idx').on(t.tenantId, t.status),
+    index('deployment_versions_tenant_version_idx').on(t.tenantId, t.version),
   ],
 )
 

@@ -31,10 +31,11 @@ export const meQuery = queryOptions({
   retry: false,
 })
 
-// Store review state changes on the stores' clock, not ours — poll gently so
-// the dashboard stays current without a manual reload (the cron reconciles
-// every 30 minutes; these only re-read our own DB).
-const POLL_MS = 30_000
+// Store review state changes on the stores' clock, not ours — the cron
+// reconciles every 30 minutes, so a 5-minute poll plus TanStack Query's
+// default refetch-on-window-focus keeps the dashboard fresh without hammering
+// D1 when a tab sits open.
+export const POLL_MS = 5 * 60_000
 
 export const matrixQuery = queryOptions({
   queryKey: ['extensions', 'matrix'],
@@ -182,5 +183,5 @@ export interface Release {
 export const releasesQuery = queryOptions({
   queryKey: ['releases'],
   queryFn: async () => (await api<{ releases: Release[] }>('/api/v1/releases')).releases,
-  refetchInterval: 5 * 60_000,
+  refetchInterval: POLL_MS,
 })

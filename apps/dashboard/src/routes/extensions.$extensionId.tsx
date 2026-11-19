@@ -28,7 +28,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { parseListingUrl } from '@/lib/store-listing-url'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { credentialsQuery, extensionQuery, targetsQuery, timelineQuery } from '@/queries'
+import { credentialsQuery, extensionQuery, POLL_MS, targetsQuery, timelineQuery } from '@/queries'
 import { ageDays, formatDate, relativeTime, summarizeStoreError } from '@/status'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, Outlet, useNavigate } from '@tanstack/react-router'
@@ -610,7 +610,7 @@ function useSync(extensionId: string) {
   const idlePolls = useRef(0)
   const { data: targets, dataUpdatedAt } = useQuery({
     ...targetsQuery(extensionId),
-    refetchInterval: startedAt !== null ? SYNC_POLL_MS : 30_000,
+    refetchInterval: startedAt !== null ? SYNC_POLL_MS : POLL_MS,
   })
 
   useEffect(() => {
