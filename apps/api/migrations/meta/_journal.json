@@ -239,6 +239,13 @@
       "when": 1795280574498,
       "tag": "0033_subscriptions_and_stripe_control_plane",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1795284375430,
+      "tag": "0034_plan_billing_interval",
+      "breakpoints": true
     }
   ]
 }

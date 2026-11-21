@@ -126,35 +126,37 @@ describe('plans auto-sync with Stripe', () => {
     expect(plan.maxActivations).toBe(3)
   })
 
-  it('rejects mismatched pricing fields between perpetual and recurring plans', async () => {
+  it('rejects mismatched billingInterval between perpetual and recurring plans', async () => {
     const { sessionCookie, extension } = await setupControlPlaneTenant({ apiKey: 'rk_test_plan_mismatch' })
 
-    const perpWithMonthly = await request('/api/v1/plans', {
+    const perpWithMonth = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({
         extensionId: extension.id,
         tier: 'pro',
         entitlementType: 'perpetual',
-        monthlyAmount: 499,
+        billingInterval: 'month',
+        amount: 499,
       }),
     })
-    expect(perpWithMonthly.status).toBe(400)
+    expect(perpWithMonth.status).toBe(400)
 
-    const recWithAmount = await request('/api/v1/plans', {
+    const recWithOneTime = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({
         extensionId: extension.id,
         tier: 'pro',
         entitlementType: 'recurring',
+        billingInterval: 'one_time',
         amount: 1999,
       }),
     })
-    expect(recWithAmount.status).toBe(400)
+    expect(recWithOneTime.status).toBe(400)
   })
 
-  it('creates Stripe Product + Price(s) on POST (maxActivations=0 for recurring) and archives old Price on PATCH', async () => {
+  it('creates Stripe Product + Price on POST (maxActivations=0 for recurring), allows monthly + yearly rows per tier, and archives old Price on PATCH', async () => {
     const { sessionCookie, extension } = await setupControlPlaneTenant({ apiKey: 'rk_test_plan_sync_secret' })
 
     let priceSeq = 0
@@ -176,44 +178,61 @@ describe('plans auto-sync with Stripe', () => {
       throw new Error(`Unexpected path: ${path}`)
     })
 
-    const createRes = await request('/api/v1/plans', {
+    const createMonthlyRes = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({
         extensionId: extension.id,
         tier: 'pro',
         entitlementType: 'recurring',
+        billingInterval: 'month',
         currency: 'EUR',
-        monthlyAmount: 499,
-        yearlyAmount: 4999,
+        amount: 499,
       }),
     })
-    expect(createRes.status).toBe(201)
-    const { plan } = (await createRes.json()) as { plan: Plan }
-    expect(plan.maxActivations).toBe(0)
-    expect(plan.currency).toBe('eur')
-    expect(plan.monthlyAmount).toBe(499)
-    expect(plan.yearlyAmount).toBe(4999)
-    expect(plan.stripeProductId).toBe('prod_auto_1')
-    expect(plan.stripeMonthlyPriceId).toBe('price_auto_1')
-    expect(plan.stripeYearlyPriceId).toBe('price_auto_2')
-    expect(calls[0]!.params.get('metadata[extport_extension]')).toBe(plan.extensionId)
-    expect(calls[1]!.params.get('metadata[extport_plan]')).toBe(plan.id)
+    expect(createMonthlyRes.status).toBe(201)
+    const { plan: monthlyPlan } = (await createMonthlyRes.json()) as { plan: Plan }
+    expect(monthlyPlan.maxActivations).toBe(0)
+    expect(monthlyPlan.billingInterval).toBe('month')
+    expect(monthlyPlan.currency).toBe('eur')
+    expect(monthlyPlan.amount).toBe(499)
+    expect(monthlyPlan.stripeProductId).toBe('prod_auto_1')
+    expect(monthlyPlan.stripePriceId).toBe('price_auto_1')
+    expect(calls[0]!.params.get('metadata[extport_extension]')).toBe(monthlyPlan.extensionId)
+    expect(calls[1]!.params.get('metadata[extport_plan]')).toBe(monthlyPlan.id)
     expect(calls[1]!.params.get('currency')).toBe('eur')
     expect(calls[1]!.params.get('recurring[interval]')).toBe('month')
+
+    // Adding a yearly plan for the same tier reuses prod_auto_1 and creates a second Stripe Price.
+    const createYearlyRes = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extension.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        billingInterval: 'year',
+        currency: 'EUR',
+        amount: 4999,
+      }),
+    })
+    expect(createYearlyRes.status).toBe(201)
+    const { plan: yearlyPlan } = (await createYearlyRes.json()) as { plan: Plan }
+    expect(yearlyPlan.billingInterval).toBe('year')
+    expect(yearlyPlan.stripeProductId).toBe('prod_auto_1')
+    expect(yearlyPlan.stripePriceId).toBe('price_auto_2')
     expect(calls[2]!.params.get('recurring[interval]')).toBe('year')
 
-    // Updating monthlyAmount without maxActivations succeeds, creates a new monthly price, and archives only price_auto_1.
-    const patchRes = await request(`/api/v1/plans/${plan.id}`, {
+    // Updating amount without maxActivations succeeds, creates a new monthly price, and archives price_auto_1.
+    const patchRes = await request(`/api/v1/plans/${monthlyPlan.id}`, {
       method: 'PATCH',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ monthlyAmount: 699 }),
+      body: JSON.stringify({ amount: 699 }),
     })
     expect(patchRes.status).toBe(200)
     const { plan: updated } = (await patchRes.json()) as { plan: Plan }
-    expect(updated.monthlyAmount).toBe(699)
-    expect(updated.stripeMonthlyPriceId).toBe('price_auto_3')
-    expect(updated.stripeYearlyPriceId).toBe('price_auto_2')
+    expect(updated.amount).toBe(699)
+    expect(updated.stripePriceId).toBe('price_auto_3')
     const archiveCall = calls[calls.length - 1]!
     expect(archiveCall.url).toBe('https://api.stripe.com/v1/prices/price_auto_1')
     expect(archiveCall.params.get('active')).toBe('false')
@@ -374,18 +393,31 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
       throw new Error(`Unexpected Stripe path: ${path}`)
     })
 
-    const recRes = await request('/api/v1/plans', {
+    const recMonthlyRes = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({
         extensionId: extension.id,
         tier: 'pro',
         entitlementType: 'recurring',
-        monthlyAmount: 499,
-        yearlyAmount: 4999,
+        billingInterval: 'month',
+        amount: 499,
       }),
     })
-    const { plan: recPlan } = (await recRes.json()) as { plan: Plan }
+    const { plan: recMonthlyPlan } = (await recMonthlyRes.json()) as { plan: Plan }
+
+    const recYearlyRes = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extension.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        billingInterval: 'year',
+        amount: 4999,
+      }),
+    })
+    const { plan: recYearlyPlan } = (await recYearlyRes.json()) as { plan: Plan }
 
     const sibPlanRes = await request('/api/v1/plans', {
       method: 'POST',
@@ -394,7 +426,8 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
         extensionId: otherExtension.id,
         tier: 'pro',
         entitlementType: 'recurring',
-        monthlyAmount: 399,
+        billingInterval: 'month',
+        amount: 399,
       }),
     })
     const { plan: sibPlan } = (await sibPlanRes.json()) as { plan: Plan }
@@ -466,9 +499,9 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
     })
     const stripeCall1 = calls[calls.length - 1]!
     expect(stripeCall1.params.get('mode')).toBe('subscription')
-    expect(stripeCall1.params.get('line_items[0][price]')).toBe(recPlan.stripeMonthlyPriceId)
-    expect(stripeCall1.params.get('metadata[extport_plan]')).toBe(recPlan.id)
-    expect(stripeCall1.params.get('subscription_data[metadata][extport_plan]')).toBe(recPlan.id)
+    expect(stripeCall1.params.get('line_items[0][price]')).toBe(recMonthlyPlan.stripePriceId)
+    expect(stripeCall1.params.get('metadata[extport_plan]')).toBe(recMonthlyPlan.id)
+    expect(stripeCall1.params.get('subscription_data[metadata][extport_plan]')).toBe(recMonthlyPlan.id)
     expect(stripeCall1.params.get('client_reference_id')).toBe('user_42')
     expect(stripeCall1.params.get('customer_email')).toBe('Buyer@Example.com')
 
@@ -496,7 +529,7 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
     })
     expect(chkYearly.status).toBe(200)
     const stripeCall2 = calls[calls.length - 1]!
-    expect(stripeCall2.params.get('line_items[0][price]')).toBe(recPlan.stripeYearlyPriceId)
+    expect(stripeCall2.params.get('line_items[0][price]')).toBe(recYearlyPlan.stripePriceId)
     expect(stripeCall2.params.get('customer')).toBe('cus_sib_42')
     expect(stripeCall2.params.get('customer_email')).toBeNull()
   })
@@ -524,8 +557,8 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
         extensionId: extension.id,
         tier: 'pro',
         entitlementType: 'recurring',
-        monthlyAmount: 499,
-        yearlyAmount: 4999,
+        billingInterval: 'month',
+        amount: 499,
       }),
     })
     const { plan } = (await planRes.json()) as { plan: Plan }
@@ -546,7 +579,7 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
         headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
         body: JSON.stringify({
           extensionId: extension.id,
-          interval: 'yearly',
+          planId: plan.id,
           successUrl: 'https://example.com/ok',
           cancelUrl: 'https://example.com/pricing',
           ...payload,
@@ -829,7 +862,8 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
         extensionId: extension.id,
         tier: 'basic',
         entitlementType: 'recurring',
-        monthlyAmount: 499,
+        billingInterval: 'month',
+        amount: 499,
       }),
     })
     expect(basicRes.status).toBe(201)
@@ -843,7 +877,8 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
         extensionId: extension.id,
         tier: 'pro',
         entitlementType: 'recurring',
-        monthlyAmount: 999,
+        billingInterval: 'month',
+        amount: 999,
       }),
     })
     expect(proRes.status).toBe(201)
@@ -876,7 +911,8 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
         extensionId: extension.id,
         tier: 'pro',
         entitlementType: 'recurring',
-        monthlyAmount: 499,
+        billingInterval: 'month',
+        amount: 499,
       }),
     })
     const { plan } = (await planRes.json()) as { plan: Plan }

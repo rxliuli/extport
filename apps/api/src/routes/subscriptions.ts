@@ -171,8 +171,11 @@ route.get(
 
 const checkoutBodySchema = v.object({
   extensionId: extensionIdField,
+  planId: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(128))),
   tier: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(32))),
-  interval: v.optional(v.picklist(['monthly', 'yearly'], 'interval must be "monthly" or "yearly"')),
+  interval: v.optional(
+    v.picklist(['month', 'year', 'monthly', 'yearly'], 'interval must be "month", "year", "monthly", or "yearly"'),
+  ),
   priceId: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(128))),
   externalUserId: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(255))),
   email: v.optional(v.pipe(v.string(), v.trim(), v.email('email must be a valid email'), v.maxLength(255))),
@@ -186,7 +189,7 @@ route.post(
     tags: ['Subscriptions'],
     summary: 'Create a duplicate-guarded Stripe Checkout Session for a subscription',
     description:
-      'Resolves the recurring plan and Stripe Price for (extensionId, tier, interval) using the tenant Restricted Key. Checks if the user already has an entitled subscription for this extension and redirects them to the Stripe Billing Portal instead of creating a duplicate.',
+      'Resolves the recurring plan and Stripe Price by planId or (extensionId, tier, interval) using the tenant Restricted Key. Checks if the user already has an entitled subscription for this extension and redirects them to the Stripe Billing Portal instead of creating a duplicate.',
     responses: {
       200: { description: 'Checkout URL or Billing Portal redirect (already_subscribed)' },
       400: { description: 'Invalid input, missing plan/price, or missing Stripe Restricted Key' },
@@ -210,36 +213,54 @@ route.post(
       return c.json({ error: 'licensing is disabled for this extension' }, 400)
     }
 
-    const tier = body.tier || 'pro'
-    const [plan] = await db
-      .select()
-      .from(plans)
-      .where(
-        and(
-          eq(plans.tenantId, tenant.id),
-          eq(plans.extensionId, extension.id),
-          eq(plans.tier, tier),
-          eq(plans.entitlementType, 'recurring'),
-        ),
-      )
-    if (!plan) return c.json({ error: `no recurring plan found for tier "${tier}" on this extension` }, 400)
-
-    let priceId = body.priceId
-    if (!priceId) {
-      if (body.interval === 'monthly') {
-        priceId = plan.stripeMonthlyPriceId ?? undefined
-      } else if (body.interval === 'yearly') {
-        priceId = plan.stripeYearlyPriceId ?? undefined
-      } else {
-        if (plan.stripeMonthlyPriceId && plan.stripeYearlyPriceId) {
-          return c.json(
-            { error: 'interval ("monthly" or "yearly") is required when multiple prices are configured' },
-            400,
-          )
-        }
-        priceId = (plan.stripeMonthlyPriceId ?? plan.stripeYearlyPriceId) || undefined
+    let plan: typeof plans.$inferSelect | undefined
+    if (body.planId) {
+      const [found] = await db
+        .select()
+        .from(plans)
+        .where(
+          and(
+            eq(plans.id, body.planId),
+            eq(plans.tenantId, tenant.id),
+            eq(plans.extensionId, extension.id),
+            eq(plans.entitlementType, 'recurring'),
+          ),
+        )
+      plan = found
+      if (!plan) return c.json({ error: 'recurring plan not found for this extension' }, 400)
+    } else {
+      const tier = body.tier || 'pro'
+      const normalizedInterval =
+        body.interval === 'month' || body.interval === 'monthly'
+          ? 'month'
+          : body.interval === 'year' || body.interval === 'yearly'
+            ? 'year'
+            : undefined
+      const matching = await db
+        .select()
+        .from(plans)
+        .where(
+          and(
+            eq(plans.tenantId, tenant.id),
+            eq(plans.extensionId, extension.id),
+            eq(plans.tier, tier),
+            eq(plans.entitlementType, 'recurring'),
+            ...(normalizedInterval ? [eq(plans.billingInterval, normalizedInterval)] : []),
+          ),
+        )
+      if (matching.length === 0) {
+        return c.json({ error: `no recurring plan found for tier "${tier}" on this extension` }, 400)
       }
+      if (matching.length > 1) {
+        return c.json(
+          { error: 'planId or interval ("month" / "year") is required when multiple intervals are configured' },
+          400,
+        )
+      }
+      plan = matching[0]!
     }
+
+    const priceId = body.priceId || plan.stripePriceId || undefined
     if (!priceId) return c.json({ error: 'no Stripe price configured for this plan' }, 400)
 
     const cred = await loadStripeCredential(c.env, db, tenant)

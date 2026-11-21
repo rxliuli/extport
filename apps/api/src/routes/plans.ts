@@ -70,6 +70,9 @@ const createPlanBodySchema = v.object({
   entitlementType: v.optional(
     v.picklist(['perpetual', 'recurring'], 'entitlementType must be "perpetual" or "recurring"'),
   ),
+  billingInterval: v.optional(
+    v.picklist(['one_time', 'month', 'year'], 'billingInterval must be "one_time", "month", or "year"'),
+  ),
   maxActivations: v.optional(
     v.pipe(
       v.number('maxActivations must be a number'),
@@ -80,40 +83,31 @@ const createPlanBodySchema = v.object({
   ),
   currency: v.optional(currencyField),
   amount: v.optional(amountField),
-  monthlyAmount: v.optional(amountField),
-  yearlyAmount: v.optional(amountField),
   stripeProductId: v.optional(stripeIdField),
   stripePriceId: v.optional(stripeIdField),
-  stripeMonthlyPriceId: v.optional(stripeIdField),
-  stripeYearlyPriceId: v.optional(stripeIdField),
 })
 
-function validatePricingFieldsForType(
-  entitlementType: 'perpetual' | 'balance' | 'recurring',
-  body: {
-    amount?: number | null
-    monthlyAmount?: number | null
-    yearlyAmount?: number | null
-    stripePriceId?: string | null
-    stripeMonthlyPriceId?: string | null
-    stripeYearlyPriceId?: string | null
-  },
-): string | null {
+function resolveBillingInterval(
+  entitlementType: 'perpetual' | 'recurring',
+  requested?: 'one_time' | 'month' | 'year',
+): { ok: true; value: 'one_time' | 'month' | 'year' } | { ok: false; error: string } {
   if (entitlementType === 'perpetual') {
-    if (
-      body.monthlyAmount !== undefined ||
-      body.yearlyAmount !== undefined ||
-      body.stripeMonthlyPriceId !== undefined ||
-      body.stripeYearlyPriceId !== undefined
-    ) {
-      return 'monthlyAmount, yearlyAmount, stripeMonthlyPriceId, and stripeYearlyPriceId are only valid for recurring plans'
+    if (requested && requested !== 'one_time') {
+      return { ok: false, error: 'billingInterval must be "one_time" (or omitted) for perpetual plans' }
     }
-  } else if (entitlementType === 'recurring') {
-    if (body.amount !== undefined || body.stripePriceId !== undefined) {
-      return 'amount and stripePriceId are only valid for perpetual plans'
-    }
+    return { ok: true, value: 'one_time' }
   }
-  return null
+  const value = requested ?? 'month'
+  if (value === 'one_time') {
+    return { ok: false, error: 'billingInterval must be "month" or "year" for recurring plans' }
+  }
+  return { ok: true, value }
+}
+
+function priceNickname(tier: string, billingInterval: 'one_time' | 'month' | 'year'): string {
+  if (billingInterval === 'month') return `${tier} (monthly)`
+  if (billingInterval === 'year') return `${tier} (yearly)`
+  return `${tier} (one-time)`
 }
 
 route.post(
@@ -122,7 +116,7 @@ route.post(
     tags: ['Licensing'],
     summary: 'Create a plan',
     description:
-      'One plan per (extension, tier, entitlementType) — a plan has no name of its own. When pricing amounts are provided alongside a Stripe Restricted Key, creates the Stripe Product and Price(s) automatically.',
+      'One plan per (extension, tier, entitlementType, billingInterval) — each plan maps 1:1 to a Stripe Price under the extension Stripe Product. When amount is provided alongside a Stripe Restricted Key, creates/reuses the Stripe Product and creates the Stripe Price automatically.',
     responses: {
       201: { description: 'Created' },
       400: { description: 'Invalid input or missing Stripe Restricted Key' },
@@ -158,8 +152,9 @@ route.post(
       return c.json({ error: 'this extension uses subscription billing; one-time license plans are not allowed' }, 400)
     }
 
-    const mismatch = validatePricingFieldsForType(entitlementType, body)
-    if (mismatch) return c.json({ error: mismatch }, 400)
+    const intervalResult = resolveBillingInterval(entitlementType, body.billingInterval)
+    if (!intervalResult.ok) return c.json({ error: intervalResult.error }, 400)
+    const billingInterval = intervalResult.value
 
     // When billingMode is still null (legacy/unconfigured), prevent mixing types
     // across plans on the same extension and lock billingMode on first plan.
@@ -181,25 +176,25 @@ route.post(
       .select({ id: plans.id })
       .from(plans)
       .where(
-        and(eq(plans.extensionId, extension.id), eq(plans.tier, body.tier), eq(plans.entitlementType, entitlementType)),
+        and(
+          eq(plans.extensionId, extension.id),
+          eq(plans.tier, body.tier),
+          eq(plans.entitlementType, entitlementType),
+          eq(plans.billingInterval, billingInterval),
+        ),
       )
-    if (conflict)
-      return c.json({ error: `${entitlementType} plan for tier "${body.tier}" already exists for this extension` }, 409)
+    if (conflict) {
+      const intervalLabel = billingInterval === 'one_time' ? 'one-time' : `${billingInterval}ly`
+      return c.json({ error: `${intervalLabel} plan for tier "${body.tier}" already exists for this extension` }, 409)
+    }
 
     const id = newId('plan')
-    const hasAnyAmount =
-      body.amount !== undefined || body.monthlyAmount !== undefined || body.yearlyAmount !== undefined
-    const effectiveCurrency = hasAnyAmount ? (body.currency ?? 'usd') : (body.currency ?? null)
-
-    const needsOneTimeSync = body.amount !== undefined && !body.stripePriceId
-    const needsMonthlySync = body.monthlyAmount !== undefined && !body.stripeMonthlyPriceId
-    const needsYearlySync = body.yearlyAmount !== undefined && !body.stripeYearlyPriceId
-    const needsStripeSync = needsOneTimeSync || needsMonthlySync || needsYearlySync
+    const hasAmount = body.amount !== undefined
+    const effectiveCurrency = hasAmount ? (body.currency ?? 'usd') : (body.currency ?? null)
+    const needsStripeSync = hasAmount && !body.stripePriceId
 
     let stripeProductId = body.stripeProductId ?? null
     let stripePriceId = body.stripePriceId ?? null
-    let stripeMonthlyPriceId = body.stripeMonthlyPriceId ?? null
-    let stripeYearlyPriceId = body.stripeYearlyPriceId ?? null
 
     if (needsStripeSync) {
       const cred = await loadStripeCredential(c.env, db, tenant)
@@ -207,7 +202,7 @@ route.post(
         return c.json(
           {
             error:
-              'Configure your Stripe Restricted Key in Settings first to set managed pricing (or omit amounts to use manual Payment Links)',
+              'Configure your Stripe Restricted Key in Settings first to set managed pricing (or omit amount to use manual Payment Links)',
           },
           400,
         )
@@ -236,41 +231,16 @@ route.post(
             stripeProductId = product.id
           }
         }
-        if (needsOneTimeSync) {
-          const price = await createStripePrice(apiKey, {
-            productId: stripeProductId,
-            unitAmount: body.amount!,
-            currency,
-            nickname: `${body.tier} (one-time)`,
-            metadata: { extport_plan: id },
-            apiBase: resolveStripeApiBase(c.env),
-          })
-          stripePriceId = price.id
-        }
-        if (needsMonthlySync) {
-          const price = await createStripePrice(apiKey, {
-            productId: stripeProductId,
-            unitAmount: body.monthlyAmount!,
-            currency,
-            interval: 'month',
-            nickname: `${body.tier} (monthly)`,
-            metadata: { extport_plan: id },
-            apiBase: resolveStripeApiBase(c.env),
-          })
-          stripeMonthlyPriceId = price.id
-        }
-        if (needsYearlySync) {
-          const price = await createStripePrice(apiKey, {
-            productId: stripeProductId,
-            unitAmount: body.yearlyAmount!,
-            currency,
-            interval: 'year',
-            nickname: `${body.tier} (yearly)`,
-            metadata: { extport_plan: id },
-            apiBase: resolveStripeApiBase(c.env),
-          })
-          stripeYearlyPriceId = price.id
-        }
+        const price = await createStripePrice(apiKey, {
+          productId: stripeProductId,
+          unitAmount: body.amount!,
+          currency,
+          interval: billingInterval === 'one_time' ? undefined : billingInterval,
+          nickname: priceNickname(body.tier, billingInterval),
+          metadata: { extport_plan: id },
+          apiBase: resolveStripeApiBase(c.env),
+        })
+        stripePriceId = price.id
       } catch (err) {
         if (err instanceof StripeApiError) {
           const mapped = stripeErrorToHttp(err)
@@ -286,16 +256,13 @@ route.post(
       extensionId: extension.id,
       tier: body.tier,
       entitlementType,
+      billingInterval,
       // Subscriptions are account-based and do not use device activation seats.
       maxActivations: entitlementType === 'recurring' ? 0 : (body.maxActivations ?? 3),
       currency: effectiveCurrency,
       amount: body.amount ?? null,
-      monthlyAmount: body.monthlyAmount ?? null,
-      yearlyAmount: body.yearlyAmount ?? null,
       stripeProductId,
       stripePriceId,
-      stripeMonthlyPriceId,
-      stripeYearlyPriceId,
     })
     if (!extension.billingMode) {
       await db
@@ -320,12 +287,8 @@ const patchPlanBodySchema = v.pipe(
     ),
     currency: v.optional(currencyField),
     amount: v.optional(v.nullable(amountField)),
-    monthlyAmount: v.optional(v.nullable(amountField)),
-    yearlyAmount: v.optional(v.nullable(amountField)),
     stripeProductId: v.optional(v.nullable(stripeIdField)),
     stripePriceId: v.optional(v.nullable(stripeIdField)),
-    stripeMonthlyPriceId: v.optional(v.nullable(stripeIdField)),
-    stripeYearlyPriceId: v.optional(v.nullable(stripeIdField)),
   }),
   v.check((b) => Object.values(b).some((val) => val !== undefined), 'provide at least one field to update'),
 )
@@ -340,7 +303,7 @@ route.patch(
     tags: ['Licensing'],
     summary: "Update a plan's device limit or pricing",
     description:
-      'Updates maxActivations and/or pricing. When amounts change with a Stripe Restricted Key configured, creates a new Stripe Price and archives the previous one.',
+      'Updates maxActivations and/or pricing. When amount changes with a Stripe Restricted Key configured, creates a new Stripe Price and archives the previous one.',
     responses: {
       200: { description: 'OK' },
       400: { description: 'Invalid input or missing Stripe Restricted Key' },
@@ -361,9 +324,6 @@ route.patch(
       .where(and(eq(plans.tenantId, tenant.id), eq(plans.id, c.req.param('id'))))
     if (!row) return c.json({ error: 'not found' }, 404)
     const existing = row.plan
-
-    const mismatch = validatePricingFieldsForType(existing.entitlementType, body)
-    if (mismatch) return c.json({ error: mismatch }, 400)
 
     let cachedKey: string | null | undefined
     const getApiKey = async (): Promise<string | null> => {
@@ -402,112 +362,68 @@ route.patch(
 
     const currencyChanged = body.currency !== undefined && body.currency !== (existing.currency ?? 'usd')
     const nextCurrency = body.currency ?? existing.currency ?? 'usd'
+    const nextAmount = body.amount !== undefined ? body.amount : existing.amount
+    let nextPriceId = existing.stripePriceId
 
-    async function syncPriceSlot(opts: {
-      existingAmount: number | null
-      existingPriceId: string | null
-      bodyAmount: number | null | undefined
-      bodyPriceId: string | null | undefined
-      interval?: 'month' | 'year'
-      nickname: string
-    }): Promise<{ amount: number | null; priceId: string | null } | Response> {
-      const nextAmount = opts.bodyAmount !== undefined ? opts.bodyAmount : opts.existingAmount
-      if (opts.bodyPriceId !== undefined) {
-        return { amount: nextAmount, priceId: opts.bodyPriceId }
-      }
-      if (nextAmount === null) {
-        // Only archive & clear when the caller explicitly cleared the amount to null;
-        // leave manually-linked stripePriceId rows (where amount was already null) intact.
-        if (opts.bodyAmount === null) {
-          if (opts.existingPriceId) {
+    try {
+      if (body.stripePriceId !== undefined) {
+        nextPriceId = body.stripePriceId
+      } else if (nextAmount === null) {
+        if (body.amount === null) {
+          if (existing.stripePriceId) {
             const apiKey = await getApiKey()
             if (apiKey) {
               try {
-                await archiveStripePrice(apiKey, opts.existingPriceId, resolveStripeApiBase(c.env))
+                await archiveStripePrice(apiKey, existing.stripePriceId, resolveStripeApiBase(c.env))
               } catch {
                 // Best-effort archive — ignore if already archived or missing.
               }
             }
           }
-          return { amount: null, priceId: null }
+          nextPriceId = null
         }
-        return { amount: null, priceId: opts.existingPriceId }
-      }
-
-      const shouldSync =
-        (opts.bodyAmount !== undefined &&
-          (opts.bodyAmount !== opts.existingAmount || currencyChanged || !opts.existingPriceId)) ||
-        (currencyChanged && opts.existingAmount !== null)
-      if (!shouldSync) {
-        return { amount: nextAmount, priceId: opts.existingPriceId }
-      }
-
-      const apiKey = await getApiKey()
-      if (!apiKey) {
-        return c.json(
-          {
-            error:
-              'Configure your Stripe Restricted Key in Settings first to update managed pricing (or pass stripePriceId manually)',
-          },
-          400,
-        )
-      }
-
-      const productId = await ensureStripeProduct(apiKey)
-      const created = await createStripePrice(apiKey, {
-        productId,
-        unitAmount: nextAmount,
-        currency: nextCurrency,
-        interval: opts.interval,
-        nickname: opts.nickname,
-        metadata: { extport_plan: existing.id },
-        apiBase: resolveStripeApiBase(c.env),
-      })
-      if (opts.existingPriceId && opts.existingPriceId !== created.id) {
-        try {
-          await archiveStripePrice(apiKey, opts.existingPriceId, resolveStripeApiBase(c.env))
-        } catch {
-          // Best-effort archive — ignore if already archived in Stripe.
+      } else {
+        const shouldSync =
+          (body.amount !== undefined &&
+            (body.amount !== existing.amount || currencyChanged || !existing.stripePriceId)) ||
+          (currencyChanged && existing.amount !== null)
+        if (shouldSync) {
+          const apiKey = await getApiKey()
+          if (!apiKey) {
+            return c.json(
+              {
+                error:
+                  'Configure your Stripe Restricted Key in Settings first to update managed pricing (or pass stripePriceId manually)',
+              },
+              400,
+            )
+          }
+          const productId = await ensureStripeProduct(apiKey)
+          const interval = existing.billingInterval === 'one_time' ? undefined : existing.billingInterval
+          const created = await createStripePrice(apiKey, {
+            productId,
+            unitAmount: nextAmount,
+            currency: nextCurrency,
+            interval,
+            nickname: priceNickname(existing.tier, existing.billingInterval),
+            metadata: { extport_plan: existing.id },
+            apiBase: resolveStripeApiBase(c.env),
+          })
+          if (existing.stripePriceId && existing.stripePriceId !== created.id) {
+            try {
+              await archiveStripePrice(apiKey, existing.stripePriceId, resolveStripeApiBase(c.env))
+            } catch {
+              // Best-effort archive — ignore if already archived in Stripe.
+            }
+          }
+          nextPriceId = created.id
         }
       }
-      return { amount: nextAmount, priceId: created.id }
-    }
 
-    try {
-      const oneTime = await syncPriceSlot({
-        existingAmount: existing.amount,
-        existingPriceId: existing.stripePriceId,
-        bodyAmount: body.amount,
-        bodyPriceId: body.stripePriceId,
-        nickname: `${existing.tier} (one-time)`,
-      })
-      if (oneTime instanceof Response) return oneTime
-
-      const monthly = await syncPriceSlot({
-        existingAmount: existing.monthlyAmount,
-        existingPriceId: existing.stripeMonthlyPriceId,
-        bodyAmount: body.monthlyAmount,
-        bodyPriceId: body.stripeMonthlyPriceId,
-        interval: 'month',
-        nickname: `${existing.tier} (monthly)`,
-      })
-      if (monthly instanceof Response) return monthly
-
-      const yearly = await syncPriceSlot({
-        existingAmount: existing.yearlyAmount,
-        existingPriceId: existing.stripeYearlyPriceId,
-        bodyAmount: body.yearlyAmount,
-        bodyPriceId: body.stripeYearlyPriceId,
-        interval: 'year',
-        nickname: `${existing.tier} (yearly)`,
-      })
-      if (yearly instanceof Response) return yearly
-
-      const hasAnyNextAmount = oneTime.amount !== null || monthly.amount !== null || yearly.amount !== null
       const storedCurrency =
         body.currency !== undefined
           ? body.currency
-          : hasAnyNextAmount
+          : nextAmount !== null
             ? (existing.currency ?? 'usd')
             : existing.currency
 
@@ -516,13 +432,9 @@ route.patch(
         .set({
           maxActivations: body.maxActivations ?? existing.maxActivations,
           currency: storedCurrency,
-          amount: oneTime.amount,
-          monthlyAmount: monthly.amount,
-          yearlyAmount: yearly.amount,
+          amount: nextAmount,
           stripeProductId: nextStripeProductId,
-          stripePriceId: oneTime.priceId,
-          stripeMonthlyPriceId: monthly.priceId,
-          stripeYearlyPriceId: yearly.priceId,
+          stripePriceId: nextPriceId,
         })
         .where(eq(plans.id, existing.id))
     } catch (err) {

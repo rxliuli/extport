@@ -32,7 +32,7 @@ Then create a plan. A plan is one sellable tier of one extension:
 - **Billing model** — **One-time** (`perpetual` license) or **Subscription**
   (`recurring` via Stripe). Enter pricing here to sync Stripe Products and
   Prices automatically via your Restricted Key.
-- **Max devices** — *(One-time plans only)* how many devices one license
+- **Max devices** — _(One-time plans only)_ how many devices one license
   covers (editable later; applies to codes issued from then on).
 
 Activation codes verify against your **extension's id** (`ext_…`) — the
@@ -90,7 +90,7 @@ Store a **Stripe Restricted Key** (`rk_…`) in [**Settings → Stripe**](https:
 
 With a Restricted Key configured:
 
-1. **Automatic Product & Price sync**: When creating or editing a plan in the dashboard (or via `POST /api/v1/plans` / `PATCH /api/v1/plans/:id`), enter pricing (`amount` for one-time; `monthlyAmount` / `yearlyAmount` for subscriptions; `currency` defaults to `usd`). extport automatically creates the Stripe Product and Price(s) with `extport_plan` metadata — and when you change a price, creates a new Stripe Price and archives the old one.
+1. **Automatic Product & Price sync**: When creating or editing a plan in the dashboard (or via `POST /api/v1/plans` / `PATCH /api/v1/plans/:id`), choose a billing interval (`one_time` for licenses; `month` or `year` for subscriptions) and enter a single `amount` (`currency` defaults to `usd`). Each extension maps to one Stripe Product and each plan row maps 1:1 to a Stripe Price with `extport_plan` metadata — and when you change a price, extport creates a new Stripe Price and archives the old one.
 2. **Account-based Subscriptions (`/api/v1/subscriptions/*`)**: Your backend calls extport with your tenant API key instead of integrating the Stripe SDK directly:
 
    ```http

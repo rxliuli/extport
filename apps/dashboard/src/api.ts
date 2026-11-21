@@ -144,21 +144,20 @@ export interface CredentialRow {
 export type EntitlementType = 'perpetual' | 'balance' | 'recurring'
 export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired'
 
+export type BillingInterval = 'one_time' | 'month' | 'year'
+
 export interface Plan {
   id: string
   extensionId: string
   /** A plan has no name of its own — the extension it belongs to is its identity. */
   tier: string
   entitlementType: EntitlementType
+  billingInterval: BillingInterval
   maxActivations: number
   currency: string | null
   amount: number | null
-  monthlyAmount: number | null
-  yearlyAmount: number | null
   stripeProductId: string | null
   stripePriceId: string | null
-  stripeMonthlyPriceId: string | null
-  stripeYearlyPriceId: string | null
   /** ISO date string (Date -> JSON) */
   createdAt: string
 }

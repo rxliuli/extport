@@ -368,6 +368,15 @@ export const plans = sqliteTable(
     })
       .notNull()
       .$defaultFn(() => 'perpetual'),
+    // Billing cadence: 'one_time' for perpetual plans, 'month' or 'year' for
+    // recurring subscription plans. Part of the unique index so one tier (e.g.
+    // 'pro') can have separate monthly and yearly plan rows (1 row = 1 Stripe Price).
+    billingInterval: text('billing_interval', {
+      enum: ['one_time', 'month', 'year'],
+    })
+      .notNull()
+      .default('one_time')
+      .$defaultFn(() => 'one_time'),
     maxActivations: integer('max_activations')
       .notNull()
       .$defaultFn(() => 3),
@@ -375,17 +384,13 @@ export const plans = sqliteTable(
     // tenant's Restricted Key (null for Payment-Link-only plans).
     currency: text('currency'),
     amount: integer('amount'),
-    monthlyAmount: integer('monthly_amount'),
-    yearlyAmount: integer('yearly_amount'),
     stripeProductId: text('stripe_product_id'),
     stripePriceId: text('stripe_price_id'),
-    stripeMonthlyPriceId: text('stripe_monthly_price_id'),
-    stripeYearlyPriceId: text('stripe_yearly_price_id'),
     ...timestamps,
   },
   (t) => [
     index('plans_tenant_idx').on(t.tenantId),
-    uniqueIndex('plans_ext_tier_idx').on(t.extensionId, t.tier, t.entitlementType),
+    uniqueIndex('plans_ext_tier_idx').on(t.extensionId, t.tier, t.entitlementType, t.billingInterval),
   ],
 )
 

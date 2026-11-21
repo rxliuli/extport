@@ -2,6 +2,7 @@ import {
   api,
   ApiError,
   type ActivationRow,
+  type BillingInterval,
   type BillingMode,
   type EntitlementType,
   type Extension,
@@ -95,19 +96,22 @@ function parsePriceInput(
   return { ok: true, value: minor }
 }
 
+function formatBillingInterval(interval: BillingInterval): string {
+  if (interval === 'month') return 'Monthly'
+  if (interval === 'year') return 'Yearly'
+  return 'One-time'
+}
+
 function formatPlanPricing(plan: Plan): string {
-  const currency = plan.currency ?? 'usd'
-  if (plan.entitlementType === 'recurring') {
-    const parts: string[] = []
-    if (plan.monthlyAmount !== null) parts.push(`${formatAmount(plan.monthlyAmount, currency)}/mo`)
-    if (plan.yearlyAmount !== null) parts.push(`${formatAmount(plan.yearlyAmount, currency)}/yr`)
-    return parts.length > 0 ? parts.join(' · ') : '—'
-  }
-  return plan.amount !== null ? formatAmount(plan.amount, currency) : '—'
+  if (plan.amount === null) return '—'
+  const formatted = formatAmount(plan.amount, plan.currency ?? 'usd')
+  if (plan.billingInterval === 'month') return `${formatted}/mo`
+  if (plan.billingInterval === 'year') return `${formatted}/yr`
+  return formatted
 }
 
 function isPlanStripeSynced(plan: Plan): boolean {
-  return Boolean(plan.stripeProductId || plan.stripePriceId || plan.stripeMonthlyPriceId || plan.stripeYearlyPriceId)
+  return Boolean(plan.stripeProductId || plan.stripePriceId)
 }
 
 export function formatEntitlementLabel(entitlementType: EntitlementType): string {
@@ -336,109 +340,84 @@ export function LicensingSection({ extension }: { extension: Extension }) {
 
 function PlanPricingFields({
   idPrefix,
-  entitlementType,
+  billingInterval,
+  onBillingIntervalChange,
   amount,
   onAmountChange,
-  monthlyAmount,
-  onMonthlyAmountChange,
-  yearlyAmount,
-  onYearlyAmountChange,
   hasStripeApiKey,
   helperText,
 }: {
   idPrefix: string
-  entitlementType: EntitlementType
+  billingInterval: BillingInterval
+  /** When provided, lets the user pick Monthly vs Yearly (used in Create dialog for subscriptions). */
+  onBillingIntervalChange?: (value: 'month' | 'year') => void
   amount: string
   onAmountChange: (value: string) => void
-  monthlyAmount: string
-  onMonthlyAmountChange: (value: string) => void
-  yearlyAmount: string
-  onYearlyAmountChange: (value: string) => void
   hasStripeApiKey: boolean
   helperText?: string
 }) {
   const pricingDisabled = !hasStripeApiKey
+  const priceLabel =
+    billingInterval === 'month' ? 'Monthly price' : billingInterval === 'year' ? 'Yearly price' : 'One-time price'
+  const pricePlaceholder = billingInterval === 'month' ? '4.99' : billingInterval === 'year' ? '49.99' : '19.99'
+  const priceSuffix = billingInterval === 'month' ? '/mo' : billingInterval === 'year' ? '/yr' : null
 
   return (
     <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-medium text-muted-foreground">Pricing (USD)</span>
       </div>
-      <div className={entitlementType === 'recurring' ? 'grid gap-3 sm:grid-cols-2' : 'space-y-1'}>
-        {entitlementType === 'perpetual' ? (
-          <div className="space-y-1.5">
-            <Label htmlFor={`${idPrefix}-amount`}>One-time price</Label>
-            <InputGroup className="bg-background" data-disabled={pricingDisabled || undefined}>
-              <InputGroupAddon align="inline-start">
-                <InputGroupText>$</InputGroupText>
-              </InputGroupAddon>
-              <InputGroupInput
-                id={`${idPrefix}-amount`}
-                name="amount"
-                type="number"
-                inputMode="decimal"
-                min="0.50"
-                max="999999.99"
-                step="0.01"
-                disabled={pricingDisabled}
-                placeholder="19.99"
-                value={amount}
-                onChange={(e) => onAmountChange(e.target.value)}
-              />
-            </InputGroup>
-          </div>
-        ) : (
-          <>
-            <div className="space-y-1.5">
-              <Label htmlFor={`${idPrefix}-monthly-amount`}>Monthly price</Label>
-              <InputGroup className="bg-background" data-disabled={pricingDisabled || undefined}>
-                <InputGroupAddon align="inline-start">
-                  <InputGroupText>$</InputGroupText>
-                </InputGroupAddon>
-                <InputGroupInput
-                  id={`${idPrefix}-monthly-amount`}
-                  name="monthlyAmount"
-                  type="number"
-                  inputMode="decimal"
-                  min="0.50"
-                  max="999999.99"
-                  step="0.01"
-                  disabled={pricingDisabled}
-                  placeholder="4.99"
-                  value={monthlyAmount}
-                  onChange={(e) => onMonthlyAmountChange(e.target.value)}
-                />
-                <InputGroupAddon align="inline-end">
-                  <InputGroupText>/mo</InputGroupText>
-                </InputGroupAddon>
-              </InputGroup>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor={`${idPrefix}-yearly-amount`}>Yearly price</Label>
-              <InputGroup className="bg-background" data-disabled={pricingDisabled || undefined}>
-                <InputGroupAddon align="inline-start">
-                  <InputGroupText>$</InputGroupText>
-                </InputGroupAddon>
-                <InputGroupInput
-                  id={`${idPrefix}-yearly-amount`}
-                  name="yearlyAmount"
-                  type="number"
-                  inputMode="decimal"
-                  min="0.50"
-                  max="999999.99"
-                  step="0.01"
-                  disabled={pricingDisabled}
-                  placeholder="49.99"
-                  value={yearlyAmount}
-                  onChange={(e) => onYearlyAmountChange(e.target.value)}
-                />
-                <InputGroupAddon align="inline-end">
-                  <InputGroupText>/yr</InputGroupText>
-                </InputGroupAddon>
-              </InputGroup>
-            </div>
-          </>
-        )}
+      {onBillingIntervalChange && billingInterval !== 'one_time' && (
+        <div className="space-y-1.5">
+          <Label>Billing interval</Label>
+          <RadioGroup
+            aria-label="Billing interval"
+            value={billingInterval}
+            onValueChange={(value: string) => onBillingIntervalChange(value as 'month' | 'year')}
+            className="grid grid-cols-2 gap-2"
+          >
+            <Label
+              htmlFor={`${idPrefix}-interval-month`}
+              className="flex cursor-pointer items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-normal has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-accent/50"
+            >
+              <RadioGroupItem id={`${idPrefix}-interval-month`} value="month" />
+              Monthly
+            </Label>
+            <Label
+              htmlFor={`${idPrefix}-interval-year`}
+              className="flex cursor-pointer items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-normal has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-accent/50"
+            >
+              <RadioGroupItem id={`${idPrefix}-interval-year`} value="year" />
+              Yearly
+            </Label>
+          </RadioGroup>
+        </div>
+      )}
+      <div className="space-y-1.5">
+        <Label htmlFor={`${idPrefix}-amount`}>{priceLabel}</Label>
+        <InputGroup className="bg-background" data-disabled={pricingDisabled || undefined}>
+          <InputGroupAddon align="inline-start">
+            <InputGroupText>$</InputGroupText>
+          </InputGroupAddon>
+          <InputGroupInput
+            id={`${idPrefix}-amount`}
+            name="amount"
+            type="number"
+            inputMode="decimal"
+            min="0.50"
+            max="999999.99"
+            step="0.01"
+            disabled={pricingDisabled}
+            placeholder={pricePlaceholder}
+            value={amount}
+            onChange={(e) => onAmountChange(e.target.value)}
+          />
+          {priceSuffix && (
+            <InputGroupAddon align="inline-end">
+              <InputGroupText>{priceSuffix}</InputGroupText>
+            </InputGroupAddon>
+          )}
+        </InputGroup>
       </div>
       {!hasStripeApiKey ? (
         <p className="text-xs text-muted-foreground">
@@ -467,9 +446,8 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
   // Prefills are suggestions the tenant confirms — never auto-created rows.
   const [tier, setTier] = useState('pro')
   const [maxActivations, setMaxActivations] = useState('3')
+  const [interval, setInterval] = useState<'month' | 'year'>('month')
   const [amount, setAmount] = useState('')
-  const [monthlyAmount, setMonthlyAmount] = useState('')
-  const [yearlyAmount, setYearlyAmount] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
 
   const add = useMutation({
@@ -481,8 +459,6 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
     onSuccess: () => {
       setOpen(false)
       setAmount('')
-      setMonthlyAmount('')
-      setYearlyAmount('')
       setFormError(null)
       void queryClient.invalidateQueries({ queryKey: ['extensions', extension.id, 'plans'] })
     },
@@ -495,55 +471,27 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
     if (!tier.trim()) return
 
     const normCurrency = 'usd'
+    const billingInterval: BillingInterval = entitlementType === 'recurring' ? interval : 'one_time'
+
+    const parsedAmount = parsePriceInput(amount, normCurrency)
+    if (!parsedAmount.ok) {
+      setFormError(parsedAmount.error)
+      return
+    }
+    if (parsedAmount.value === null) {
+      setFormError('Enter a price to sync with Stripe')
+      return
+    }
 
     const payload: Record<string, unknown> = {
       extensionId: extension.id,
       tier: tier.trim(),
       entitlementType,
+      billingInterval,
+      currency: normCurrency,
+      amount: parsedAmount.value,
       ...(entitlementType === 'perpetual' ? { maxActivations: Number.parseInt(maxActivations, 10) || 3 } : {}),
     }
-
-    let hasAnyAmount = false
-    if (entitlementType === 'perpetual') {
-      const parsedAmount = parsePriceInput(amount, normCurrency)
-      if (!parsedAmount.ok) {
-        setFormError(parsedAmount.error)
-        return
-      }
-      if (parsedAmount.value !== null) {
-        payload.amount = parsedAmount.value
-        hasAnyAmount = true
-      }
-    } else {
-      const parsedMonthly = parsePriceInput(monthlyAmount, normCurrency)
-      if (!parsedMonthly.ok) {
-        setFormError(parsedMonthly.error)
-        return
-      }
-      const parsedYearly = parsePriceInput(yearlyAmount, normCurrency)
-      if (!parsedYearly.ok) {
-        setFormError(parsedYearly.error)
-        return
-      }
-      if (parsedMonthly.value !== null) {
-        payload.monthlyAmount = parsedMonthly.value
-        hasAnyAmount = true
-      }
-      if (parsedYearly.value !== null) {
-        payload.yearlyAmount = parsedYearly.value
-        hasAnyAmount = true
-      }
-    }
-
-    if (!hasAnyAmount) {
-      setFormError(
-        entitlementType === 'perpetual'
-          ? 'Enter a one-time price to sync with Stripe'
-          : 'Enter a monthly and/or yearly price to sync with Stripe',
-      )
-      return
-    }
-    payload.currency = normCurrency
     add.mutate(payload)
   }
 
@@ -571,7 +519,7 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
               <form className="flex flex-col gap-3" onSubmit={handleCreateSubmit}>
                 <p className="text-xs text-muted-foreground">
                   A plan belongs to this extension — licenses verify against its id (<code>ext_…</code>). Saving creates
-                  the Stripe Product and Price(s) automatically.
+                  the Stripe Product and Price automatically.
                 </p>
                 <div className="space-y-1">
                   <Label htmlFor="plan-tier">Tier</Label>
@@ -596,13 +544,10 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
                 )}
                 <PlanPricingFields
                   idPrefix="plan-create"
-                  entitlementType={entitlementType}
+                  billingInterval={entitlementType === 'recurring' ? interval : 'one_time'}
+                  onBillingIntervalChange={entitlementType === 'recurring' ? setInterval : undefined}
                   amount={amount}
                   onAmountChange={setAmount}
-                  monthlyAmount={monthlyAmount}
-                  onMonthlyAmountChange={setMonthlyAmount}
-                  yearlyAmount={yearlyAmount}
-                  onYearlyAmountChange={setYearlyAmount}
                   hasStripeApiKey={hasStripeApiKey}
                 />
                 {formError && (
@@ -622,7 +567,7 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
       {plans.length === 0 ? (
         <p className={sectionEmptyClass}>
           {billingMode === 'subscription'
-            ? 'No subscription plans yet. Add a tier with monthly and/or yearly pricing to sync with Stripe.'
+            ? 'No subscription plans yet. Add a monthly or yearly plan to sync with Stripe.'
             : 'No license plans yet. Add a tier with a one-time price and device limit to start issuing codes.'}
         </p>
       ) : (
@@ -630,6 +575,7 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
           <TableHeader>
             <TableRow>
               <TableHead>Tier</TableHead>
+              {billingMode === 'subscription' && <TableHead>Interval</TableHead>}
               <TableHead>Pricing</TableHead>
               {billingMode === 'license' && <TableHead>Max devices</TableHead>}
               <TableHead>Stripe</TableHead>
@@ -642,6 +588,9 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
                 <TableCell>
                   <Badge variant="secondary">{plan.tier}</Badge>
                 </TableCell>
+                {billingMode === 'subscription' && (
+                  <TableCell className="text-muted-foreground">{formatBillingInterval(plan.billingInterval)}</TableCell>
+                )}
                 <TableCell className="text-muted-foreground">{formatPlanPricing(plan)}</TableCell>
                 {billingMode === 'license' && <TableCell>{plan.maxActivations}</TableCell>}
                 <TableCell>
@@ -682,15 +631,13 @@ function PlanEditDialog({
   const [open, setOpen] = useState(false)
   const [maxActivations, setMaxActivations] = useState(String(plan.maxActivations))
   const [amount, setAmount] = useState(formatMinorToInput(plan.amount, plan.currency))
-  const [monthlyAmount, setMonthlyAmount] = useState(formatMinorToInput(plan.monthlyAmount, plan.currency))
-  const [yearlyAmount, setYearlyAmount] = useState(formatMinorToInput(plan.yearlyAmount, plan.currency))
   const [formError, setFormError] = useState<string | null>(null)
+
+  const intervalLabel = formatBillingInterval(plan.billingInterval).toLowerCase()
 
   const syncFromPlan = () => {
     setMaxActivations(String(plan.maxActivations))
     setAmount(formatMinorToInput(plan.amount, plan.currency))
-    setMonthlyAmount(formatMinorToInput(plan.monthlyAmount, plan.currency))
-    setYearlyAmount(formatMinorToInput(plan.yearlyAmount, plan.currency))
     setFormError(null)
   }
 
@@ -719,41 +666,13 @@ function PlanEditDialog({
       payload.maxActivations = Number.parseInt(maxActivations, 10) || plan.maxActivations
     }
 
-    let pricingTouched = false
-    if (plan.entitlementType === 'perpetual') {
-      const parsed = parsePriceInput(amount, normCurrency)
-      if (!parsed.ok) {
-        setFormError(parsed.error)
-        return
-      }
-      if (parsed.value !== plan.amount) {
-        payload.amount = parsed.value
-        pricingTouched = true
-      }
-    } else if (plan.entitlementType === 'recurring') {
-      const parsedMonthly = parsePriceInput(monthlyAmount, normCurrency)
-      if (!parsedMonthly.ok) {
-        setFormError(parsedMonthly.error)
-        return
-      }
-      const parsedYearly = parsePriceInput(yearlyAmount, normCurrency)
-      if (!parsedYearly.ok) {
-        setFormError(parsedYearly.error)
-        return
-      }
-      if (parsedMonthly.value !== plan.monthlyAmount) {
-        payload.monthlyAmount = parsedMonthly.value
-        pricingTouched = true
-      }
-      if (parsedYearly.value !== plan.yearlyAmount) {
-        payload.yearlyAmount = parsedYearly.value
-        pricingTouched = true
-      }
+    const parsed = parsePriceInput(amount, normCurrency)
+    if (!parsed.ok) {
+      setFormError(parsed.error)
+      return
     }
-
-    if (plan.currency !== null && normCurrency !== plan.currency) {
-      payload.currency = normCurrency
-    } else if (pricingTouched) {
+    if (parsed.value !== plan.amount) {
+      payload.amount = parsed.value
       payload.currency = normCurrency
     }
 
@@ -774,18 +693,14 @@ function PlanEditDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label={`Edit ${plan.tier} ${formatEntitlementLabel(plan.entitlementType)} plan`}
-        >
+        <Button variant="ghost" size="sm" aria-label={`Edit ${plan.tier} ${intervalLabel} plan`}>
           Edit
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            Edit {plan.tier} ({formatEntitlementLabel(plan.entitlementType)})
+            Edit {plan.tier} ({intervalLabel})
           </DialogTitle>
         </DialogHeader>
         <form className="flex flex-col gap-3" onSubmit={handleSaveSubmit}>
@@ -808,13 +723,9 @@ function PlanEditDialog({
           )}
           <PlanPricingFields
             idPrefix={`edit-${plan.id}`}
-            entitlementType={plan.entitlementType}
+            billingInterval={plan.billingInterval}
             amount={amount}
             onAmountChange={setAmount}
-            monthlyAmount={monthlyAmount}
-            onMonthlyAmountChange={setMonthlyAmount}
-            yearlyAmount={yearlyAmount}
-            onYearlyAmountChange={setYearlyAmount}
             hasStripeApiKey={hasStripeApiKey}
             helperText="Changing a price automatically creates a new Stripe Price and archives the previous one."
           />

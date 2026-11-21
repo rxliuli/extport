@@ -109,7 +109,6 @@ test.describe('Billing & payment UI E2E', () => {
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText(/Connect your Stripe Restricted Key in/i)).toBeVisible()
     await expect(dialog.getByLabel('Monthly price')).toBeDisabled()
-    await expect(dialog.getByLabel('Yearly price')).toBeDisabled()
     await expect(dialog.getByRole('button', { name: 'Create plan' })).toBeDisabled()
     await dialog.getByRole('button', { name: 'Close' }).click()
 
@@ -142,7 +141,7 @@ test.describe('Billing & payment UI E2E', () => {
     await expect(page.getByRole('heading', { name: 'Licenses', level: 2 })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Switch to one-time licenses' })).toBeVisible()
 
-    // Create first subscription tier ("pro") and verify min price validation first.
+    // Create first subscription plan ("pro" Monthly) and verify min price validation first.
     await page.getByRole('button', { name: 'Add a plan' }).click()
     const createDialog = page.getByRole('dialog', { name: 'Add a plan' })
     await createDialog.getByLabel('Monthly price').fill('0.10')
@@ -152,30 +151,31 @@ test.describe('Billing & payment UI E2E', () => {
     expect(await getStripeRequests()).toHaveLength(0)
 
     await createDialog.getByLabel('Monthly price').fill('4.99')
-    await createDialog.getByLabel('Yearly price').fill('49.99')
     await createDialog.getByRole('button', { name: 'Create plan' }).click()
     await expect(createDialog).toBeHidden()
 
-    await expect(page.getByText('$4.99/mo · $49.99/yr')).toBeVisible()
+    await expect(page.getByText('$4.99/mo')).toBeVisible()
+    await expect(page.getByText('Monthly', { exact: true })).toBeVisible()
     await expect(page.getByText('prod_e2e_1')).toBeVisible()
     // Billing mode switch disappears once a plan exists.
     await expect(page.getByRole('button', { name: 'Switch to one-time licenses' })).toHaveCount(0)
 
-    // Capture the created pro plan ID from the UI row.
+    // Capture the created pro monthly plan ID from the UI row.
     const proPlanCode = await page
       .locator('code', { hasText: /extport_plan=plan_/ })
       .first()
       .textContent()
     const proPlanId = proPlanCode!.trim().replace(/^extport_plan=/, '')
 
-    // Create second subscription tier ("team") and assert it reuses the SAME Stripe Product.
+    // Create second subscription plan ("pro" Yearly) and assert it reuses the SAME Stripe Product.
     await page.getByRole('button', { name: 'Add a plan' }).click()
-    await createDialog.getByLabel('Tier').fill('team')
-    await createDialog.getByLabel('Monthly price').fill('19.99')
+    await createDialog.getByRole('radio', { name: 'Yearly' }).click()
+    await createDialog.getByLabel('Yearly price').fill('49.99')
     await createDialog.getByRole('button', { name: 'Create plan' }).click()
     await expect(createDialog).toBeHidden()
 
-    await expect(page.getByText('$19.99/mo')).toBeVisible()
+    await expect(page.getByText('$49.99/yr')).toBeVisible()
+    await expect(page.getByText('Yearly', { exact: true })).toBeVisible()
     await expect(page.getByText('prod_e2e_1')).toHaveCount(2)
 
     const stripeCallsAfterPlans = await getStripeRequests()
@@ -185,26 +185,25 @@ test.describe('Billing & payment UI E2E', () => {
     expect(productCreates[0]!.params['metadata[extport_extension]']).toBe(extensionId)
 
     // Edit "pro" monthly price -> creates new Stripe Price and archives old price_e2e_2.
-    await page.getByRole('button', { name: 'Edit pro subscription plan' }).click()
-    const editDialog = page.getByRole('dialog', { name: 'Edit pro (subscription)' })
+    await page.getByRole('button', { name: 'Edit pro monthly plan' }).click()
+    const editDialog = page.getByRole('dialog', { name: 'Edit pro (monthly)' })
     await expect(editDialog.getByText('Pricing (USD)')).toBeVisible()
     await expect(editDialog.getByLabel('Currency')).toHaveCount(0)
     await editDialog.getByLabel('Monthly price').fill('5.99')
     await editDialog.getByRole('button', { name: 'Save' }).click()
     await expect(editDialog).toBeHidden()
-    await expect(page.getByText('$5.99/mo · $49.99/yr')).toBeVisible()
+    await expect(page.getByText('$5.99/mo')).toBeVisible()
 
     const stripeCallsAfterEdit = await getStripeRequests()
     expect(stripeCallsAfterEdit.some((r) => r.path === '/v1/prices/price_e2e_2' && r.params.active === 'false')).toBe(
       true,
     )
 
-    // Create a checkout session while enabled.
+    // Create a checkout session while enabled (using planId directly, no interval needed).
     const checkoutRes = await page.request.post('/api/v1/subscriptions/checkout', {
       data: {
         extensionId,
         planId: proPlanId,
-        interval: 'monthly',
         externalUserId: 'usr_alice_e2e',
         email: 'alice@example.com',
         successUrl: 'http://localhost:5174/?ok=1',
@@ -317,7 +316,7 @@ test.describe('Billing & payment UI E2E', () => {
 
     // Re-enable subscriptions -> plans & subscriber row return cleanly.
     await page.getByRole('button', { name: 'Re-enable subscriptions' }).click()
-    await expect(page.getByText('$5.99/mo · $49.99/yr')).toBeVisible()
+    await expect(page.getByText('$5.99/mo')).toBeVisible()
     await expect(page.getByText('alice@example.com')).toBeVisible()
   })
 
