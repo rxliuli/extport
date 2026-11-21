@@ -42,6 +42,8 @@ interface PortalLicense {
   supportUrl: string | null
   /** The selling developer's Stripe Customer Portal link, if they set one. */
   billingPortalUrl: string | null
+  /** True when one-click Billing Portal or static billingPortalUrl is available. */
+  canManageBilling?: boolean
   devices: PortalDevice[]
 }
 
@@ -277,7 +279,32 @@ function LicenseRow({ license }: { license: PortalLicense }) {
   const inactive = !entitled
   const usage = `${active.length} of ${license.maxActivations} devices in use`
   const periodNote = subscriptionPeriodNote(license)
-  const showBillingLink = license.entitlementType === 'recurring' && isSafeHttpUrl(license.billingPortalUrl)
+  const showManageBilling =
+    license.entitlementType === 'recurring' && (license.canManageBilling ?? isSafeHttpUrl(license.billingPortalUrl))
+
+  const manageBilling = useMutation({
+    mutationFn: () =>
+      api<{ url: string }>('/api/v1/portal/billing-portal', {
+        method: 'POST',
+        body: JSON.stringify({ key: license.key }),
+      }),
+    onSuccess: ({ url }) => {
+      if (isSafeHttpUrl(url)) {
+        window.location.assign(url)
+      } else if (isSafeHttpUrl(license.billingPortalUrl)) {
+        window.location.assign(license.billingPortalUrl)
+      } else {
+        toast.error('Billing portal is unavailable for this subscription')
+      }
+    },
+    onError: (err) => {
+      if (isSafeHttpUrl(license.billingPortalUrl)) {
+        window.location.assign(license.billingPortalUrl)
+        return
+      }
+      toast.error(err instanceof ApiError ? err.message : String(err))
+    },
+  })
 
   return (
     <li className="px-4 py-3 sm:px-5">
@@ -331,18 +358,23 @@ function LicenseRow({ license }: { license: PortalLicense }) {
             ) : (
               <span>{usage}</span>
             )}
-            {showBillingLink && (
+            {showManageBilling && (
               <>
                 <span aria-hidden>·</span>
-                <a
-                  href={license.billingPortalUrl!}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 underline-offset-2 hover:text-foreground hover:underline"
+                <button
+                  type="button"
+                  disabled={manageBilling.isPending}
+                  aria-label={`Manage subscription for ${license.productName}`}
+                  onClick={() => manageBilling.mutate()}
+                  className="inline-flex items-center gap-1 underline-offset-2 hover:text-foreground hover:underline disabled:opacity-60"
                 >
-                  <CreditCard className="size-3" />
+                  {manageBilling.isPending ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <CreditCard className="size-3" />
+                  )}
                   Manage subscription
-                </a>
+                </button>
               </>
             )}
             {license.supportUrl && (

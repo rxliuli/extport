@@ -18,6 +18,7 @@ import {
   type PublishEvent,
   type PublishTarget,
   type Store,
+  type SubscriptionRow,
 } from './api'
 
 export const meQuery = queryOptions({
@@ -75,6 +76,17 @@ export const licensesInfiniteQuery = (extensionId: string) =>
     queryFn: ({ pageParam }) =>
       api<{ licenses: LicenseRow[]; nextCursor: string | null }>(
         `/api/v1/licenses?extension=${extensionId}${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''}`,
+      ),
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  })
+
+export const subscriptionsInfiniteQuery = (extensionId: string) =>
+  infiniteQueryOptions({
+    queryKey: ['subscriptions', extensionId],
+    queryFn: ({ pageParam }) =>
+      api<{ subscriptions: SubscriptionRow[]; nextCursor: string | null }>(
+        `/api/v1/subscriptions?extension=${extensionId}${pageParam ? `&before=${encodeURIComponent(pageParam)}` : ''}`,
       ),
     initialPageParam: '',
     getNextPageParam: (last) => last.nextCursor ?? undefined,

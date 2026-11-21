@@ -99,11 +99,35 @@ describe('plans & manual license issuance', () => {
     })
     expect(basic.status).toBe(201)
 
-    // Same tier with entitlementType='recurring' coexists with perpetual, and rejects duplicate recurring.
-    const recurringPro = await request('/api/v1/plans', {
+    // Extensions are single-mode: mixing recurring and perpetual plans on the same extension is rejected.
+    const mixedRecurring = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({ extensionId: extension.id, tier: 'pro', entitlementType: 'recurring' }),
+    })
+    expect(mixedRecurring.status).toBe(400)
+
+    // Switching billingMode after plans exist is blocked (409).
+    const switchBlocked = await request(`/api/v1/extensions/${extension.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ billingMode: 'subscription' }),
+    })
+    expect(switchBlocked.status).toBe(409)
+
+    // A fresh extension can switch freely before creating plans, then locks to subscription mode.
+    const subExt = await createExtension(sessionCookie, 'Sub Mode Ext')
+    const setSubMode = await request(`/api/v1/extensions/${subExt.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ licensingEnabled: true, billingMode: 'subscription' }),
+    })
+    expect(setSubMode.status).toBe(200)
+
+    const recurringPro = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ extensionId: subExt.id, tier: 'pro' }),
     })
     expect(recurringPro.status).toBe(201)
     expect(((await recurringPro.json()) as { plan: Plan }).plan.entitlementType).toBe('recurring')
@@ -111,9 +135,16 @@ describe('plans & manual license issuance', () => {
     const dupeRecurring = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ extensionId: extension.id, tier: 'pro', entitlementType: 'recurring' }),
+      body: JSON.stringify({ extensionId: subExt.id, tier: 'pro', entitlementType: 'recurring' }),
     })
     expect(dupeRecurring.status).toBe(409)
+
+    const perpetualOnSub = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ extensionId: subExt.id, tier: 'basic', entitlementType: 'perpetual' }),
+    })
+    expect(perpetualOnSub.status).toBe(400)
   })
 
   it('requires auth and scopes both resources to the owning tenant', async () => {
@@ -766,7 +797,13 @@ describe('host-based surface isolation', () => {
 
 describe('recurring licensing & server-side entitlement API', () => {
   it('enforces subscription entitlement states on /activate and /check', async () => {
-    const { db, sessionCookie, extension } = await setupLicensedProduct()
+    const { db, sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie, 'Legacy Recurring License Ext')
+    await request(`/api/v1/extensions/${extension.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ licensingEnabled: true, billingMode: 'subscription' }),
+    })
     const planRes = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
@@ -784,10 +821,10 @@ describe('recurring licensing & server-side entitlement API', () => {
     const futureIso = new Date(Date.now() + 7 * 86400_000).toISOString()
     const pastIso = new Date(Date.now() - 86400_000).toISOString()
 
-    // Canceled with future currentPeriodEnd -> still entitled.
+    // Canceled with future currentPeriodEnd -> still entitled (legacy 0032 recurring license row).
     await db
       .update(licenses)
-      .set({ subscriptionStatus: 'canceled', currentPeriodEnd: futureIso, cancelAtPeriodEnd: true })
+      .set({ maxActivations: 3, subscriptionStatus: 'canceled', currentPeriodEnd: futureIso, cancelAtPeriodEnd: true })
       .where(eq(licenses.id, license.id))
     const actCanceledFuture = (await (
       await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-rec' })
@@ -819,7 +856,13 @@ describe('recurring licensing & server-side entitlement API', () => {
   })
 
   it('GET /v1/licensing/entitlements verifies by externalUserId, email, or key and picks best active license', async () => {
-    const { db, sessionCookie, extension } = await setupLicensedProduct()
+    const { db, sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie, 'Legacy Ent Ext')
+    await request(`/api/v1/extensions/${extension.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ licensingEnabled: true, billingMode: 'subscription' }),
+    })
     const apiKey = await createApiKey(sessionCookie)
     const other = await seedTenantWithUser()
     const otherKey = await createApiKey(other.sessionCookie)

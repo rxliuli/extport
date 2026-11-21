@@ -4,10 +4,13 @@ export interface Me {
   user: { id: string; email: string; displayName: string | null } | null
 }
 
+export type BillingMode = 'license' | 'subscription'
+
 export interface Extension {
   id: string
   name: string
   licensingEnabled: boolean
+  billingMode?: BillingMode | null
 }
 
 export type Store = 'chrome' | 'firefox' | 'edge' | 'safari'
@@ -148,6 +151,14 @@ export interface Plan {
   tier: string
   entitlementType: EntitlementType
   maxActivations: number
+  currency: string | null
+  amount: number | null
+  monthlyAmount: number | null
+  yearlyAmount: number | null
+  stripeProductId: string | null
+  stripePriceId: string | null
+  stripeMonthlyPriceId: string | null
+  stripeYearlyPriceId: string | null
   /** ISO date string (Date -> JSON) */
   createdAt: string
 }
@@ -190,10 +201,37 @@ export interface ActivationRow {
   releasedAt: string | null
 }
 
+export interface SubscriptionRow {
+  id: string
+  extensionId: string
+  planId: string
+  externalUserId: string | null
+  buyerEmail: string
+  stripeCustomerId: string | null
+  stripeSubscriptionId: string
+  checkoutSessionId: string | null
+  status: SubscriptionStatus
+  currentPeriodStart: string | null
+  currentPeriodEnd: string | null
+  cancelAtPeriodEnd: boolean
+  amountTotal: number | null
+  currency: string | null
+  country: string | null
+  tier: string
+  extensionName: string
+  /** ISO date string (Date -> JSON) */
+  createdAt: string
+  /** ISO date string (Date -> JSON) */
+  updatedAt: string
+}
+
 export interface PaymentCredentialRow {
   id: string
   provider: 'stripe'
   hint: string
+  hasWebhookSecret: boolean
+  apiKeyHint: string | null
+  hasApiKey: boolean
   /** ISO date string (Date -> JSON) */
   createdAt: string
   /** ISO date string (Date -> JSON) */

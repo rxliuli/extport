@@ -1,8 +1,14 @@
 import { eq } from 'drizzle-orm'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { activations, licenseEvents, licenses, magicLinks, type License, type Plan } from '../src/db'
 import { createMagicLink } from '../src/lib/buyer-session'
 import { createExtension, request, seedTenantWithUser } from './helpers'
+
+const realFetch = globalThis.fetch
+
+afterEach(() => {
+  globalThis.fetch = realFetch
+})
 
 async function setupLicensed(buyerEmail = 'buyer@example.com') {
   const seeded = await seedTenantWithUser()
@@ -136,6 +142,15 @@ describe('GET /v1/portal/licenses', () => {
     expect(body.licenses).toHaveLength(1)
     expect(body.licenses[0]!.key).toBe(license.key)
     expect(body.licenses[0]!.devices.map((d) => d.fingerprint)).toEqual(['fp-alice'])
+  })
+
+  it('matches buyer email case-insensitively on GET /licenses', async () => {
+    const { db, license } = await setupLicensed('MixedCase@Example.com')
+    const cookie = await buyerCookie(db, 'mixedcase@example.com')
+    const res = await request('/api/v1/portal/licenses', { headers: { cookie } })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { licenses: { key: string }[] }
+    expect(body.licenses.map((l) => l.key)).toEqual([license.key])
   })
 })
 
@@ -294,6 +309,105 @@ describe('tenant seat release + license detail', () => {
           method: 'POST',
           headers: { cookie: b.sessionCookie, 'content-type': 'application/json' },
           body: JSON.stringify({ fingerprint: 'fp-x' }),
+        })
+      ).status,
+    ).toBe(404)
+  })
+})
+
+describe('buyer portal one-click billing portal', () => {
+  it('computes canManageBilling and creates Billing Portal sessions or falls back to billingPortalUrl', async () => {
+    const a = await setupLicensed('portal-buyer@example.com')
+    const b = await setupLicensed('portal-buyer@example.com')
+
+    // Tenant A: Stripe Restricted Key + license with stripeCustomerId.
+    await request('/api/v1/payment-credentials', {
+      method: 'POST',
+      headers: { cookie: a.sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'stripe', apiKey: 'rk_test_buyer_portal' }),
+    })
+    await a.db.update(licenses).set({ stripeCustomerId: 'cus_portal_buyer' }).where(eq(licenses.id, a.license.id))
+
+    // Tenant B: only static billingPortalUrl on first license, and third tenant C has neither.
+    await request('/api/v1/tenant/settings', {
+      method: 'PATCH',
+      headers: { cookie: b.sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ billingPortalUrl: 'https://billing.stripe.com/p/login/b_static' }),
+    })
+    const c = await setupLicensed('portal-buyer@example.com')
+    const otherBuyer = await setupLicensed('someone-else@example.com')
+
+    const cookie = await buyerCookie(a.db, 'portal-buyer@example.com')
+
+    // Unauthenticated -> 401.
+    expect(
+      (
+        await request('/api/v1/portal/billing-portal', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ key: a.license.key }),
+        })
+      ).status,
+    ).toBe(401)
+
+    // GET /licenses exposes canManageBilling accurately.
+    const listRes = await request('/api/v1/portal/licenses', { headers: { cookie } })
+    const listBody = (await listRes.json()) as {
+      licenses: { key: string; canManageBilling: boolean }[]
+    }
+    const byKey = new Map(listBody.licenses.map((l) => [l.key, l.canManageBilling]))
+    expect(byKey.get(a.license.key)).toBe(true)
+    expect(byKey.get(b.license.key)).toBe(true)
+    expect(byKey.get(c.license.key)).toBe(false)
+
+    // Tenant A license -> calls Stripe Billing Portal with return_url=${PORTAL_URL}/portal.
+    const calls: URLSearchParams[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('https://api.stripe.com/v1/billing_portal/sessions')
+      calls.push(new URLSearchParams(String(init?.body ?? '')))
+      return new Response(
+        JSON.stringify({ id: 'bps_buyer_1', url: 'https://billing.stripe.com/p/session/bps_buyer_1' }),
+        {
+          status: 200,
+        },
+      )
+    }) as typeof fetch
+
+    const portalA = await request('/api/v1/portal/billing-portal', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ key: a.license.key.toLowerCase() }),
+    })
+    expect(portalA.status).toBe(200)
+    expect(await portalA.json()).toEqual({ url: 'https://billing.stripe.com/p/session/bps_buyer_1' })
+    expect(calls[0]!.get('customer')).toBe('cus_portal_buyer')
+    expect(calls[0]!.get('return_url')).toBe('https://portal.extport.dev/portal')
+
+    // Tenant B license -> falls back to static billingPortalUrl.
+    const portalB = await request('/api/v1/portal/billing-portal', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ key: b.license.key }),
+    })
+    expect(portalB.status).toBe(200)
+    expect(await portalB.json()).toEqual({ url: 'https://billing.stripe.com/p/login/b_static' })
+
+    // Tenant C license -> 404 (no portal configured); another buyer's license -> 404.
+    expect(
+      (
+        await request('/api/v1/portal/billing-portal', {
+          method: 'POST',
+          headers: { cookie, 'content-type': 'application/json' },
+          body: JSON.stringify({ key: c.license.key }),
+        })
+      ).status,
+    ).toBe(404)
+    expect(
+      (
+        await request('/api/v1/portal/billing-portal', {
+          method: 'POST',
+          headers: { cookie, 'content-type': 'application/json' },
+          body: JSON.stringify({ key: otherBuyer.license.key }),
         })
       ).status,
     ).toBe(404)

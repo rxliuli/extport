@@ -498,18 +498,39 @@ function PaymentCredentialsSection() {
   const queryClient = useQueryClient()
   const { data: credentials = [] } = useQuery(paymentCredentialsQuery)
   const stripe = credentials.find((c) => c.provider === 'stripe')
-  const [secret, setSecret] = useState('')
-  const [editing, setEditing] = useState(false)
+  const [webhookSecret, setWebhookSecret] = useState('')
+  const [editingWebhook, setEditingWebhook] = useState(false)
+  const [apiKey, setApiKey] = useState('')
+  const [editingApiKey, setEditingApiKey] = useState(false)
 
-  const save = useMutation({
-    mutationFn: (webhookSecret: string) =>
+  const hasWebhookSecret = stripe ? (stripe.hasWebhookSecret ?? Boolean(stripe.hint)) : false
+  const hasApiKey = stripe ? (stripe.hasApiKey ?? Boolean(stripe.apiKeyHint)) : false
+
+  const saveWebhook = useMutation({
+    mutationFn: (secret: string) =>
       api('/api/v1/payment-credentials', {
         method: 'POST',
-        body: JSON.stringify({ provider: 'stripe', webhookSecret }),
+        body: JSON.stringify({ provider: 'stripe', webhookSecret: secret }),
       }),
     onSuccess: () => {
-      setSecret('')
-      setEditing(false)
+      setWebhookSecret('')
+      setEditingWebhook(false)
+      toast.success('Webhook signing secret saved')
+      void queryClient.invalidateQueries({ queryKey: paymentCredentialsQuery.queryKey })
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  })
+
+  const saveApiKey = useMutation({
+    mutationFn: (nextKey: string | null) =>
+      api('/api/v1/payment-credentials', {
+        method: 'POST',
+        body: JSON.stringify({ provider: 'stripe', apiKey: nextKey }),
+      }),
+    onSuccess: (_data, nextKey) => {
+      setApiKey('')
+      setEditingApiKey(false)
+      toast.success(nextKey === null ? 'Stripe Restricted Key removed' : 'Stripe Restricted Key saved')
       void queryClient.invalidateQueries({ queryKey: paymentCredentialsQuery.queryKey })
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -518,121 +539,138 @@ function PaymentCredentialsSection() {
   return (
     <Section
       id="payment-credentials"
-      title="Payment credentials"
-      description="Your Stripe webhook signing secret (whsec_…) — used only to verify licensing fulfillment webhooks. The secret itself is write-only and never shown again."
+      title="Stripe"
+      description="Connect your Stripe account with a Restricted Key (rk_…) and webhook signing secret (whsec_…). extport manages Products, Prices, Checkout Sessions, and Billing Portal directly from here — secrets are envelope-encrypted, write-only, and never shown in full again."
     >
-      <div className={`space-y-4 ${sectionBodyClass}`}>
-        {stripe && !editing ? (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-            <span className="font-medium">Stripe</span>
-            <code className="text-muted-foreground">whsec_…{stripe.hint}</code>
-            <div className="ml-auto flex items-center gap-3">
-              <span className="text-xs whitespace-nowrap text-muted-foreground">
-                updated {formatDate(stripe.updatedAt)}
-              </span>
-              <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-                Replace
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <form
-            className="flex items-center gap-2"
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (secret.trim()) save.mutate(secret.trim())
-            }}
-          >
-            <Input
-              type="password"
-              placeholder="whsec_…"
-              value={secret}
-              onChange={(e) => setSecret(e.target.value)}
-              autoComplete="off"
-            />
-            <Button type="submit" disabled={save.isPending}>
-              {save.isPending && <Loader2 className="animate-spin" />}
-              {stripe ? 'Replace secret' : 'Save secret'}
-            </Button>
-            {stripe && (
-              <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
-                Cancel
-              </Button>
-            )}
-          </form>
-        )}
-        <p className="text-xs text-muted-foreground">
-          Found on your Stripe webhook endpoint's page (Developers → Webhooks → your endpoint → Signing secret). Test
-          and live mode have separate secrets — store whichever mode your sales currently run in.
-        </p>
-        <WebhookUrlRow />
-      </div>
-    </Section>
-  )
-}
-
-// Self-service Stripe Customer Portal link: shown on subscription purchases
-// in the buyer portal, fulfillment emails, and entitlement API responses.
-function BillingPortalSection() {
-  const queryClient = useQueryClient()
-  const { data: settings } = useQuery(tenantSettingsQuery)
-  const saved = settings?.billingPortalUrl ?? ''
-  const [value, setValue] = useState<string | null>(null)
-  const current = value ?? saved
-
-  const save = useMutation({
-    mutationFn: (billingPortalUrl: string) =>
-      api('/api/v1/tenant/settings', {
-        method: 'PATCH',
-        body: JSON.stringify({ billingPortalUrl: billingPortalUrl || null }),
-      }),
-    onSuccess: async (_data, billingPortalUrl) => {
-      await queryClient.invalidateQueries({ queryKey: tenantSettingsQuery.queryKey })
-      setValue(null)
-      toast.success(billingPortalUrl ? 'Billing portal link saved' : 'Billing portal link removed')
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  })
-
-  return (
-    <Section
-      id="billing-portal"
-      title="Customer billing portal"
-      description="Your Stripe no-code Customer Portal login link — surfaced to subscription buyers in emails, the buyer portal, and entitlement API responses."
-    >
-      <div className={`space-y-2 ${sectionBodyClass}`}>
-        <form
-          className="flex flex-col gap-2 sm:flex-row sm:items-center"
-          onSubmit={(e) => {
-            e.preventDefault()
-            save.mutate(current.trim())
-          }}
-        >
-          <Label htmlFor="billing-portal-url" className="sr-only">
-            Customer billing portal URL
+      <div className={`space-y-6 ${sectionBodyClass}`}>
+        <div className="space-y-2">
+          <Label htmlFor="stripe-restricted-key" className="text-sm font-medium">
+            Stripe Restricted Key
           </Label>
-          <Input
-            id="billing-portal-url"
-            name="billingPortalUrl"
-            type="url"
-            inputMode="url"
-            autoCorrect="off"
-            autoCapitalize="none"
-            spellCheck={false}
-            placeholder="https://billing.stripe.com/p/login/..."
-            value={current}
-            onChange={(e) => setValue(e.target.value)}
-            aria-describedby="billing-portal-help"
-          />
-          <Button type="submit" disabled={save.isPending || current.trim() === saved}>
-            {save.isPending && <Loader2 className="animate-spin" />}
-            Save
-          </Button>
-        </form>
-        <p id="billing-portal-help" className="text-xs text-muted-foreground">
-          Enable the customer portal in Stripe Dashboard → Settings → Billing → Customer portal and paste its login link
-          here. Leave empty if you only sell one-time licenses.
-        </p>
+          {hasApiKey && !editingApiKey ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+              <code className="text-muted-foreground">rk_…{stripe!.apiKeyHint}</code>
+              <div className="ml-auto flex items-center gap-3">
+                <span className="text-xs whitespace-nowrap text-muted-foreground">
+                  updated {formatDate(stripe!.updatedAt)}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label="Replace Stripe Restricted Key"
+                  onClick={() => setEditingApiKey(true)}
+                >
+                  Replace
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <form
+              className="flex flex-col gap-2 sm:flex-row sm:items-center"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (apiKey.trim()) saveApiKey.mutate(apiKey.trim())
+              }}
+            >
+              <Input
+                id="stripe-restricted-key"
+                name="apiKey"
+                type="password"
+                placeholder="rk_live_… or rk_test_…"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                aria-describedby="stripe-restricted-key-help"
+                required
+              />
+              <div className="flex items-center gap-2">
+                <Button type="submit" disabled={saveApiKey.isPending}>
+                  {saveApiKey.isPending && <Loader2 className="animate-spin" />}
+                  {hasApiKey ? 'Replace key' : 'Save key'}
+                </Button>
+                {hasApiKey && (
+                  <Button type="button" variant="ghost" onClick={() => setEditingApiKey(false)}>
+                    Cancel
+                  </Button>
+                )}
+              </div>
+            </form>
+          )}
+          <p id="stripe-restricted-key-help" className="text-xs text-muted-foreground">
+            Create a Restricted Key in Stripe (Developers → API keys → Create restricted key) with Write permission for:{' '}
+            <strong>Products</strong>, <strong>Prices</strong>, <strong>Customers</strong>,{' '}
+            <strong>Checkout Sessions</strong>, and <strong>Customer Portal</strong>.
+          </p>
+        </div>
+
+        <div className="space-y-2 border-t border-border/60 pt-5">
+          <Label htmlFor="stripe-webhook-secret" className="text-sm font-medium">
+            Webhook signing secret
+          </Label>
+          {hasWebhookSecret && !editingWebhook ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+              <code className="text-muted-foreground">whsec_…{stripe!.hint}</code>
+              <div className="ml-auto flex items-center gap-3">
+                <span className="text-xs whitespace-nowrap text-muted-foreground">
+                  updated {formatDate(stripe!.updatedAt)}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label="Replace webhook signing secret"
+                  onClick={() => setEditingWebhook(true)}
+                >
+                  Replace
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <form
+              className="flex flex-col gap-2 sm:flex-row sm:items-center"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (webhookSecret.trim()) saveWebhook.mutate(webhookSecret.trim())
+              }}
+            >
+              <Input
+                id="stripe-webhook-secret"
+                name="webhookSecret"
+                type="password"
+                placeholder="whsec_…"
+                value={webhookSecret}
+                onChange={(e) => setWebhookSecret(e.target.value)}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                aria-describedby="stripe-webhook-help"
+                required
+              />
+              <div className="flex items-center gap-2">
+                <Button type="submit" disabled={saveWebhook.isPending}>
+                  {saveWebhook.isPending && <Loader2 className="animate-spin" />}
+                  {hasWebhookSecret ? 'Replace secret' : 'Save secret'}
+                </Button>
+                {hasWebhookSecret && (
+                  <Button type="button" variant="ghost" onClick={() => setEditingWebhook(false)}>
+                    Cancel
+                  </Button>
+                )}
+              </div>
+            </form>
+          )}
+          <p id="stripe-webhook-help" className="text-xs text-muted-foreground">
+            Found on your Stripe webhook endpoint's page (Developers → Webhooks → your endpoint → Signing secret). Test
+            and live mode have separate secrets — store whichever mode your sales currently run in.
+          </p>
+        </div>
+
+        <WebhookUrlRow />
       </div>
     </Section>
   )
@@ -750,7 +788,6 @@ function SettingsPage() {
       <ApiKeysSection />
       <CredentialsSection />
       <PaymentCredentialsSection />
-      <BillingPortalSection />
       <BuyerSupportSection />
     </div>
   )

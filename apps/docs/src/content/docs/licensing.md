@@ -1,19 +1,23 @@
 ---
-title: Licensing
-description: Sell activation codes for your extension — Stripe Payment Links in, verified activations out.
+title: Licensing & Subscriptions
+description: Sell one-time activation codes or account-based recurring subscriptions via Stripe.
 ---
 
-Licensing turns an extension into a paid product without you running any
-server: you define a **plan** (what a buyer gets), sell it through your
-own **Stripe Payment Link**, and extport handles everything after the
-payment — issuing the activation code, emailing it, showing it on the
-checkout success page, verifying activations from the extension, and
-revoking on refunds.
+extport supports two cleanly separated monetization models using your own
+Stripe account:
 
-The model in one sentence: the extension verifies codes **online** via
-[`@extport/sdk`](https://www.npmjs.com/package/@extport/sdk) and caches
-the entitlement locally — no cryptography in the client, no license
-server of your own.
+- **Licenses (one-time `perpetual` activation codes)** — ideal for
+  standalone browser extensions without a backend. Buyers receive an
+  activation code (`XXXX-XXXX-XXXX-XXXX`) by email and on the checkout
+  success page; the extension verifies codes online via
+  [`@extport/sdk`](https://www.npmjs.com/package/@extport/sdk) with device
+  seat limits and lazy 30-day seat decay.
+- **Subscriptions (account-based `recurring` billing)** — ideal for
+  extensions with user accounts and a backend. Stripe fulfills recurring
+  checkouts directly into extport's `subscriptions` table (no activation
+  codes, no key emails), and your backend calls `/api/v1/subscriptions/*`
+  for duplicate-guarded Checkout Sessions, entitlement checks, and one-click
+  Stripe Billing Portal sessions.
 
 ## 1. Enable licensing and create a plan
 
@@ -23,13 +27,13 @@ nothing changes for users until your extension ships licensing code).
 
 Then create a plan. A plan is one sellable tier of one extension:
 
-- **Tier** — the level the SDK resolves (e.g. `pro`). `free` is reserved
-  for the unpaid tier.
-- **Billing model** — **One-time** (`perpetual`) or **Subscription**
-  (`recurring`). Pricing, monthly/yearly intervals, trials, and coupons
-  stay in Stripe.
-- **Max devices** — how many devices one license covers (editable later;
-  applies to codes issued from then on).
+- **Tier** — the level your extension or backend resolves (e.g. `pro`).
+  `free` is reserved for the unpaid tier.
+- **Billing model** — **One-time** (`perpetual` license) or **Subscription**
+  (`recurring` via Stripe). Enter pricing here to sync Stripe Products and
+  Prices automatically via your Restricted Key.
+- **Max devices** — *(One-time plans only)* how many devices one license
+  covers (editable later; applies to codes issued from then on).
 
 Activation codes verify against your **extension's id** (`ext_…`) — the
 identity is part of the verification contract baked into shipped builds,
@@ -37,7 +41,7 @@ so it's fixed for the life of the extension. The name, in contrast, is
 just a label: it never freezes, and renaming it can't break verification.
 
 The plans table shows a `extport_plan=plan_…` value per row — that's the
-Stripe metadata you'll need in step 3.
+Stripe metadata you'll need if you also use manual Payment Links.
 
 ## 2. Wire up the SDK
 
@@ -70,7 +74,49 @@ Before touching Stripe you can already test the full loop: issue a
 license by hand from the dashboard's Licensing tab and activate it in a
 dev build.
 
-## 3. Create the Payment Link
+## 3. Choose a Stripe checkout flow
+
+You can sell plans in two ways — **Managed Checkout & Sync (Recommended)** or **Zero-code Payment Links** (for one-time licenses).
+
+### Option A: Managed Stripe control plane (Restricted Key)
+
+Store a **Stripe Restricted Key** (`rk_…`) in [**Settings → Stripe**](https://dash.extport.dev/settings#payment-credentials) with **Write** permission on:
+
+- **Products**
+- **Prices**
+- **Customers**
+- **Checkout Sessions**
+- **Customer Portal**
+
+With a Restricted Key configured:
+
+1. **Automatic Product & Price sync**: When creating or editing a plan in the dashboard (or via `POST /api/v1/plans` / `PATCH /api/v1/plans/:id`), enter pricing (`amount` for one-time; `monthlyAmount` / `yearlyAmount` for subscriptions; `currency` defaults to `usd`). extport automatically creates the Stripe Product and Price(s) with `extport_plan` metadata — and when you change a price, creates a new Stripe Price and archives the old one.
+2. **Account-based Subscriptions (`/api/v1/subscriptions/*`)**: Your backend calls extport with your tenant API key instead of integrating the Stripe SDK directly:
+
+   ```http
+   POST https://api.extport.dev/api/v1/subscriptions/checkout
+   Authorization: Bearer <EXTPORT_API_KEY>
+   Content-Type: application/json
+
+   {
+     "extensionId": "ext_...",
+     "tier": "pro",
+     "interval": "monthly",
+     "externalUserId": "user_123",
+     "email": "buyer@example.com",
+     "successUrl": "https://example.com/account?upgraded=1",
+     "cancelUrl": "https://example.com/pricing"
+   }
+   ```
+
+   - Returns `{ "action": "checkout", "url": "https://checkout.stripe.com/...", "sessionId": "cs_..." }` for new subscribers (setting `metadata[extport_plan]`, `client_reference_id`, and reusing any existing `cus_…`).
+   - If the user already has an active subscription for that extension, blocks duplicate billing and returns `{ "action": "portal", "url": "https://billing.stripe.com/...", "reason": "already_subscribed" }` (or `409` if no Stripe customer ID is on file).
+   - Check entitlements server-side with `GET /api/v1/subscriptions/entitlements?extensionId=ext_...&externalUserId=user_123` (or `&email=...`), returning `{ active, tier, subscriptionId, status, currentPeriodStart, currentPeriodEnd, cancelAtPeriodEnd }`.
+   - Open a one-click Stripe Billing Portal session with `POST /api/v1/subscriptions/portal` `{ extensionId?, externalUserId?, email?, returnUrl }`.
+
+3. **Managed One-Time License Checkout (`POST /api/v1/licensing/checkout`)**: For `perpetual` plans, call `POST /api/v1/licensing/checkout` with `{ extensionId, tier?, externalUserId?, email?, successUrl, cancelUrl }` to create a Stripe Checkout Session (`mode: 'payment'`) that fulfills into an activation code.
+
+### Option B: Zero-code Payment Links (No API key)
 
 In Stripe (start in **test mode** — the Sandbox banner should be
 visible), create a Payment Link for your product's price. None of the
@@ -152,7 +198,8 @@ the test one in Settings).
   the license's Devices dialog.
 - **Buyers help themselves.** [portal.extport.dev](https://portal.extport.dev/portal)
   lets buyers sign in with their purchase email (magic link, no
-  password) and see every code and device they own.
+  password), see every code and device they own, and jump straight into
+  the Stripe Billing Portal via **Manage subscription**.
 - **Codes outlive everything.** Issued licenses keep verifying no matter
   what plan you're on — and if verification is ever unreachable,
   activated devices keep working from local state. The failure mode is

@@ -1,7 +1,16 @@
 import { eq } from 'drizzle-orm'
 import { env } from 'cloudflare:test'
 import { describe, expect, it, vi } from 'vitest'
-import { licenseEvents, licenses, pendingStripeSubscriptions, type License, type Plan } from '../src/db'
+import {
+  licenseEvents,
+  licenses,
+  pendingStripeSubscriptions,
+  subscriptionEvents,
+  subscriptions,
+  type License,
+  type Plan,
+  type Subscription,
+} from '../src/db'
 import { createApiKey, createExtension, request, seedTenantWithUser } from './helpers'
 
 const SECRET = 'whsec_testsecret123'
@@ -92,6 +101,13 @@ async function tenantLicenses(
   return db.select().from(licenses).where(eq(licenses.tenantId, tenantId))
 }
 
+async function tenantSubscriptions(
+  db: Awaited<ReturnType<typeof seedTenantWithUser>>['db'],
+  tenantId: string,
+): Promise<Subscription[]> {
+  return db.select().from(subscriptions).where(eq(subscriptions.tenantId, tenantId))
+}
+
 describe('payment credentials API', () => {
   it('stores the secret write-only (hint exposed, secret never returned)', async () => {
     const { sessionCookie } = await seedTenantWithUser()
@@ -130,6 +146,118 @@ describe('payment credentials API', () => {
     const apiKey = await createApiKey(sessionCookie)
     const viaKey = await request('/api/v1/payment-credentials', { headers: { authorization: `Bearer ${apiKey}` } })
     expect(viaKey.status).toBe(401)
+  })
+
+  it('merges webhookSecret and apiKey independently without wiping each other, and supports clearing apiKey', async () => {
+    const { sessionCookie, tenantId } = await seedTenantWithUser()
+
+    // 1. Store webhookSecret first.
+    const r1 = await request('/api/v1/payment-credentials', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'stripe', webhookSecret: 'whsec_merge_1234' }),
+    })
+    expect(r1.status).toBe(200)
+    expect(((await r1.json()) as { credential: unknown }).credential).toMatchObject({
+      hint: '1234',
+      hasWebhookSecret: true,
+      apiKeyHint: null,
+      hasApiKey: false,
+    })
+
+    // 2. Add apiKey later — webhookSecret must remain intact!
+    const r2 = await request('/api/v1/payment-credentials', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'stripe', apiKey: 'rk_test_merge_9876' }),
+    })
+    expect(r2.status).toBe(200)
+    const r2Text = await r2.text()
+    expect(r2Text).not.toContain('whsec_merge_1234')
+    expect(r2Text).not.toContain('rk_test_merge_9876')
+    expect(JSON.parse(r2Text).credential).toMatchObject({
+      hint: '1234',
+      hasWebhookSecret: true,
+      apiKeyHint: '9876',
+      hasApiKey: true,
+    })
+
+    // 3. Rotate webhookSecret — apiKey must remain intact!
+    const r3 = await request('/api/v1/payment-credentials', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'stripe', webhookSecret: 'whsec_rotated_5678' }),
+    })
+    expect(r3.status).toBe(200)
+    expect(((await r3.json()) as { credential: unknown }).credential).toMatchObject({
+      hint: '5678',
+      hasWebhookSecret: true,
+      apiKeyHint: '9876',
+      hasApiKey: true,
+    })
+    // Verify the rotated webhookSecret actually verifies incoming webhook signatures.
+    const whRes = await deliver(
+      tenantId,
+      { type: 'invoice.paid', data: { object: {} } },
+      { secret: 'whsec_rotated_5678' },
+    )
+    expect(whRes.status).toBe(200)
+
+    // 4. Clear apiKey explicitly — webhookSecret stays.
+    const r4 = await request('/api/v1/payment-credentials', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'stripe', apiKey: null }),
+    })
+    expect(r4.status).toBe(200)
+    expect(((await r4.json()) as { credential: unknown }).credential).toMatchObject({
+      hint: '5678',
+      hasWebhookSecret: true,
+      apiKeyHint: null,
+      hasApiKey: false,
+    })
+
+    // 5. Rejects invalid apiKey prefix, empty payload, and apiKey: null without webhookSecret.
+    expect(
+      (
+        await request('/api/v1/payment-credentials', {
+          method: 'POST',
+          headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+          body: JSON.stringify({ provider: 'stripe', apiKey: 'pk_test_not_allowed' }),
+        })
+      ).status,
+    ).toBe(400)
+    expect(
+      (
+        await request('/api/v1/payment-credentials', {
+          method: 'POST',
+          headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+          body: JSON.stringify({ provider: 'stripe' }),
+        })
+      ).status,
+    ).toBe(400)
+
+    const apiKeyOnly = await seedTenantWithUser()
+    expect(
+      (
+        await request('/api/v1/payment-credentials', {
+          method: 'POST',
+          headers: { cookie: apiKeyOnly.sessionCookie, 'content-type': 'application/json' },
+          body: JSON.stringify({ provider: 'stripe', apiKey: null }),
+        })
+      ).status,
+    ).toBe(400)
+    expect(
+      (
+        await request('/api/v1/payment-credentials', {
+          method: 'POST',
+          headers: { cookie: apiKeyOnly.sessionCookie, 'content-type': 'application/json' },
+          body: JSON.stringify({ provider: 'stripe', apiKey: 'rk_test_only_1111' }),
+        })
+      ).status,
+    ).toBe(200)
+    // Webhook receiver returns 404 when only apiKey (no webhookSecret) is stored.
+    expect((await deliver(apiKeyOnly.tenantId, { type: 'invoice.paid', data: { object: {} } })).status).toBe(404)
   })
 })
 
@@ -298,16 +426,11 @@ describe('charge.refunded / charge.dispute.created revocation', () => {
 describe('recurring subscription webhooks', () => {
   const nowSec = () => Math.floor(Date.now() / 1000)
 
-  it('fulfills subscription checkout with client_reference_id, syncs 2025-03-31+ item periods, renewals, and emails portal URL', async () => {
+  it('fulfills subscription checkout into subscriptions table (no license, no activation email) and syncs 2025-03-31+ periods & renewals', async () => {
     const { db, tenantId, sessionCookie, extension, plan } = await setupStripeTenant({
       entitlementType: 'recurring',
     })
-    await request('/api/v1/tenant/settings', {
-      method: 'PATCH',
-      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ billingPortalUrl: 'https://billing.stripe.com/p/login/sub_portal' }),
-    })
-
+    const apiKey = await createApiKey(sessionCookie)
     const sendSpy = vi.spyOn(env.EMAIL, 'send').mockResolvedValue({ messageId: 'm1' } as never)
 
     const subId = nextRef('sub')
@@ -323,20 +446,23 @@ describe('recurring subscription webhooks', () => {
     })
     expect((await deliver(tenantId, checkout)).status).toBe(200)
 
-    expect(sendSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        to: 'buyer@example.com',
-        text: expect.stringContaining('https://billing.stripe.com/p/login/sub_portal'),
-      }),
-    )
+    // Account-based subscriptions must NOT send an activation-code email or create a license row.
+    expect(sendSpy).not.toHaveBeenCalled()
     sendSpy.mockRestore()
+    expect(await tenantLicenses(db, tenantId)).toHaveLength(0)
 
-    let [license] = await tenantLicenses(db, tenantId)
-    expect(license!.entitlementType).toBe('recurring')
-    expect(license!.stripeSubscriptionId).toBe(subId)
-    expect(license!.externalUserId).toBe('tw_user_42')
-    expect(license!.sourceRef).toBe(subId)
-    expect(license!.subscriptionStatus).toBe('active')
+    // Replaying checkout.session.completed is idempotent.
+    const dupCheckout = await deliver(tenantId, checkout)
+    expect(((await dupCheckout.json()) as { status: string }).status).toBe('already_processed')
+
+    let [sub] = await tenantSubscriptions(db, tenantId)
+    expect(sub!.id).toMatch(/^esub_/)
+    expect(sub!.extensionId).toBe(extension.id)
+    expect(sub!.stripeSubscriptionId).toBe(subId)
+    expect(sub!.externalUserId).toBe('tw_user_42')
+    expect(sub!.status).toBe('active')
+    expect(sub!.amountTotal).toBe(900)
+    expect(sub!.currency).toBe('usd')
 
     // Deliver Stripe API 2025-03-31+ subscription payload (period on items.data[0], no top-level period).
     const subCreated = await deliver(tenantId, {
@@ -353,25 +479,23 @@ describe('recurring subscription webhooks', () => {
     })
     expect(subCreated.status).toBe(200)
 
-    ;[license] = await tenantLicenses(db, tenantId)
-    expect(license!.currentPeriodStart).toBe(new Date(p1Start * 1000).toISOString())
-    expect(license!.currentPeriodEnd).toBe(new Date(p1End * 1000).toISOString())
+    ;[sub] = await tenantSubscriptions(db, tenantId)
+    expect(sub!.currentPeriodStart).toBe(new Date(p1Start * 1000).toISOString())
+    expect(sub!.currentPeriodEnd).toBe(new Date(p1End * 1000).toISOString())
 
-    // Activate via public protocol and verify real expiresAt + subscription metadata.
-    const actRes = await request('/api/v1/licensing/activate', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: license!.key, extensionId: extension.id, fingerprint: 'fp-sub-1' }),
-    })
-    const actBody = (await actRes.json()) as {
-      success: boolean
-      data: { tier: string; expiresAt: string; subscriptionStatus: string; cancelAtPeriodEnd: boolean }
-    }
-    expect(actBody.success).toBe(true)
-    expect(actBody.data).toEqual({
+    // Verify server-side entitlement API reports active subscription.
+    const entRes = await request(
+      `/api/v1/subscriptions/entitlements?extensionId=${extension.id}&externalUserId=tw_user_42`,
+      { headers: { authorization: `Bearer ${apiKey}` } },
+    )
+    expect(entRes.status).toBe(200)
+    expect(await entRes.json()).toEqual({
+      active: true,
       tier: 'pro',
-      expiresAt: new Date(p1End * 1000).toISOString(),
-      subscriptionStatus: 'active',
+      subscriptionId: sub!.id,
+      status: 'active',
+      currentPeriodStart: new Date(p1Start * 1000).toISOString(),
+      currentPeriodEnd: new Date(p1End * 1000).toISOString(),
       cancelAtPeriodEnd: false,
     })
 
@@ -401,10 +525,10 @@ describe('recurring subscription webhooks', () => {
     const replay = await deliver(tenantId, invoicePayload)
     expect(((await replay.json()) as { status: string }).status).toBe('already_processed')
 
-    ;[license] = await tenantLicenses(db, tenantId)
-    expect(license!.currentPeriodEnd).toBe(new Date(p2End * 1000).toISOString())
-    const events = await db.select().from(licenseEvents).where(eq(licenseEvents.licenseId, license!.id))
-    expect(events.filter((e) => e.type === 'renewed')).toHaveLength(1)
+    ;[sub] = await tenantSubscriptions(db, tenantId)
+    expect(sub!.currentPeriodEnd).toBe(new Date(p2End * 1000).toISOString())
+    const events = await db.select().from(subscriptionEvents).where(eq(subscriptionEvents.subscriptionId, sub!.id))
+    expect(events.map((e) => e.type)).toEqual(['created', 'renewed'])
   })
 
   it('handles out-of-order subscription & invoice events arriving before checkout.session.completed', async () => {
@@ -460,11 +584,11 @@ describe('recurring subscription webhooks', () => {
     )
     expect(((await r3.json()) as { status: string }).status).toBe('processed')
 
-    const [license] = await tenantLicenses(db, tenantId)
-    expect(license!.subscriptionStatus).toBe('trialing')
-    expect(license!.externalUserId).toBe('trial_user_1')
-    expect(license!.currentPeriodStart).toBe(new Date(start * 1000).toISOString())
-    expect(license!.currentPeriodEnd).toBe(new Date(trialEnd * 1000).toISOString())
+    const [sub] = await tenantSubscriptions(db, tenantId)
+    expect(sub!.status).toBe('trialing')
+    expect(sub!.externalUserId).toBe('trial_user_1')
+    expect(sub!.currentPeriodStart).toBe(new Date(start * 1000).toISOString())
+    expect(sub!.currentPeriodEnd).toBe(new Date(trialEnd * 1000).toISOString())
     expect(await db.select().from(pendingStripeSubscriptions)).toHaveLength(0)
 
     // Out-of-order transient 'incomplete' subscription.created arriving later must not downgrade.
@@ -474,12 +598,15 @@ describe('recurring subscription webhooks', () => {
       data: { object: { id: subId, status: 'incomplete' } },
     })
     expect(((await staleCreate.json()) as { status: string }).status).toBe('ignored')
-    const [after] = await tenantLicenses(db, tenantId)
-    expect(after!.subscriptionStatus).toBe('trialing')
+    const [after] = await tenantSubscriptions(db, tenantId)
+    expect(after!.status).toBe('trialing')
   })
 
   it('tracks payment_failed (past_due), cancel_at_period_end, and immediate deletion (expired)', async () => {
-    const { db, tenantId, extension, plan } = await setupStripeTenant({ entitlementType: 'recurring' })
+    const { db, tenantId, sessionCookie, extension, plan } = await setupStripeTenant({
+      entitlementType: 'recurring',
+    })
+    const apiKey = await createApiKey(sessionCookie)
     const subId = nextRef('sub')
     const start = nowSec()
     const end = start + 30 * 86400
@@ -491,6 +618,7 @@ describe('recurring subscription webhooks', () => {
         payment_status: 'paid',
         payment_intent: null,
         subscription: subId,
+        client_reference_id: 'life_user_1',
       }),
     )
     await deliver(tenantId, {
@@ -506,13 +634,6 @@ describe('recurring subscription webhooks', () => {
       },
     })
 
-    const [license] = await tenantLicenses(db, tenantId)
-    await request('/api/v1/licensing/activate', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: license!.key, extensionId: extension.id, fingerprint: 'fp-sub-life' }),
-    })
-
     // Payment failure -> past_due (still entitled during Stripe retry grace period).
     await deliver(tenantId, {
       type: 'invoice.payment_failed',
@@ -525,17 +646,15 @@ describe('recurring subscription webhooks', () => {
         },
       },
     })
-    let [current] = await tenantLicenses(db, tenantId)
-    expect(current!.subscriptionStatus).toBe('past_due')
+    let [current] = await tenantSubscriptions(db, tenantId)
+    expect(current!.status).toBe('past_due')
     const checkPastDue = (await (
-      await request('/api/v1/licensing/check', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ code: license!.key, extensionId: extension.id, fingerprint: 'fp-sub-life' }),
+      await request(`/api/v1/subscriptions/entitlements?extensionId=${extension.id}&externalUserId=life_user_1`, {
+        headers: { authorization: `Bearer ${apiKey}` },
       })
-    ).json()) as { data: { isActive: boolean; subscriptionStatus: string } }
-    expect(checkPastDue.data.isActive).toBe(true)
-    expect(checkPastDue.data.subscriptionStatus).toBe('past_due')
+    ).json()) as { active: boolean; status: string }
+    expect(checkPastDue.active).toBe(true)
+    expect(checkPastDue.status).toBe('past_due')
 
     // Recovered payment -> active; then cancel at period end -> active + cancelAtPeriodEnd: true.
     await deliver(tenantId, {
@@ -550,8 +669,8 @@ describe('recurring subscription webhooks', () => {
         },
       },
     })
-    ;[current] = await tenantLicenses(db, tenantId)
-    expect(current!.subscriptionStatus).toBe('active')
+    ;[current] = await tenantSubscriptions(db, tenantId)
+    expect(current!.status).toBe('active')
     expect(current!.cancelAtPeriodEnd).toBe(true)
 
     // Immediate deletion (even with current_period_end still in the future) -> expired & immediately inactive.
@@ -568,20 +687,19 @@ describe('recurring subscription webhooks', () => {
         },
       },
     })
-    ;[current] = await tenantLicenses(db, tenantId)
-    expect(current!.subscriptionStatus).toBe('expired')
+    ;[current] = await tenantSubscriptions(db, tenantId)
+    expect(current!.status).toBe('expired')
 
     const checkDeleted = (await (
-      await request('/api/v1/licensing/check', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ code: license!.key, extensionId: extension.id, fingerprint: 'fp-sub-life' }),
+      await request(`/api/v1/subscriptions/entitlements?extensionId=${extension.id}&externalUserId=life_user_1`, {
+        headers: { authorization: `Bearer ${apiKey}` },
       })
-    ).json()) as { data: { isActive: boolean; subscriptionStatus: string } }
-    expect(checkDeleted.data.isActive).toBe(false)
-    expect(checkDeleted.data.subscriptionStatus).toBe('expired')
+    ).json()) as { active: boolean; tier: string; status: string }
+    expect(checkDeleted.active).toBe(false)
+    expect(checkDeleted.tier).toBe('free')
+    expect(checkDeleted.status).toBe('expired')
 
-    // Partial/single-invoice charge.refunded never destroys a recurring license via sourceRef lookup.
+    // charge.refunded operates only on licenses, never on subscriptions.
     const refundAttempt = await deliver(tenantId, {
       type: 'charge.refunded',
       data: { object: { payment_intent: subId } },
@@ -604,6 +722,7 @@ describe('recurring subscription webhooks', () => {
     )
     expect(subOnPerpetual.status).toBe(500)
     expect(await tenantLicenses(perpetual.db, perpetual.tenantId)).toHaveLength(0)
+    expect(await tenantSubscriptions(perpetual.db, perpetual.tenantId)).toHaveLength(0)
 
     // One-time payment checkout pointed at a recurring plan must also fail loudly.
     const paymentOnRecurring = await deliver(
@@ -615,5 +734,80 @@ describe('recurring subscription webhooks', () => {
     )
     expect(paymentOnRecurring.status).toBe(500)
     expect(await tenantLicenses(recurring.db, recurring.tenantId)).toHaveLength(0)
+    expect(await tenantSubscriptions(recurring.db, recurring.tenantId)).toHaveLength(0)
+  })
+
+  it('persists stripeCustomerId from checkout, out-of-order pending subscriptions, and subscription updates', async () => {
+    const { db, tenantId, plan } = await setupStripeTenant({ entitlementType: 'recurring' })
+    const now = nowSec()
+
+    // Case 1: checkout.session.completed carries customer directly.
+    const sub1 = nextRef('sub')
+    await deliver(
+      tenantId,
+      checkoutEvent(plan.id, {
+        mode: 'subscription',
+        payment_status: 'paid',
+        payment_intent: null,
+        customer: 'cus_direct_1',
+        subscription: sub1,
+      }),
+    )
+    const rows1 = await tenantSubscriptions(db, tenantId)
+    expect(rows1.find((s) => s.stripeSubscriptionId === sub1)?.stripeCustomerId).toBe('cus_direct_1')
+
+    // Case 2: out-of-order customer.subscription.created carries customer before checkout arrives without customer.
+    const sub2 = nextRef('sub')
+    await deliver(tenantId, {
+      type: 'customer.subscription.created',
+      created: now,
+      data: {
+        object: {
+          id: sub2,
+          customer: 'cus_pending_2',
+          status: 'active',
+          items: { data: [{ current_period_start: now, current_period_end: now + 86400 }] },
+        },
+      },
+    })
+    await deliver(
+      tenantId,
+      checkoutEvent(plan.id, {
+        mode: 'subscription',
+        payment_status: 'paid',
+        payment_intent: null,
+        customer: null,
+        subscription: sub2,
+      }),
+    )
+    const rows2 = await tenantSubscriptions(db, tenantId)
+    expect(rows2.find((s) => s.stripeSubscriptionId === sub2)?.stripeCustomerId).toBe('cus_pending_2')
+
+    // Case 3: existing subscription missing stripeCustomerId gets backfilled by customer.subscription.updated.
+    const sub3 = nextRef('sub')
+    await deliver(
+      tenantId,
+      checkoutEvent(plan.id, {
+        mode: 'subscription',
+        payment_status: 'paid',
+        payment_intent: null,
+        customer: null,
+        subscription: sub3,
+      }),
+    )
+    await deliver(tenantId, {
+      type: 'customer.subscription.updated',
+      created: now + 10,
+      data: {
+        object: {
+          id: sub3,
+          customer: 'cus_backfill_3',
+          status: 'active',
+          cancel_at_period_end: false,
+        },
+      },
+    })
+    const rows3 = await tenantSubscriptions(db, tenantId)
+    expect(rows3.find((s) => s.stripeSubscriptionId === sub3)?.stripeCustomerId).toBe('cus_backfill_3')
   })
 })

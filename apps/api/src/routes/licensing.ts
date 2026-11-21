@@ -1,11 +1,13 @@
-import { newId } from '@extport/shared'
-import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
+import { isValidHttpUrl, newId } from '@extport/shared'
+import { and, desc, eq, isNotNull, isNull, lt, or, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
 import { activations, extensions, licenseEvents, licenses, plans, type Activation, type Db, type License } from '../db'
 import { formatEntitlementResponse, isLicenseEntitled, pickBestLicense } from '../lib/entitlement'
+import { createStripeCheckoutSession, StripeApiError, stripeErrorToHttp } from '../lib/stripe-api'
+import { loadStripeCredential } from '../lib/stripe-credentials'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
 
@@ -263,6 +265,7 @@ licensingPublicRoutes.post(
 export const licensingTenantRoutes = new Hono<AppEnv>()
 licensingTenantRoutes.use('/entitlements', requireAuth, requireActiveTenant)
 licensingTenantRoutes.use('/bind', requireAuth, requireActiveTenant)
+licensingTenantRoutes.use('/checkout', requireAuth, requireActiveTenant)
 
 const entitlementsQuerySchema = v.object({
   extensionId: v.pipe(
@@ -394,6 +397,110 @@ licensingTenantRoutes.post(
         tenant.settings.billingPortalUrl ?? null,
       ),
     })
+  },
+)
+
+const httpUrlField = (name: string) =>
+  v.pipe(
+    v.string(`${name} is required`),
+    v.trim(),
+    v.check((s) => isValidHttpUrl(s), `${name} must be a valid http(s) URL`),
+  )
+
+const checkoutBodySchema = v.object({
+  extensionId: extensionIdField,
+  tier: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(32))),
+  priceId: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(128))),
+  externalUserId: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(255))),
+  email: v.optional(v.pipe(v.string(), v.trim(), v.email('email must be a valid email'), v.maxLength(255))),
+  successUrl: httpUrlField('successUrl'),
+  cancelUrl: httpUrlField('cancelUrl'),
+})
+
+licensingTenantRoutes.post(
+  '/checkout',
+  describeRoute({
+    summary: 'Create a Stripe Checkout Session for a one-time perpetual license',
+    description:
+      'Resolves the perpetual plan and Stripe Price for (extensionId, tier) using the tenant Restricted Key and creates a one-time Checkout Session. For recurring subscriptions, use POST /v1/subscriptions/checkout.',
+    tags: ['Licensing'],
+    responses: {
+      200: { description: 'Checkout URL' },
+      400: { description: 'Invalid input, missing perpetual plan/price, or missing Stripe Restricted Key' },
+      404: { description: 'Extension not found' },
+      502: { description: 'Stripe API unavailable' },
+    },
+  }),
+  validator('json', checkoutBodySchema, badRequest),
+  async (c) => {
+    const db = c.get('db')
+    const tenant = c.get('tenant')
+    const body = c.req.valid('json')
+
+    const [extension] = await db
+      .select({ id: extensions.id })
+      .from(extensions)
+      .where(and(eq(extensions.id, body.extensionId), eq(extensions.tenantId, tenant.id)))
+    if (!extension) return c.json({ error: 'extension not found' }, 404)
+
+    const tier = body.tier || 'pro'
+    const [plan] = await db
+      .select()
+      .from(plans)
+      .where(
+        and(
+          eq(plans.tenantId, tenant.id),
+          eq(plans.extensionId, extension.id),
+          eq(plans.tier, tier),
+          eq(plans.entitlementType, 'perpetual'),
+        ),
+      )
+    if (!plan) return c.json({ error: `no perpetual plan found for tier "${tier}" on this extension` }, 400)
+
+    const priceId = body.priceId ?? plan.stripePriceId ?? undefined
+    if (!priceId) return c.json({ error: 'no Stripe price configured for this plan' }, 400)
+
+    const cred = await loadStripeCredential(c.env, db, tenant)
+    if (!cred?.apiKey) {
+      return c.json({ error: 'Stripe Restricted Key is not configured for this tenant' }, 400)
+    }
+
+    const externalUserId = body.externalUserId || undefined
+    const email = body.email || undefined
+    const matchClauses = []
+    if (externalUserId) matchClauses.push(eq(licenses.externalUserId, externalUserId))
+    if (email) matchClauses.push(sql`lower(${licenses.buyerEmail}) = lower(${email})`)
+
+    let reusableCustomerId: string | null = null
+    if (matchClauses.length > 0) {
+      const [priorWithCustomer] = await db
+        .select({ stripeCustomerId: licenses.stripeCustomerId })
+        .from(licenses)
+        .where(and(eq(licenses.tenantId, tenant.id), isNotNull(licenses.stripeCustomerId), or(...matchClauses)!))
+        .orderBy(desc(licenses.createdAt), desc(licenses.id))
+        .limit(1)
+      reusableCustomerId = priorWithCustomer?.stripeCustomerId ?? null
+    }
+
+    try {
+      const session = await createStripeCheckoutSession(cred.apiKey, {
+        mode: 'payment',
+        priceId,
+        planId: plan.id,
+        customerId: reusableCustomerId,
+        customerEmail: email,
+        externalUserId,
+        successUrl: body.successUrl,
+        cancelUrl: body.cancelUrl,
+      })
+      return c.json({ action: 'checkout', url: session.url, sessionId: session.id })
+    } catch (err) {
+      if (err instanceof StripeApiError) {
+        const mapped = stripeErrorToHttp(err)
+        return c.json(mapped.body, mapped.status)
+      }
+      throw err
+    }
   },
 )
 

@@ -15,6 +15,7 @@ import plansRoutes from './routes/plans'
 import portalRoutes from './routes/portal'
 import releasesRoutes from './routes/releases'
 import stripeWebhookRoutes from './routes/stripe-webhook'
+import subscriptionsRoutes from './routes/subscriptions'
 import tenantRoutes from './routes/tenant'
 
 // The API surface and its OpenAPI document live together. The worker entry
@@ -48,6 +49,7 @@ api.route('/v1/analytics', analyticsPublicRoutes)
 api.route('/v1/analytics', analyticsTenantRoutes)
 api.route('/v1/plans', plansRoutes)
 api.route('/v1/licenses', licensesRoutes)
+api.route('/v1/subscriptions', subscriptionsRoutes)
 api.route('/v1/payment-credentials', paymentCredentialsRoutes)
 
 type OpenApiDocumentation = NonNullable<NonNullable<Parameters<typeof openAPIRouteHandler>[1]>['documentation']>
@@ -115,7 +117,12 @@ export const OPENAPI_DOCUMENTATION: OpenApiDocumentation = {
     {
       name: 'Licensing',
       description:
-        'Plans, issued licenses, activations, Stripe Payment Link fulfillment, and the end-user verify/activate flow.',
+        'Plans, one-time perpetual licenses, device activations, Stripe fulfillment, and the end-user verify/activate flow.',
+    },
+    {
+      name: 'Subscriptions',
+      description:
+        'Account-based recurring subscriptions: server-side entitlement checks, duplicate-guarded Checkout Sessions, and Stripe Billing Portal sessions.',
     },
     {
       name: 'Store credentials',

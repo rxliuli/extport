@@ -4,7 +4,18 @@ import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { describeRoute, resolver, validator } from 'hono-openapi'
 import * as v from 'valibot'
-import { artifacts, deploymentVersions, extensions, licenses, plans, publishEvents, publishTargets, storeCredentials, type Db } from '../db'
+import {
+  artifacts,
+  deploymentVersions,
+  extensions,
+  licenses,
+  plans,
+  publishEvents,
+  publishTargets,
+  storeCredentials,
+  subscriptions,
+  type Db,
+} from '../db'
 import { tenantDek } from '../lib/kms'
 import { storeConsoleUrl } from '../lib/store-links'
 import { badRequest } from '../lib/validation'
@@ -62,7 +73,10 @@ route.get(
       .where(eq(publishTargets.tenantId, tenant.id))
 
     const extensionIds = [...new Set(targetRows.map((r) => r.target.extensionId))]
-    const versionRows = extensionIds.length > 0 ? await db.select().from(deploymentVersions).where(inArray(deploymentVersions.extensionId, extensionIds)) : []
+    const versionRows =
+      extensionIds.length > 0
+        ? await db.select().from(deploymentVersions).where(inArray(deploymentVersions.extensionId, extensionIds))
+        : []
     const versionsByExtStore = new Map<string, typeof versionRows>()
     for (const v of versionRows) {
       const key = `${v.extensionId}:${v.store}`
@@ -110,7 +124,11 @@ route.post(
     tags: ['Extensions'],
     summary: 'Create an extension',
     description: 'name must be unique per tenant.',
-    responses: { 201: { description: 'Created' }, 403: { description: 'Plan limit reached' }, 409: { description: 'Duplicate name' } },
+    responses: {
+      201: { description: 'Created' },
+      403: { description: 'Plan limit reached' },
+      409: { description: 'Duplicate name' },
+    },
   }),
   validator('json', createExtensionBodySchema, badRequest),
   async (c) => {
@@ -125,7 +143,10 @@ route.post(
         .from(extensions)
         .where(eq(extensions.tenantId, tenant.id))
       if ((row?.count ?? 0) >= limit) {
-        return c.json({ error: `plan limit reached (${limit} extension${limit === 1 ? '' : 's'} on ${tenant.plan})` }, 403)
+        return c.json(
+          { error: `plan limit reached (${limit} extension${limit === 1 ? '' : 's'} on ${tenant.plan})` },
+          403,
+        )
       }
     }
 
@@ -144,7 +165,11 @@ route.post(
 
 route.get(
   '/:id',
-  describeRoute({ summary: 'Get an extension', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } }, tags: ['Extensions'] }),
+  describeRoute({
+    summary: 'Get an extension',
+    responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } },
+    tags: ['Extensions'],
+  }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
@@ -161,6 +186,7 @@ route.get(
 const patchExtensionBodySchema = v.object({
   name: v.optional(v.string()),
   licensingEnabled: v.optional(v.boolean()),
+  billingMode: v.optional(v.picklist(['license', 'subscription'], 'billingMode must be "license" or "subscription"')),
 })
 
 route.patch(
@@ -168,31 +194,78 @@ route.patch(
   describeRoute({
     tags: ['Extensions'],
     summary: 'Update an extension',
-    responses: { 200: { description: 'OK' }, 400: { description: 'Nothing to update' }, 404: { description: 'Not found' } },
+    responses: {
+      200: { description: 'OK' },
+      400: { description: 'Nothing to update' },
+      404: { description: 'Not found' },
+      409: { description: 'Cannot change billingMode while plans, licenses, or subscriptions exist' },
+    },
   }),
   validator('json', patchExtensionBodySchema, badRequest),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
     const body = c.req.valid('json')
+
+    const [existing] = await db
+      .select()
+      .from(extensions)
+      .where(and(eq(extensions.tenantId, tenant.id), eq(extensions.id, c.req.param('id'))))
+    if (!existing) return c.json({ error: 'not found' }, 404)
+
     const patch: Partial<typeof extensions.$inferInsert> = {}
     if (body.name?.trim()) patch.name = body.name.trim()
-    if (typeof body.licensingEnabled === 'boolean') patch.licensingEnabled = body.licensingEnabled
+    if (typeof body.licensingEnabled === 'boolean') {
+      patch.licensingEnabled = body.licensingEnabled
+    }
+    if (body.billingMode !== undefined && body.billingMode !== existing.billingMode) {
+      const [existingPlan] = await db
+        .select({ id: plans.id })
+        .from(plans)
+        .where(and(eq(plans.tenantId, tenant.id), eq(plans.extensionId, existing.id)))
+        .limit(1)
+      const [existingSub] = await db
+        .select({ id: subscriptions.id })
+        .from(subscriptions)
+        .where(and(eq(subscriptions.tenantId, tenant.id), eq(subscriptions.extensionId, existing.id)))
+        .limit(1)
+      const [existingLicense] = await db
+        .select({ id: licenses.id })
+        .from(licenses)
+        .innerJoin(plans, eq(licenses.planId, plans.id))
+        .where(and(eq(licenses.tenantId, tenant.id), eq(plans.extensionId, existing.id)))
+        .limit(1)
+      if (existingPlan || existingSub || existingLicense) {
+        return c.json(
+          { error: 'cannot change billingMode after plans, licenses, or subscriptions have been created' },
+          409,
+        )
+      }
+      patch.billingMode = body.billingMode
+    }
     if (Object.keys(patch).length === 0) return c.json({ error: 'nothing to update' }, 400)
 
-    const result = await db
+    await db
       .update(extensions)
       .set(patch)
-      .where(and(eq(extensions.tenantId, tenant.id), eq(extensions.id, c.req.param('id'))))
-    if (result.meta.changes === 0) return c.json({ error: 'not found' }, 404)
-    const [updated] = await db.select().from(extensions).where(eq(extensions.id, c.req.param('id')))
+      .where(and(eq(extensions.tenantId, tenant.id), eq(extensions.id, existing.id)))
+    const [updated] = await db.select().from(extensions).where(eq(extensions.id, existing.id))
     return c.json({ extension: updated })
   },
 )
 
 route.delete(
   '/:id',
-  describeRoute({ summary: 'Delete an extension', description: 'Also deletes its artifacts, targets, versions, and events. Blocked while issued licenses exist.', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' }, 409: { description: 'Issued licenses exist' } }, tags: ['Extensions'] }),
+  describeRoute({
+    summary: 'Delete an extension',
+    description: 'Also deletes its artifacts, targets, versions, and events. Blocked while issued licenses exist.',
+    responses: {
+      200: { description: 'OK' },
+      404: { description: 'Not found' },
+      409: { description: 'Issued licenses exist' },
+    },
+    tags: ['Extensions'],
+  }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
@@ -209,13 +282,23 @@ route.delete(
     if ((licenseRow?.count ?? 0) > 0) {
       return c.json({ error: 'licenses have been issued for this extension; it cannot be deleted' }, 409)
     }
+    const [subRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(subscriptions)
+      .where(eq(subscriptions.extensionId, extension.id))
+    if ((subRow?.count ?? 0) > 0) {
+      return c.json({ error: 'subscriptions exist for this extension; it cannot be deleted' }, 409)
+    }
 
     // No DB-level cascade (D1 doesn't enforce FKs) — clean up dependents ourselves,
     // R2 objects first since an orphaned artifact row can be re-derived from nothing.
     // r2Key is '' for a store that pins a version with no real file (Safari);
     // sourceR2Key is null when there's no companion source zip (everyone but
     // Firefox) — filter both sentinels out before asking R2 to delete anything.
-    const artifactRows = await db.select({ r2Key: artifacts.r2Key, sourceR2Key: artifacts.sourceR2Key }).from(artifacts).where(eq(artifacts.extensionId, extension.id))
+    const artifactRows = await db
+      .select({ r2Key: artifacts.r2Key, sourceR2Key: artifacts.sourceR2Key })
+      .from(artifacts)
+      .where(eq(artifacts.extensionId, extension.id))
     const r2Keys = artifactRows.flatMap((a) => [a.r2Key, a.sourceR2Key]).filter((key): key is string => Boolean(key))
     if (r2Keys.length > 0) {
       await c.env.ARTIFACTS.delete(r2Keys)
@@ -268,7 +351,11 @@ route.post(
 // they're returned as two arrays rather than forced into one.
 route.get(
   '/:id/timeline',
-  describeRoute({ summary: 'Get an extension\'s deployment timeline', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } }, tags: ['Extensions'] }),
+  describeRoute({
+    summary: "Get an extension's deployment timeline",
+    responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } },
+    tags: ['Extensions'],
+  }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
@@ -279,8 +366,18 @@ route.get(
     if (!extension) return c.json({ error: 'not found' }, 404)
 
     const [versions, events] = await Promise.all([
-      db.select().from(deploymentVersions).where(eq(deploymentVersions.extensionId, extension.id)).orderBy(desc(deploymentVersions.createdAt)).limit(50),
-      db.select().from(publishEvents).where(eq(publishEvents.extensionId, extension.id)).orderBy(desc(publishEvents.createdAt)).limit(50),
+      db
+        .select()
+        .from(deploymentVersions)
+        .where(eq(deploymentVersions.extensionId, extension.id))
+        .orderBy(desc(deploymentVersions.createdAt))
+        .limit(50),
+      db
+        .select()
+        .from(publishEvents)
+        .where(eq(publishEvents.extensionId, extension.id))
+        .orderBy(desc(publishEvents.createdAt))
+        .limit(50),
     ])
     return c.json({ versions, events })
   },
@@ -296,7 +393,11 @@ async function ownedExtension(db: Db, tenantId: string, extensionId: string) {
 
 route.get(
   '/:id/targets',
-  describeRoute({ summary: 'List publish targets for an extension', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } }, tags: ['Extensions'] }),
+  describeRoute({
+    summary: 'List publish targets for an extension',
+    responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } },
+    tags: ['Extensions'],
+  }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
@@ -309,7 +410,10 @@ route.get(
       .innerJoin(storeCredentials, eq(publishTargets.credentialId, storeCredentials.id))
       .where(eq(publishTargets.extensionId, extension.id))
 
-    const versionRows = rows.length > 0 ? await db.select().from(deploymentVersions).where(eq(deploymentVersions.extensionId, extension.id)) : []
+    const versionRows =
+      rows.length > 0
+        ? await db.select().from(deploymentVersions).where(eq(deploymentVersions.extensionId, extension.id))
+        : []
     const versionsByStore = new Map<Store, typeof versionRows>()
     for (const v of versionRows) {
       const list = versionsByStore.get(v.store)
@@ -322,7 +426,9 @@ route.get(
     // credential. Best-effort: a credential that fails to decrypt just gets
     // storeConsoleUrl's public-listing fallback, never a failed request.
     const publisherIds = new Map<string, string>()
-    const chromeCredentials = new Map(rows.filter((r) => r.target.store === 'chrome').map((r) => [r.credential.id, r.credential]))
+    const chromeCredentials = new Map(
+      rows.filter((r) => r.target.store === 'chrome').map((r) => [r.credential.id, r.credential]),
+    )
     if (chromeCredentials.size > 0) {
       try {
         const dek = await tenantDek(c.env, tenant)
@@ -393,8 +499,13 @@ route.post(
   describeRoute({
     tags: ['Extensions'],
     summary: 'Add a store target',
-    description: "Verified against the live store API before saving — refuses a storeItemId the credential can't actually see.",
-    responses: { 201: { description: 'Created' }, 404: { description: 'Not found' }, 409: { description: 'Already configured' } },
+    description:
+      "Verified against the live store API before saving — refuses a storeItemId the credential can't actually see.",
+    responses: {
+      201: { description: 'Created' },
+      404: { description: 'Not found' },
+      409: { description: 'Already configured' },
+    },
   }),
   validator('json', addTargetBodySchema, badRequest),
   async (c) => {
@@ -455,7 +566,13 @@ route.post(
         })
       }
     } catch (err) {
-      return c.json({ error: `couldn't verify this item on ${store} — check the item id and credential`, detail: (err as Error).message }, 502)
+      return c.json(
+        {
+          error: `couldn't verify this item on ${store} — check the item id and credential`,
+          detail: (err as Error).message,
+        },
+        502,
+      )
     }
 
     const id = newId('publishTarget')
@@ -535,7 +652,11 @@ route.patch(
   describeRoute({
     tags: ['Extensions'],
     summary: 'Update a publish target',
-    responses: { 200: { description: 'OK' }, 400: { description: 'Nothing to update' }, 404: { description: 'Not found' } },
+    responses: {
+      200: { description: 'OK' },
+      400: { description: 'Nothing to update' },
+      404: { description: 'Not found' },
+    },
   }),
   validator('json', patchTargetBodySchema, badRequest),
   async (c) => {
@@ -575,10 +696,12 @@ route.patch(
     if (body.platforms !== undefined) {
       if (body.platforms) {
         const adapter = getAdapter(target.store)
-        if (!adapter.platforms) return c.json({ error: `${target.store} does not support per-platform configuration` }, 400)
+        if (!adapter.platforms)
+          return c.json({ error: `${target.store} does not support per-platform configuration` }, 400)
         if (body.platforms.length === 0) return c.json({ error: 'platforms cannot be empty' }, 400)
         const invalid = body.platforms.filter((p) => !adapter.platforms!.includes(p))
-        if (invalid.length > 0) return c.json({ error: `invalid platform(s) for ${target.store}: ${invalid.join(', ')}` }, 400)
+        if (invalid.length > 0)
+          return c.json({ error: `invalid platform(s) for ${target.store}: ${invalid.join(', ')}` }, 400)
       }
       patch.platforms = body.platforms
     }
@@ -681,7 +804,11 @@ route.post(
 
 route.delete(
   '/:id/targets/:targetId',
-  describeRoute({ summary: 'Remove a publish target', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } }, tags: ['Extensions'] }),
+  describeRoute({
+    summary: 'Remove a publish target',
+    responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } },
+    tags: ['Extensions'],
+  }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')

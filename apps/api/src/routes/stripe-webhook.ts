@@ -1,4 +1,4 @@
-import { decryptJson, newId, type SubscriptionStatus } from '@extport/shared'
+import { newId, type SubscriptionStatus } from '@extport/shared'
 import { and, eq, lt, or } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { describeRoute } from 'hono-openapi'
@@ -6,17 +6,18 @@ import {
   extensions,
   licenseEvents,
   licenses,
-  paymentCredentials,
   pendingStripeSubscriptions,
   plans,
+  subscriptionEvents,
+  subscriptions,
   tenants,
   type Db,
   type Tenant,
 } from '../db'
 import { uniqueLicenseKey } from '../lib/license-key'
 import { sendLicenseEmail } from '../lib/licensing-email'
-import { tenantDek } from '../lib/kms'
 import { verifyStripeSignature } from '../lib/stripe'
+import { loadStripeCredential } from '../lib/stripe-credentials'
 import type { AppEnv } from '../middleware/auth'
 
 // BYO-Stripe fulfillment: the tenant points their Stripe webhook
@@ -24,17 +25,16 @@ import type { AppEnv } from '../middleware/auth'
 // customer.subscription.created/updated/deleted, invoice.paid,
 // invoice.payment_failed, charge.refunded, charge.dispute.created)
 // at /api/v1/licensing/webhooks/stripe/:tenantId and puts
-// `extport_plan = <plan id>` in their Payment Link's metadata —
-// zero code on their side. Signature verification is the only
-// authentication; the per-tenant URL merely selects which secret to
-// verify against. See docs/licensing.md.
+// `extport_plan = <plan id>` in their Checkout / Payment Link metadata.
+//
+// Clean separation:
+// - `recurring` plans fulfill into `subscriptions` + `subscription_events`
+//   (account-based recurring billing — no activation key, no key email).
+// - `perpetual` plans fulfill into `licenses` + `license_events` + activation email.
 //
 // Status-code contract with Stripe's retry behavior: 2xx = handled or
-// deliberately ignored (sessions without extport_plan metadata belong
-// to the tenant's other tooling — the license-kit coexistence case);
-// 5xx = fulfillment blocked (unknown plan id, missing buyer email,
-// email send failure) so Stripe retries and, when it keeps failing,
-// surfaces the failing webhook to the tenant.
+// deliberately ignored; 5xx = fulfillment blocked (unknown plan id, missing
+// buyer email, plan/mode mismatch, email send failure) so Stripe retries.
 
 type StripeRef = string | { id: string } | null | undefined
 
@@ -42,12 +42,10 @@ interface StripeCheckoutSession {
   id: string
   mode?: 'payment' | 'subscription' | 'setup' | string
   payment_status?: string
+  customer?: StripeRef
   payment_intent?: StripeRef
   subscription?: StripeRef
   client_reference_id?: string | null
-  // address is only populated when the Payment Link's billing_address_collection
-  // is 'required' — 'auto' (the default) mostly skips it for card payments
-  // once automatic_tax is off, since nothing else needs it.
   customer_details?: { email?: string | null; address?: { country?: string | null } | null } | null
   metadata?: Record<string, string> | null
   /** Smallest currency unit; 0 for 100%-promo or free-trial sessions. */
@@ -62,6 +60,7 @@ interface StripeSubscriptionItem {
 
 interface StripeSubscription {
   id: string
+  customer?: StripeRef
   status?: string
   // Pre-2025-03-31 top-level fields; removed in 2025-03-31+ (moved to items.data[]).
   current_period_start?: number | null
@@ -86,6 +85,7 @@ interface StripeInvoiceLine {
 
 interface StripeInvoice {
   id?: string
+  customer?: StripeRef
   // Pre-2025-03-31 top-level field; moved in 2025-03-31+ to parent.subscription_details.subscription.
   subscription?: StripeRef
   parent?: {
@@ -218,6 +218,7 @@ async function upsertPendingSubscription(
   tenantId: string,
   stripeSubscriptionId: string,
   patch: {
+    stripeCustomerId?: string | null
     subscriptionStatus: SubscriptionStatus
     currentPeriodStart?: string | null
     currentPeriodEnd?: string | null
@@ -259,6 +260,7 @@ async function upsertPendingSubscription(
     await db
       .update(pendingStripeSubscriptions)
       .set({
+        stripeCustomerId: patch.stripeCustomerId ?? existing.stripeCustomerId,
         subscriptionStatus: nextStatus,
         currentPeriodStart: patch.currentPeriodStart ?? existing.currentPeriodStart,
         currentPeriodEnd: patch.currentPeriodEnd ?? existing.currentPeriodEnd,
@@ -271,6 +273,7 @@ async function upsertPendingSubscription(
       id: newId('pendingStripeSubscription'),
       tenantId,
       stripeSubscriptionId,
+      stripeCustomerId: patch.stripeCustomerId ?? null,
       subscriptionStatus: nextStatus,
       currentPeriodStart: patch.currentPeriodStart ?? null,
       currentPeriodEnd: patch.currentPeriodEnd ?? null,
@@ -303,19 +306,14 @@ route.post(
       .from(tenants)
       .where(eq(tenants.id, c.req.param('tenantId')))
     if (!tenant) return c.json({ error: 'not found' }, 404)
-    const [credential] = await db
-      .select()
-      .from(paymentCredentials)
-      .where(and(eq(paymentCredentials.tenantId, tenant.id), eq(paymentCredentials.provider, 'stripe')))
-    if (!credential) return c.json({ error: 'not found' }, 404)
+    const credential = await loadStripeCredential(c.env, db, tenant)
+    if (!credential?.webhookSecret) return c.json({ error: 'not found' }, 404)
 
     const signature = c.req.header('stripe-signature')
     if (!signature) return c.json({ error: 'missing stripe-signature header' }, 400)
     // The exact raw bytes are what's signed — never the re-serialized JSON.
     const rawBody = await c.req.text()
-    const dek = await tenantDek(c.env, tenant)
-    const { webhookSecret } = (await decryptJson(dek, credential.encryptedPayload)) as { webhookSecret: string }
-    if (!(await verifyStripeSignature(webhookSecret, rawBody, signature))) {
+    if (!(await verifyStripeSignature(credential.webhookSecret, rawBody, signature))) {
       return c.json({ error: 'invalid signature' }, 400)
     }
 
@@ -362,11 +360,9 @@ async function handleCheckoutCompleted(c: Context<AppEnv>, tenant: Tenant, sessi
 
   const buyerEmail = session.customer_details?.email
   if (!buyerEmail) return c.json({ error: 'checkout session has no buyer email' }, 500)
-  const subscriptionId = stripeId(session.subscription)
+  const customerId = stripeId(session.customer)
+  const stripeSubId = stripeId(session.subscription)
   const externalUserId = session.client_reference_id?.trim() || null
-  // Zero-total / free-trial / subscription sessions have no PaymentIntent on the
-  // session itself; fall back to the subscription id (for recurring) or session id.
-  const sourceRef = stripeId(session.payment_intent) ?? subscriptionId ?? session.id
 
   const [row] = await db
     .select({ plan: plans, extension: extensions })
@@ -376,22 +372,7 @@ async function handleCheckoutCompleted(c: Context<AppEnv>, tenant: Tenant, sessi
   if (!row) return c.json({ error: `extport_plan "${planId}" does not match a plan of this tenant` }, 500)
   const { plan, extension } = row
 
-  const [dupe] = await db
-    .select({ id: licenses.id })
-    .from(licenses)
-    .where(
-      or(
-        eq(licenses.sourceRef, sourceRef),
-        eq(licenses.checkoutSessionId, session.id),
-        ...(subscriptionId ? [eq(licenses.stripeSubscriptionId, subscriptionId)] : []),
-      ),
-    )
-  // No email re-send on replays: a retry that reaches here after an email
-  // failure loses the email, but re-sending would double-deliver on
-  // Stripe's routine duplicate deliveries — the worse trade.
-  if (dupe) return c.json({ status: 'already_processed' })
-
-  const isSubscriptionCheckout = session.mode === 'subscription' || Boolean(subscriptionId)
+  const isSubscriptionCheckout = session.mode === 'subscription' || Boolean(stripeSubId)
   if (isSubscriptionCheckout && plan.entitlementType !== 'recurring') {
     return c.json(
       { error: `extport_plan "${planId}" is ${plan.entitlementType}, cannot fulfill a subscription checkout` },
@@ -402,28 +383,81 @@ async function handleCheckoutCompleted(c: Context<AppEnv>, tenant: Tenant, sessi
     return c.json({ error: `extport_plan "${planId}" is recurring, cannot fulfill a one-time payment checkout` }, 500)
   }
 
-  let pending: typeof pendingStripeSubscriptions.$inferSelect | undefined
-  if (subscriptionId) {
-    ;[pending] = await db
+  // ---- Subscription checkout -> `subscriptions` + `subscription_events` ----
+  if (plan.entitlementType === 'recurring') {
+    if (!stripeSubId) {
+      return c.json({ error: 'subscription checkout session has no subscription id' }, 500)
+    }
+
+    const [dupe] = await db
+      .select({ id: subscriptions.id })
+      .from(subscriptions)
+      .where(or(eq(subscriptions.stripeSubscriptionId, stripeSubId), eq(subscriptions.checkoutSessionId, session.id)))
+    if (dupe) return c.json({ status: 'already_processed' })
+
+    const [pending] = await db
       .select()
       .from(pendingStripeSubscriptions)
       .where(
         and(
           eq(pendingStripeSubscriptions.tenantId, tenant.id),
-          eq(pendingStripeSubscriptions.stripeSubscriptionId, subscriptionId),
+          eq(pendingStripeSubscriptions.stripeSubscriptionId, stripeSubId),
         ),
       )
+
+    const status: SubscriptionStatus = pending ? pending.subscriptionStatus : 'active'
+    const currentPeriodStart = pending?.currentPeriodStart ?? null
+    const currentPeriodEnd = pending?.currentPeriodEnd ?? null
+    const cancelAtPeriodEnd = pending?.cancelAtPeriodEnd ?? false
+
+    const subRowId = newId('subscription')
+    await db.insert(subscriptions).values({
+      id: subRowId,
+      tenantId: tenant.id,
+      extensionId: extension.id,
+      planId: plan.id,
+      externalUserId,
+      buyerEmail,
+      stripeCustomerId: customerId ?? pending?.stripeCustomerId ?? null,
+      stripeSubscriptionId: stripeSubId,
+      checkoutSessionId: session.id,
+      status,
+      currentPeriodStart,
+      currentPeriodEnd,
+      cancelAtPeriodEnd,
+      amountTotal: session.amount_total ?? null,
+      currency: session.currency ?? null,
+      country: session.customer_details?.address?.country ?? null,
+    })
+    if (pending) {
+      await db.delete(pendingStripeSubscriptions).where(eq(pendingStripeSubscriptions.id, pending.id))
+    }
+    await db.insert(subscriptionEvents).values({
+      id: newId('subscriptionEvent'),
+      tenantId: tenant.id,
+      subscriptionId: subRowId,
+      type: 'created',
+      payload: {
+        planId: plan.id,
+        stripeSubscriptionId: stripeSubId,
+        checkoutSessionId: session.id,
+        ...(externalUserId ? { externalUserId } : {}),
+      },
+    })
+    return c.json({ status: 'processed' })
   }
 
-  const isRecurring = plan.entitlementType === 'recurring'
-  const subscriptionStatus: SubscriptionStatus | null = pending
-    ? pending.subscriptionStatus
-    : isRecurring
-      ? 'active'
-      : null
-  const currentPeriodStart = pending?.currentPeriodStart ?? null
-  const currentPeriodEnd = pending?.currentPeriodEnd ?? null
-  const cancelAtPeriodEnd = pending?.cancelAtPeriodEnd ?? false
+  // ---- One-time perpetual checkout -> `licenses` + `license_events` + email ----
+  const sourceRef = stripeId(session.payment_intent) ?? session.id
+
+  const [dupe] = await db
+    .select({ id: licenses.id })
+    .from(licenses)
+    .where(or(eq(licenses.sourceRef, sourceRef), eq(licenses.checkoutSessionId, session.id)))
+  // No email re-send on replays: a retry that reaches here after an email
+  // failure loses the email, but re-sending would double-deliver on
+  // Stripe's routine duplicate deliveries — the worse trade.
+  if (dupe) return c.json({ status: 'already_processed' })
 
   const key = await uniqueLicenseKey(db)
   const licenseId = newId('license')
@@ -439,20 +473,11 @@ async function handleCheckoutCompleted(c: Context<AppEnv>, tenant: Tenant, sessi
     source: 'stripe_webhook',
     sourceRef,
     checkoutSessionId: session.id,
-    stripeSubscriptionId: subscriptionId,
-    subscriptionStatus,
-    currentPeriodStart,
-    currentPeriodEnd,
-    cancelAtPeriodEnd,
-    // Snapshot the sale amount — the future basis for percentage-based
-    // licensing billing. Zero (100%-off promo / free trial) is a real, meaningful value.
+    stripeCustomerId: customerId,
     amountTotal: session.amount_total ?? null,
     currency: session.currency ?? null,
     country: session.customer_details?.address?.country ?? null,
   })
-  if (pending) {
-    await db.delete(pendingStripeSubscriptions).where(eq(pendingStripeSubscriptions.id, pending.id))
-  }
   await db.insert(licenseEvents).values({
     id: newId('licenseEvent'),
     tenantId: tenant.id,
@@ -462,7 +487,6 @@ async function handleCheckoutCompleted(c: Context<AppEnv>, tenant: Tenant, sessi
       source: 'stripe_webhook',
       planId: plan.id,
       sourceRef,
-      ...(subscriptionId ? { stripeSubscriptionId: subscriptionId } : {}),
       ...(externalUserId ? { externalUserId } : {}),
     },
   })
@@ -474,8 +498,8 @@ async function handleCheckoutCompleted(c: Context<AppEnv>, tenant: Tenant, sessi
     key,
     maxActivations: plan.maxActivations,
     entitlementType: plan.entitlementType,
-    subscriptionStatus,
-    currentPeriodEnd,
+    subscriptionStatus: null,
+    currentPeriodEnd: null,
     supportUrl: tenant.settings.supportUrl ?? null,
     billingPortalUrl: tenant.settings.billingPortalUrl ?? null,
   })
@@ -497,13 +521,15 @@ async function handleSubscriptionChange(
 
   const { currentPeriodStart, currentPeriodEnd } = extractSubscriptionPeriod(sub)
   const cancelAtPeriodEnd = Boolean(sub.cancel_at_period_end)
+  const customerId = stripeId(sub.customer)
 
-  const [license] = await db
+  const [existing] = await db
     .select()
-    .from(licenses)
-    .where(and(eq(licenses.stripeSubscriptionId, sub.id), eq(licenses.tenantId, tenant.id)))
-  if (!license) {
+    .from(subscriptions)
+    .where(and(eq(subscriptions.stripeSubscriptionId, sub.id), eq(subscriptions.tenantId, tenant.id)))
+  if (!existing) {
     await upsertPendingSubscription(db, tenant.id, sub.id, {
+      stripeCustomerId: customerId,
       subscriptionStatus: mappedStatus,
       currentPeriodStart,
       currentPeriodEnd,
@@ -517,52 +543,52 @@ async function handleSubscriptionChange(
   // later lifecycle state (e.g. already past_due, canceled, or expired).
   const isOutOfOrderCreate =
     eventType === 'customer.subscription.created' &&
-    (license.subscriptionStatus === 'past_due' ||
-      license.subscriptionStatus === 'canceled' ||
-      license.subscriptionStatus === 'expired')
+    (existing.status === 'past_due' || existing.status === 'canceled' || existing.status === 'expired')
 
-  const nextStatus = isOutOfOrderCreate ? license.subscriptionStatus : mappedStatus
-  const nextStart = currentPeriodStart ?? license.currentPeriodStart
-  const nextEnd = currentPeriodEnd ?? license.currentPeriodEnd
-  const nextCancelAtPeriodEnd = isOutOfOrderCreate ? license.cancelAtPeriodEnd : cancelAtPeriodEnd
+  const nextStatus = isOutOfOrderCreate ? existing.status : mappedStatus
+  const nextStart = currentPeriodStart ?? existing.currentPeriodStart
+  const nextEnd = currentPeriodEnd ?? existing.currentPeriodEnd
+  const nextCancelAtPeriodEnd = isOutOfOrderCreate ? existing.cancelAtPeriodEnd : cancelAtPeriodEnd
+  const nextCustomerId = existing.stripeCustomerId ?? customerId
 
   if (
-    nextStatus === license.subscriptionStatus &&
-    nextStart === license.currentPeriodStart &&
-    nextEnd === license.currentPeriodEnd &&
-    nextCancelAtPeriodEnd === license.cancelAtPeriodEnd
+    nextStatus === existing.status &&
+    nextStart === existing.currentPeriodStart &&
+    nextEnd === existing.currentPeriodEnd &&
+    nextCancelAtPeriodEnd === existing.cancelAtPeriodEnd &&
+    nextCustomerId === existing.stripeCustomerId
   ) {
     return c.json({ status: 'already_processed' })
   }
 
   await db
-    .update(licenses)
+    .update(subscriptions)
     .set({
-      subscriptionStatus: nextStatus,
+      stripeCustomerId: nextCustomerId,
+      status: nextStatus,
       currentPeriodStart: nextStart,
       currentPeriodEnd: nextEnd,
       cancelAtPeriodEnd: nextCancelAtPeriodEnd,
     })
-    .where(eq(licenses.id, license.id))
+    .where(eq(subscriptions.id, existing.id))
 
-  const statusOrCancelChanged =
-    nextStatus !== license.subscriptionStatus || nextCancelAtPeriodEnd !== license.cancelAtPeriodEnd
+  const statusOrCancelChanged = nextStatus !== existing.status || nextCancelAtPeriodEnd !== existing.cancelAtPeriodEnd
   if (eventType === 'customer.subscription.updated' || statusOrCancelChanged) {
     const logType =
-      nextStatus === 'canceled' && license.subscriptionStatus !== 'canceled'
+      nextStatus === 'canceled' && existing.status !== 'canceled'
         ? 'canceled'
-        : nextStatus === 'expired' && license.subscriptionStatus !== 'expired'
+        : nextStatus === 'expired' && existing.status !== 'expired'
           ? 'expired'
-          : 'subscription_updated'
-    await db.insert(licenseEvents).values({
-      id: newId('licenseEvent'),
+          : 'updated'
+    await db.insert(subscriptionEvents).values({
+      id: newId('subscriptionEvent'),
       tenantId: tenant.id,
-      licenseId: license.id,
+      subscriptionId: existing.id,
       type: logType,
       payload: {
         eventType,
         stripeSubscriptionId: sub.id,
-        subscriptionStatus: nextStatus,
+        status: nextStatus,
         cancelAtPeriodEnd: nextCancelAtPeriodEnd,
         currentPeriodStart: nextStart,
         currentPeriodEnd: nextEnd,
@@ -583,13 +609,15 @@ async function handleSubscriptionDeleted(
 
   const { currentPeriodStart, currentPeriodEnd } = extractSubscriptionPeriod(sub)
   const cancelAtPeriodEnd = Boolean(sub.cancel_at_period_end)
+  const customerId = stripeId(sub.customer)
 
-  const [license] = await db
+  const [existing] = await db
     .select()
-    .from(licenses)
-    .where(and(eq(licenses.stripeSubscriptionId, sub.id), eq(licenses.tenantId, tenant.id)))
-  if (!license) {
+    .from(subscriptions)
+    .where(and(eq(subscriptions.stripeSubscriptionId, sub.id), eq(subscriptions.tenantId, tenant.id)))
+  if (!existing) {
     await upsertPendingSubscription(db, tenant.id, sub.id, {
+      stripeCustomerId: customerId,
       subscriptionStatus: 'expired',
       currentPeriodStart,
       currentPeriodEnd,
@@ -599,29 +627,35 @@ async function handleSubscriptionDeleted(
     return c.json({ status: 'deferred' })
   }
 
-  if (license.subscriptionStatus === 'expired') return c.json({ status: 'already_processed' })
+  const nextCustomerId = existing.stripeCustomerId ?? customerId
+  if (existing.status === 'expired' && nextCustomerId === existing.stripeCustomerId) {
+    return c.json({ status: 'already_processed' })
+  }
 
   await db
-    .update(licenses)
+    .update(subscriptions)
     .set({
-      subscriptionStatus: 'expired',
-      currentPeriodStart: currentPeriodStart ?? license.currentPeriodStart,
-      currentPeriodEnd: currentPeriodEnd ?? license.currentPeriodEnd,
+      stripeCustomerId: nextCustomerId,
+      status: 'expired',
+      currentPeriodStart: currentPeriodStart ?? existing.currentPeriodStart,
+      currentPeriodEnd: currentPeriodEnd ?? existing.currentPeriodEnd,
       cancelAtPeriodEnd,
     })
-    .where(eq(licenses.id, license.id))
+    .where(eq(subscriptions.id, existing.id))
 
-  await db.insert(licenseEvents).values({
-    id: newId('licenseEvent'),
-    tenantId: tenant.id,
-    licenseId: license.id,
-    type: 'expired',
-    payload: {
-      stripeSubscriptionId: sub.id,
-      endedAt: toIsoSeconds(sub.ended_at),
-      currentPeriodEnd: currentPeriodEnd ?? license.currentPeriodEnd,
-    },
-  })
+  if (existing.status !== 'expired') {
+    await db.insert(subscriptionEvents).values({
+      id: newId('subscriptionEvent'),
+      tenantId: tenant.id,
+      subscriptionId: existing.id,
+      type: 'expired',
+      payload: {
+        stripeSubscriptionId: sub.id,
+        endedAt: toIsoSeconds(sub.ended_at),
+        currentPeriodEnd: currentPeriodEnd ?? existing.currentPeriodEnd,
+      },
+    })
+  }
   return c.json({ status: 'processed' })
 }
 
@@ -632,13 +666,15 @@ async function handleInvoicePaid(c: Context<AppEnv>, tenant: Tenant, invoice: St
 
   const { currentPeriodStart, currentPeriodEnd } = extractInvoicePeriod(invoice)
   const isInitialTrialInvoice = invoice.billing_reason === 'subscription_create' && (invoice.amount_paid ?? 0) === 0
+  const customerId = stripeId(invoice.customer)
 
-  const [license] = await db
+  const [existing] = await db
     .select()
-    .from(licenses)
-    .where(and(eq(licenses.stripeSubscriptionId, subscriptionId), eq(licenses.tenantId, tenant.id)))
-  if (!license) {
+    .from(subscriptions)
+    .where(and(eq(subscriptions.stripeSubscriptionId, subscriptionId), eq(subscriptions.tenantId, tenant.id)))
+  if (!existing) {
     await upsertPendingSubscription(db, tenant.id, subscriptionId, {
+      stripeCustomerId: customerId,
       subscriptionStatus: 'active',
       currentPeriodStart,
       currentPeriodEnd,
@@ -648,18 +684,19 @@ async function handleInvoicePaid(c: Context<AppEnv>, tenant: Tenant, invoice: St
     return c.json({ status: 'deferred' })
   }
 
-  const nextStatus: SubscriptionStatus =
-    isInitialTrialInvoice && license.subscriptionStatus === 'trialing' ? 'trialing' : 'active'
-  const nextStart = currentPeriodStart ?? license.currentPeriodStart
-  const nextEnd = currentPeriodEnd ?? license.currentPeriodEnd
+  const nextStatus: SubscriptionStatus = isInitialTrialInvoice && existing.status === 'trialing' ? 'trialing' : 'active'
+  const nextStart = currentPeriodStart ?? existing.currentPeriodStart
+  const nextEnd = currentPeriodEnd ?? existing.currentPeriodEnd
+  const nextCustomerId = existing.stripeCustomerId ?? customerId
 
   const unchanged =
-    nextStatus === license.subscriptionStatus &&
-    nextStart === license.currentPeriodStart &&
-    nextEnd === license.currentPeriodEnd
+    nextStatus === existing.status &&
+    nextStart === existing.currentPeriodStart &&
+    nextEnd === existing.currentPeriodEnd &&
+    nextCustomerId === existing.stripeCustomerId
 
   const existingEvents = invoice.id
-    ? await db.select().from(licenseEvents).where(eq(licenseEvents.licenseId, license.id))
+    ? await db.select().from(subscriptionEvents).where(eq(subscriptionEvents.subscriptionId, existing.id))
     : []
   const alreadyLoggedInvoice = invoice.id
     ? existingEvents.some((e) => e.type === 'renewed' && e.payload['invoiceId'] === invoice.id)
@@ -671,20 +708,21 @@ async function handleInvoicePaid(c: Context<AppEnv>, tenant: Tenant, invoice: St
 
   if (!unchanged) {
     await db
-      .update(licenses)
+      .update(subscriptions)
       .set({
-        subscriptionStatus: nextStatus,
+        stripeCustomerId: nextCustomerId,
+        status: nextStatus,
         currentPeriodStart: nextStart,
         currentPeriodEnd: nextEnd,
       })
-      .where(eq(licenses.id, license.id))
+      .where(eq(subscriptions.id, existing.id))
   }
 
   if (invoice.billing_reason !== 'subscription_create' && !alreadyLoggedInvoice) {
-    await db.insert(licenseEvents).values({
-      id: newId('licenseEvent'),
+    await db.insert(subscriptionEvents).values({
+      id: newId('subscriptionEvent'),
       tenantId: tenant.id,
-      licenseId: license.id,
+      subscriptionId: existing.id,
       type: 'renewed',
       payload: {
         stripeSubscriptionId: subscriptionId,
@@ -708,40 +746,50 @@ async function handleInvoicePaymentFailed(
   const subscriptionId = extractInvoiceSubscriptionId(invoice)
   if (!subscriptionId) return c.json({ status: 'ignored', reason: 'no subscription on invoice' })
 
-  const [license] = await db
+  const customerId = stripeId(invoice.customer)
+
+  const [existing] = await db
     .select()
-    .from(licenses)
-    .where(and(eq(licenses.stripeSubscriptionId, subscriptionId), eq(licenses.tenantId, tenant.id)))
-  if (!license) {
+    .from(subscriptions)
+    .where(and(eq(subscriptions.stripeSubscriptionId, subscriptionId), eq(subscriptions.tenantId, tenant.id)))
+  if (!existing) {
     await upsertPendingSubscription(db, tenant.id, subscriptionId, {
+      stripeCustomerId: customerId,
       subscriptionStatus: 'past_due',
       eventCreated,
     })
     return c.json({ status: 'deferred' })
   }
 
-  if (license.subscriptionStatus === 'expired') {
+  if (existing.status === 'expired') {
     return c.json({ status: 'ignored', reason: 'subscription already expired' })
   }
 
+  const nextCustomerId = existing.stripeCustomerId ?? customerId
   if (invoice.id) {
-    const existingEvents = await db.select().from(licenseEvents).where(eq(licenseEvents.licenseId, license.id))
+    const existingEvents = await db
+      .select()
+      .from(subscriptionEvents)
+      .where(eq(subscriptionEvents.subscriptionId, existing.id))
     const alreadyLogged = existingEvents.some(
       (e) => e.type === 'payment_failed' && e.payload['invoiceId'] === invoice.id,
     )
-    if (alreadyLogged && license.subscriptionStatus === 'past_due') {
+    if (alreadyLogged && existing.status === 'past_due' && nextCustomerId === existing.stripeCustomerId) {
       return c.json({ status: 'already_processed' })
     }
-  } else if (license.subscriptionStatus === 'past_due') {
+  } else if (existing.status === 'past_due' && nextCustomerId === existing.stripeCustomerId) {
     return c.json({ status: 'already_processed' })
   }
 
-  await db.update(licenses).set({ subscriptionStatus: 'past_due' }).where(eq(licenses.id, license.id))
+  await db
+    .update(subscriptions)
+    .set({ stripeCustomerId: nextCustomerId, status: 'past_due' })
+    .where(eq(subscriptions.id, existing.id))
 
-  await db.insert(licenseEvents).values({
-    id: newId('licenseEvent'),
+  await db.insert(subscriptionEvents).values({
+    id: newId('subscriptionEvent'),
     tenantId: tenant.id,
-    licenseId: license.id,
+    subscriptionId: existing.id,
     type: 'payment_failed',
     payload: {
       stripeSubscriptionId: subscriptionId,
@@ -757,19 +805,13 @@ async function handleRefundOrDispute(c: Context<AppEnv>, tenant: Tenant, eventTy
   const intentId = stripeId(charge.payment_intent)
   if (!intentId) return c.json({ status: 'ignored', reason: 'no payment_intent' })
 
-  // Unknown ref is a clean ignore, not an error: during the gradual fleet
-  // migration both webhook endpoints receive refunds and each side acts
-  // only on sales it fulfilled.
   const [license] = await db
     .select()
     .from(licenses)
     .where(and(eq(licenses.sourceRef, intentId), eq(licenses.tenantId, tenant.id)))
   if (!license) return c.json({ status: 'ignored', reason: 'unknown payment' })
-  // Recurring subscriptions manage cancellation/termination via
-  // customer.subscription.deleted/updated; never blindly nuke a recurring
-  // license on a partial or single-invoice charge refund.
-  if (license.entitlementType === 'recurring') {
-    return c.json({ status: 'ignored', reason: 'recurring subscription refund managed via subscription lifecycle' })
+  if (license.entitlementType !== 'perpetual') {
+    return c.json({ status: 'ignored', reason: 'non-perpetual refund ignored' })
   }
   if (license.status === 'refunded') return c.json({ status: 'already_processed' })
 

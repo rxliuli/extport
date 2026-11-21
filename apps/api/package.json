@@ -6,7 +6,7 @@
   "exports": { "./openapi": "./src/openapi.ts" },
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "pnpm db:migrate:remote && wrangler deploy",
     "types": "wrangler types",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply extport --local",

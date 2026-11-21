@@ -1,9 +1,9 @@
-import { and, desc, eq, gt, inArray } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
-import { activations, extensions, licenses, magicLinks, plans, tenants } from '../db'
+import { activations, extensions, licenses, magicLinks, paymentCredentials, plans, tenants } from '../db'
 import {
   BUYER_SESSION_COOKIE,
   consumeMagicLink,
@@ -12,6 +12,8 @@ import {
   resolveBuyerSession,
 } from '../lib/buyer-session'
 import { sendMagicLinkEmail } from '../lib/licensing-email'
+import { createStripeBillingPortalSession, StripeApiError, stripeErrorToHttp } from '../lib/stripe-api'
+import { loadStripeCredential } from '../lib/stripe-credentials'
 import { badRequest } from '../lib/validation'
 import type { AppEnv } from '../middleware/auth'
 
@@ -112,7 +114,7 @@ route.post(
     const [recent] = await db
       .select({ id: magicLinks.id })
       .from(magicLinks)
-      .where(and(eq(magicLinks.email, email), gt(magicLinks.createdAt, cutoff)))
+      .where(and(sql`lower(${magicLinks.email}) = lower(${email})`, gt(magicLinks.createdAt, cutoff)))
     if (!recent) {
       const link = await createMagicLink(db, email)
       const url = `${c.env.PORTAL_URL}/portal?code=${link.code}`
@@ -176,7 +178,7 @@ route.get(
       .innerJoin(plans, eq(licenses.planId, plans.id))
       .innerJoin(extensions, eq(plans.extensionId, extensions.id))
       .innerJoin(tenants, eq(extensions.tenantId, tenants.id))
-      .where(eq(licenses.buyerEmail, email))
+      .where(sql`lower(${licenses.buyerEmail}) = lower(${email})`)
       .orderBy(desc(licenses.createdAt), desc(licenses.id))
 
     const licenseIds = rows.map((r) => r.license.id)
@@ -189,6 +191,15 @@ route.get(
       if (list) list.push(device)
       else devicesByLicense.set(device.licenseId, [device])
     }
+
+    const tenantIds = [...new Set(rows.map((r) => r.license.tenantId))]
+    const credRows = tenantIds.length
+      ? await db
+          .select({ tenantId: paymentCredentials.tenantId, apiKeyHint: paymentCredentials.apiKeyHint })
+          .from(paymentCredentials)
+          .where(and(inArray(paymentCredentials.tenantId, tenantIds), eq(paymentCredentials.provider, 'stripe')))
+      : []
+    const tenantsWithApiKey = new Set(credRows.filter((r) => Boolean(r.apiKeyHint)).map((r) => r.tenantId))
 
     return c.json({
       email,
@@ -209,6 +220,9 @@ route.get(
         // from a different tenant, so they travel per license.
         supportUrl: tenantSettings.supportUrl ?? null,
         billingPortalUrl: tenantSettings.billingPortalUrl ?? null,
+        canManageBilling:
+          (Boolean(license.stripeCustomerId) && tenantsWithApiKey.has(license.tenantId)) ||
+          Boolean(tenantSettings.billingPortalUrl),
         devices: (devicesByLicense.get(license.id) ?? []).map((d) => ({
           fingerprint: d.deviceFingerprint,
           activatedAt: d.activatedAt,
@@ -217,6 +231,71 @@ route.get(
         })),
       })),
     })
+  },
+)
+
+const billingPortalBodySchema = v.object({
+  key: v.pipe(
+    v.string('key is required'),
+    v.trim(),
+    v.toUpperCase(),
+    v.minLength(1, 'key is required'),
+    v.maxLength(64),
+  ),
+})
+
+route.post(
+  '/billing-portal',
+  describeRoute({
+    summary: 'Open a one-click Stripe Billing Portal session for a buyer license',
+    tags: ['Buyer portal'],
+    security: [{ buyerSession: [] }],
+    responses: {
+      200: { description: 'Billing Portal URL' },
+      401: { description: 'No buyer session' },
+      404: { description: 'License not found or no billing portal available' },
+      502: { description: 'Stripe API unavailable' },
+    },
+  }),
+  validator('json', billingPortalBodySchema, badRequest),
+  async (c) => {
+    const db = c.get('db')
+    const email = await signedInEmail(c)
+    if (!email) return c.json({ error: 'unauthorized' }, 401)
+
+    const { key } = c.req.valid('json')
+    const [row] = await db
+      .select({ license: licenses, tenant: tenants })
+      .from(licenses)
+      .innerJoin(tenants, eq(licenses.tenantId, tenants.id))
+      .where(eq(licenses.key, key))
+    if (!row || row.license.buyerEmail.toLowerCase() !== email.toLowerCase()) {
+      return c.json({ error: 'not found' }, 404)
+    }
+
+    if (row.license.stripeCustomerId) {
+      const cred = await loadStripeCredential(c.env, db, row.tenant)
+      if (cred?.apiKey) {
+        try {
+          const portal = await createStripeBillingPortalSession(cred.apiKey, {
+            customerId: row.license.stripeCustomerId,
+            returnUrl: `${c.env.PORTAL_URL}/portal`,
+          })
+          return c.json({ url: portal.url })
+        } catch (err) {
+          if (err instanceof StripeApiError) {
+            const mapped = stripeErrorToHttp(err)
+            return c.json(mapped.body, mapped.status)
+          }
+          throw err
+        }
+      }
+    }
+
+    if (row.tenant.settings.billingPortalUrl) {
+      return c.json({ url: row.tenant.settings.billingPortalUrl })
+    }
+    return c.json({ error: 'no billing portal available for this license' }, 404)
   },
 )
 

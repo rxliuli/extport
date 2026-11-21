@@ -120,6 +120,11 @@ export const extensions = sqliteTable(
     licensingEnabled: integer('licensing_enabled', { mode: 'boolean' })
       .notNull()
       .$defaultFn(() => false),
+    // Mutually exclusive monetization model per extension: 'license' (one-time
+    // activation codes) or 'subscription' (account-based recurring billing).
+    // Null while monetization has never been configured (treated as 'license'
+    // for pre-0033 extensions that already had licensingEnabled = true).
+    billingMode: text('billing_mode', { enum: ['license', 'subscription'] }),
     ...timestamps,
   },
   (t) => [
@@ -366,6 +371,16 @@ export const plans = sqliteTable(
     maxActivations: integer('max_activations')
       .notNull()
       .$defaultFn(() => 3),
+    // Optional managed-pricing metadata when syncing plans to Stripe via a
+    // tenant's Restricted Key (null for Payment-Link-only plans).
+    currency: text('currency'),
+    amount: integer('amount'),
+    monthlyAmount: integer('monthly_amount'),
+    yearlyAmount: integer('yearly_amount'),
+    stripeProductId: text('stripe_product_id'),
+    stripePriceId: text('stripe_price_id'),
+    stripeMonthlyPriceId: text('stripe_monthly_price_id'),
+    stripeYearlyPriceId: text('stripe_yearly_price_id'),
     ...timestamps,
   },
   (t) => [
@@ -414,6 +429,9 @@ export const licenses = sqliteTable(
     // to resolve cs → pi later. sourceRef stays the PaymentIntent (what
     // refund events reference) for perpetual, or subscription id for recurring.
     checkoutSessionId: text('checkout_session_id'),
+    // Stripe Customer id (cus_…), persisted from checkout / subscription events
+    // for customer reuse on repeat checkouts and one-click Billing Portal sessions.
+    stripeCustomerId: text('stripe_customer_id'),
     // Recurring subscription lifecycle (null / default false for perpetual).
     stripeSubscriptionId: text('stripe_subscription_id'),
     subscriptionStatus: text('subscription_status', {
@@ -492,17 +510,73 @@ export const licenseEvents = sqliteTable(
   (t) => [index('license_events_license_idx').on(t.licenseId, t.createdAt)],
 )
 
+// ===== Subscriptions 模块(account-based recurring billing) =====
+
+export const subscriptions = sqliteTable(
+  'subscriptions',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    extensionId: text('extension_id').notNull(),
+    planId: text('plan_id').notNull(),
+    // Populated from Stripe Checkout Session `client_reference_id` for
+    // account-based extensions so users don't have to copy-paste activation codes.
+    externalUserId: text('external_user_id'),
+    buyerEmail: text('buyer_email').notNull(),
+    stripeCustomerId: text('stripe_customer_id'),
+    stripeSubscriptionId: text('stripe_subscription_id').notNull(),
+    checkoutSessionId: text('checkout_session_id'),
+    status: text('status', {
+      enum: ['trialing', 'active', 'past_due', 'canceled', 'expired'],
+    }).notNull(),
+    currentPeriodStart: text('current_period_start'),
+    currentPeriodEnd: text('current_period_end'),
+    cancelAtPeriodEnd: integer('cancel_at_period_end', { mode: 'boolean' }).notNull().default(false),
+    amountTotal: integer('amount_total'),
+    currency: text('currency'),
+    country: text('country'),
+    ...timestamps,
+  },
+  (t) => [
+    index('subscriptions_tenant_idx').on(t.tenantId),
+    index('subscriptions_ext_created_idx').on(t.extensionId, t.createdAt),
+    index('subscriptions_ext_user_idx').on(t.tenantId, t.extensionId, t.externalUserId),
+    index('subscriptions_ext_email_idx').on(t.tenantId, t.extensionId, t.buyerEmail),
+    uniqueIndex('subscriptions_stripe_sub_idx').on(t.stripeSubscriptionId),
+    uniqueIndex('subscriptions_checkout_session_idx').on(t.checkoutSessionId),
+  ],
+)
+
+export const subscriptionEvents = sqliteTable(
+  'subscription_events',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    subscriptionId: text('subscription_id').notNull(),
+    type: text('type', {
+      enum: ['created', 'renewed', 'updated', 'payment_failed', 'canceled', 'expired'],
+    }).notNull(),
+    payload: text('payload', { mode: 'json' })
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .$defaultFn(() => ({})),
+    createdAt: text('created_at').notNull().$defaultFn(now),
+  },
+  (t) => [index('subscription_events_sub_idx').on(t.subscriptionId, t.createdAt)],
+)
+
 // Staging buffer for Stripe subscription/invoice webhooks that arrive before
 // `checkout.session.completed` (Stripe does not guarantee delivery order, and
 // `checkout.session.completed` omits period dates while subscription/invoice
 // events omit buyer email and `client_reference_id`). Consumed and deleted when
-// `checkout.session.completed` fulfills the license.
+// `checkout.session.completed` fulfills the subscription.
 export const pendingStripeSubscriptions = sqliteTable(
   'pending_stripe_subscriptions',
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull(),
     stripeSubscriptionId: text('stripe_subscription_id').notNull(),
+    stripeCustomerId: text('stripe_customer_id'),
     subscriptionStatus: text('subscription_status', {
       enum: ['trialing', 'active', 'past_due', 'canceled', 'expired'],
     }).notNull(),
@@ -516,18 +590,21 @@ export const pendingStripeSubscriptions = sqliteTable(
 )
 
 // One payment-provider credential per (tenant, provider) — the Stripe
-// webhook signing secret, envelope-encrypted exactly like store
-// credentials. The tenant's Stripe account itself stays theirs; extport
-// only verifies webhook signatures with this. See docs/licensing.md.
+// webhook signing secret and/or Restricted Key, envelope-encrypted
+// exactly like store credentials. See docs/licensing.md.
 export const paymentCredentials = sqliteTable(
   'payment_credentials',
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull(),
     provider: text('provider', { enum: ['stripe'] }).notNull(),
-    // Last four characters of the secret — the only plaintext-derived value stored.
-    hint: text('hint').notNull(),
-    // { webhookSecret } encrypted with the tenant DEK.
+    // Last four characters of webhookSecret ('' when only apiKey is stored).
+    hint: text('hint')
+      .notNull()
+      .$defaultFn(() => ''),
+    // Last four characters of the Stripe Restricted/Secret Key, when stored.
+    apiKeyHint: text('api_key_hint'),
+    // { webhookSecret?, apiKey? } encrypted with the tenant DEK.
     encryptedPayload: text('encrypted_payload').notNull(),
     keyVersion: integer('key_version')
       .notNull()
@@ -683,6 +760,8 @@ export type Plan = typeof plans.$inferSelect
 export type License = typeof licenses.$inferSelect
 export type Activation = typeof activations.$inferSelect
 export type LicenseEvent = typeof licenseEvents.$inferSelect
+export type Subscription = typeof subscriptions.$inferSelect
+export type SubscriptionEvent = typeof subscriptionEvents.$inferSelect
 export type PaymentCredential = typeof paymentCredentials.$inferSelect
 export type PendingStripeSubscription = typeof pendingStripeSubscriptions.$inferSelect
 export type MagicLink = typeof magicLinks.$inferSelect

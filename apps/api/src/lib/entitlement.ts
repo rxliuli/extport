@@ -1,5 +1,115 @@
 import type { EntitlementType, SubscriptionStatus } from '@extport/shared'
-import type { License, Plan } from '../db'
+import type { License, Plan, Subscription } from '../db'
+
+export type EntitleableSubscription = Pick<Subscription, 'status' | 'currentPeriodEnd'>
+
+/**
+ * Single source of truth for whether a subscription currently grants access:
+ * active when `status` is `'active' | 'trialing' | 'past_due'` OR
+ * `status === 'canceled'` with `currentPeriodEnd` still in the future.
+ */
+export function isSubscriptionEntitled(sub: EntitleableSubscription, nowMs = Date.now()): boolean {
+  if (sub.status === 'active' || sub.status === 'trialing' || sub.status === 'past_due') {
+    return true
+  }
+  if (sub.status === 'canceled' && sub.currentPeriodEnd) {
+    const endMs = new Date(sub.currentPeriodEnd).getTime()
+    return Number.isFinite(endMs) && endMs > nowMs
+  }
+  return false
+}
+
+export interface SubscriptionWithPlan {
+  subscription: Subscription
+  plan: Plan
+}
+
+function subscriptionStatusRank(status: SubscriptionStatus): number {
+  switch (status) {
+    case 'active':
+      return 4
+    case 'trialing':
+      return 3
+    case 'past_due':
+      return 2
+    case 'canceled':
+      return 1
+    default:
+      return 0
+  }
+}
+
+function subscriptionPeriodEndSortValue(sub: Subscription): number {
+  if (!sub.currentPeriodEnd) return 0
+  const ms = new Date(sub.currentPeriodEnd).getTime()
+  return Number.isFinite(ms) ? ms : 0
+}
+
+/**
+ * When multiple subscriptions match a user/email lookup (for example, an old
+ * expired subscription alongside a newer active one), prefer an entitled
+ * subscription over an inactive one, then higher status rank (`active > trialing
+ * > past_due > canceled`), furthest `currentPeriodEnd`, newest `createdAt`.
+ */
+export function pickBestSubscription(
+  candidates: SubscriptionWithPlan[],
+  nowMs = Date.now(),
+): SubscriptionWithPlan | null {
+  if (candidates.length === 0) return null
+  const sorted = [...candidates].sort((a, b) => {
+    const aActive = isSubscriptionEntitled(a.subscription, nowMs)
+    const bActive = isSubscriptionEntitled(b.subscription, nowMs)
+    if (aActive !== bActive) return aActive ? -1 : 1
+    if (aActive && bActive) {
+      const rankDiff = subscriptionStatusRank(b.subscription.status) - subscriptionStatusRank(a.subscription.status)
+      if (rankDiff !== 0) return rankDiff
+      const endDiff = subscriptionPeriodEndSortValue(b.subscription) - subscriptionPeriodEndSortValue(a.subscription)
+      if (endDiff !== 0) return endDiff
+    }
+    if (a.subscription.createdAt !== b.subscription.createdAt) {
+      return a.subscription.createdAt > b.subscription.createdAt ? -1 : 1
+    }
+    return b.subscription.id.localeCompare(a.subscription.id)
+  })
+  return sorted[0] ?? null
+}
+
+export interface SubscriptionEntitlementResult {
+  active: boolean
+  tier: string
+  subscriptionId: string | null
+  status: SubscriptionStatus | null
+  currentPeriodStart: string | null
+  currentPeriodEnd: string | null
+  cancelAtPeriodEnd: boolean
+}
+
+export function formatSubscriptionEntitlement(
+  match: SubscriptionWithPlan | null,
+  nowMs = Date.now(),
+): SubscriptionEntitlementResult {
+  if (!match) {
+    return {
+      active: false,
+      tier: 'free',
+      subscriptionId: null,
+      status: null,
+      currentPeriodStart: null,
+      currentPeriodEnd: null,
+      cancelAtPeriodEnd: false,
+    }
+  }
+  const active = isSubscriptionEntitled(match.subscription, nowMs)
+  return {
+    active,
+    tier: active ? match.plan.tier : 'free',
+    subscriptionId: match.subscription.id,
+    status: match.subscription.status,
+    currentPeriodStart: match.subscription.currentPeriodStart ?? null,
+    currentPeriodEnd: match.subscription.currentPeriodEnd ?? null,
+    cancelAtPeriodEnd: match.subscription.cancelAtPeriodEnd,
+  }
+}
 
 export type EntitleableLicense = Pick<License, 'status' | 'entitlementType' | 'subscriptionStatus' | 'currentPeriodEnd'>
 
