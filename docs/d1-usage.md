@@ -30,11 +30,20 @@ index serves — a full scan of `analytics_daily` (~333k rows) each.
 
 - `3d7ef2e` (2026-11-17): the ping endpoint does its D1 work in one
   `INSERT … SELECT … ON CONFLICT … RETURNING` instead of three statements.
-  Expected ~100k → ~35k queries/day.
+  Verified in [#1](https://github.com/rxliuli/extport/issues/1) (2026-11-19):
+  ping dropped from ~106k → 35.4k queries/day.
 - `4090a25` (2026-11-17): the sweep checks for settled targets before taking
-  the target lock, so idle targets cost no writes. Expected ~8.4k → tens of
-  lock writes/day.
-- Verifying both: [#1](https://github.com/rxliuli/extport/issues/1).
+  the target lock, so idle targets cost no writes. Verified in
+  [#1](https://github.com/rxliuli/extport/issues/1) (2026-11-19): lock
+  claims dropped from ~4.2k → 824/day (~1:1 with `last_reconciled_at`).
+- `3ca08c0` (2026-11-19): slowed dashboard polling from 30s to 5m and added
+  composite tenant indexes on `deployment_versions` (`(tenant_id, status)`
+  and `(tenant_id, version)`). Verified in
+  [#3](https://github.com/rxliuli/extport/issues/3) (2026-11-21): 24h
+  `d1 insights` rows read dropped from 2,899,565 → 479,244 (-83.5%;
+  `d1 info` `rows_read_24h` 1,048,757), `/api/v1/extensions/matrix` queries
+  dropped >92%, and `tenant_id + version in (…)` dropped from ~940 to
+  171–197 rows read/run.
 - The sweep reading all of `deployment_versions` every tick (the slowest
   regular query, growing with every release):
   [#2](https://github.com/rxliuli/extport/issues/2).
