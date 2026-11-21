@@ -1,7 +1,7 @@
 import { newId } from '@extport/shared'
 import { and, eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
-import { deploymentVersions, publishEvents } from '../src/db'
+import { deploymentVersions, publishEvents, publishTargets } from '../src/db'
 import { createExtension, request, seedTenantWithUser } from './helpers'
 
 const realFetch = globalThis.fetch
@@ -382,6 +382,41 @@ describe('GET /v1/extensions/matrix', () => {
     const res = await request('/api/v1/extensions/matrix', { headers: { cookie: sessionCookie } })
     const body = (await res.json()) as { extensions: Array<{ id: string; targets: unknown[] }> }
     expect(body.extensions.find((e) => e.id === extension.id)?.targets).toEqual([])
+  })
+
+  it('exposes disabledSource and disabledReason for auto-paused targets', async () => {
+    const { db, sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const credential = await createCredential(sessionCookie, 'edge', EDGE_FIELDS)
+    const created = await addTarget(extension.id, sessionCookie, {
+      store: 'edge',
+      storeItemId: 'x',
+      credentialId: credential.id,
+    })
+    const targetId = ((await created.json()) as { target: { id: string } }).target.id
+    await db
+      .update(publishTargets)
+      .set({
+        enabled: false,
+        disabledSource: 'auto',
+        disabledReason: 'v1.0.0 and v1.1.0 were rejected back-to-back',
+      })
+      .where(eq(publishTargets.id, targetId))
+
+    const res = await request('/api/v1/extensions/matrix', { headers: { cookie: sessionCookie } })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      extensions: Array<{
+        id: string
+        targets: Array<{ enabled: boolean; disabledSource?: string | null; disabledReason?: string | null }>
+      }>
+    }
+    const target = body.extensions.find((e) => e.id === extension.id)?.targets[0]
+    expect(target).toMatchObject({
+      enabled: false,
+      disabledSource: 'auto',
+      disabledReason: 'v1.0.0 and v1.1.0 were rejected back-to-back',
+    })
   })
 })
 

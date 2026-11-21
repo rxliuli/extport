@@ -85,6 +85,7 @@ const HEALTH_RANK: Record<ExtensionHealth, number> = { action: 0, in_flight: 1, 
 
 const ACTION_DOT: Record<ActionItem['kind'], string> = {
   error: 'bg-red-600 dark:bg-red-400',
+  paused: 'bg-red-600 dark:bg-red-400',
   rejected: 'bg-red-600 dark:bg-red-400',
   credential: 'bg-red-600 dark:bg-red-400',
   stale_review: 'bg-amber-500 dark:bg-amber-400',
@@ -93,6 +94,7 @@ const ACTION_DOT: Record<ActionItem['kind'], string> = {
 
 const ACTION_LABEL_TONE: Record<ActionItem['kind'], string> = {
   error: 'text-red-700 dark:text-red-400',
+  paused: 'text-red-700 dark:text-red-400',
   rejected: 'text-red-700 dark:text-red-400',
   credential: 'text-red-700 dark:text-red-400',
   stale_review: 'text-amber-700 dark:text-amber-400',

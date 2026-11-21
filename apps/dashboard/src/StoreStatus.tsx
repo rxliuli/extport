@@ -13,11 +13,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from './components/ui/alert-dialog'
+import { Button } from './components/ui/button'
 import { Skeleton } from './components/ui/skeleton'
 import { targetsQuery, tenantSettingsQuery } from './queries'
 import { ageDays, formatDate, formatElapsed } from './status'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, Loader2, Play } from 'lucide-react'
 import { toast } from 'sonner'
 
 const DEFAULT_STALE_REVIEW_DAYS: Record<Store, number> = { chrome: 3, firefox: 3, edge: 10, safari: 3 }
@@ -217,9 +218,12 @@ export function StoreStatusSection({ extensionId }: { extensionId: string }) {
                 {link.label} <ExternalLink className="size-3.5" aria-hidden="true" />
               </a>
               {info.detail && (
-                <div className="space-y-1 sm:col-start-3 sm:col-end-5">
+                <div className="space-y-2 sm:col-start-3 sm:col-end-5">
                   <p className="text-sm leading-relaxed text-muted-foreground">{info.detail}</p>
                   {'raw' in info && info.raw && <RawDetails text={info.raw} />}
+                  {!target.enabled && target.disabledSource === 'auto' && (
+                    <ResumeTarget extensionId={extensionId} target={target} />
+                  )}
                 </div>
               )}
               {/* Edge only: every other store reports review state, so a review
@@ -235,6 +239,29 @@ export function StoreStatusSection({ extensionId }: { extensionId: string }) {
         })}
       </ul>
     </Section>
+  )
+}
+
+function ResumeTarget({ extensionId, target }: { extensionId: string; target: PublishTarget }) {
+  const queryClient = useQueryClient()
+  const resume = useMutation({
+    mutationFn: () =>
+      api(`/api/v1/extensions/${extensionId}/targets/${target.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: true }),
+      }),
+    onSuccess: () => {
+      toast.success(`Publishing resumed for ${storeName(target.store, null)}`)
+      void queryClient.invalidateQueries({ queryKey: ['extensions'] })
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : String(err)),
+  })
+
+  return (
+    <Button variant="outline" size="sm" disabled={resume.isPending} onClick={() => resume.mutate()}>
+      {resume.isPending ? <Loader2 className="animate-spin" /> : <Play />}
+      Resume publishing
+    </Button>
   )
 }
 

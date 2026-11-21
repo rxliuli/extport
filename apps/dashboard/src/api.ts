@@ -53,6 +53,8 @@ export interface MatrixTarget {
   targetId: string
   store: Store
   enabled: boolean
+  disabledSource: 'manual' | 'auto' | null
+  disabledReason: string | null
   credentialLabel: string
   credentialStatus: 'active' | 'invalid' | 'expiring'
   lifecycles: TargetLifecycle[]

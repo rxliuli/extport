@@ -78,6 +78,8 @@ route.get(
         targetId: row.target.id,
         store: row.target.store,
         enabled: row.target.enabled,
+        disabledSource: row.target.disabledSource,
+        disabledReason: row.target.disabledReason,
         credentialLabel: row.credential.label,
         credentialStatus: row.credential.status,
         lifecycles: deriveTargetLifecycles(rows, row.target),

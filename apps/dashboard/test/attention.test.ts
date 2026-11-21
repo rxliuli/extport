@@ -25,6 +25,8 @@ function target(store: Store, lifecycles: TargetLifecycle[], extra: Partial<Matr
     targetId: `t_${store}`,
     store,
     enabled: true,
+    disabledSource: null,
+    disabledReason: null,
     credentialLabel: store,
     credentialStatus: 'active',
     lifecycles,
@@ -107,12 +109,44 @@ describe('classifyFleet', () => {
 
   it('ignores targets the tenant disabled', () => {
     const { actions, health } = classifyFleet(
-      [ext('a', [target('chrome', [lifecycle({ status: 'error', statusDetail: 'boom' })], { enabled: false })])],
+      [
+        ext('a', [
+          target('chrome', [lifecycle({ status: 'error', statusDetail: 'boom' })], {
+            enabled: false,
+            disabledSource: 'manual',
+          }),
+        ]),
+      ],
       STALE,
       NOW,
     )
     expect(actions).toEqual([])
     expect(health.get('ext_a')).toBe('ok')
+  })
+
+  it('flags an auto-paused target as needing action', () => {
+    const { actions, health } = classifyFleet(
+      [
+        ext('twitter-filter', [
+          target('chrome', [lifecycle({ liveVersion: '0.0.69' })], {
+            enabled: false,
+            disabledSource: 'auto',
+            disabledReason: 'v0.0.72 and v0.0.73 were rejected back-to-back',
+          }),
+        ]),
+      ],
+      STALE,
+      NOW,
+    )
+    expect(actions).toHaveLength(1)
+    expect(actions[0]).toMatchObject({
+      extensionId: 'ext_twitter-filter',
+      store: 'chrome',
+      kind: 'paused',
+      label: 'Paused',
+    })
+    expect(actions[0]!.message).toContain('v0.0.72 and v0.0.73 were rejected back-to-back')
+    expect(health.get('ext_twitter-filter')).toBe('action')
   })
 
   it('flags an invalid credential once per target, and orders errors before rejections', () => {

@@ -11,7 +11,7 @@ import { ageDays, formatElapsed } from './status'
  * isn't synced (reviews within threshold, queued pushes) is just in flight.
  */
 
-export type ActionKind = 'rejected' | 'error' | 'credential' | 'stale_review' | 'not_set_up'
+export type ActionKind = 'paused' | 'rejected' | 'error' | 'credential' | 'stale_review' | 'not_set_up'
 
 export interface ActionItem {
   extensionId: string
@@ -286,8 +286,25 @@ export function classifyFleet(
     }
 
     for (const target of ext.targets) {
-      // A target the tenant switched off is a choice, not a problem.
-      if (!target.enabled) continue
+      if (!target.enabled) {
+        // An auto-pause after back-to-back rejections needs a human to fix the
+        // store-side cause and resume publishing; a manual disable is a choice.
+        if (target.disabledSource === 'auto') {
+          actions.push({
+            extensionId: ext.id,
+            extensionName: ext.name,
+            store: target.store,
+            platform: null,
+            kind: 'paused',
+            label: 'Paused',
+            message: target.disabledReason
+              ? `Publishing paused: ${target.disabledReason}. Fix the cause on the store console, then resume publishing.`
+              : 'Publishing was paused automatically after repeated rejections. Fix the cause on the store console, then resume publishing.',
+          })
+          flag('action')
+        }
+        continue
+      }
       if (target.credentialStatus !== 'active') {
         actions.push({
           extensionId: ext.id,
@@ -317,7 +334,7 @@ export function classifyFleet(
     health.set(ext.id, state)
   }
 
-  const order: ActionKind[] = ['error', 'rejected', 'credential', 'stale_review', 'not_set_up']
+  const order: ActionKind[] = ['error', 'paused', 'rejected', 'credential', 'stale_review', 'not_set_up']
   actions.sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))
   // Longest-waiting review first; queued-only items (no submit time yet) last.
   inFlight.sort((a, b) => {
