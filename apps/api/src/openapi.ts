@@ -9,7 +9,7 @@ import { analyticsPublicRoutes, analyticsTenantRoutes } from './routes/analytics
 import extensionsRoutes from './routes/extensions'
 import keysRoutes from './routes/keys'
 import licensesRoutes from './routes/licenses'
-import licensingRoutes from './routes/licensing'
+import licensingRoutes, { licensingTenantRoutes } from './routes/licensing'
 import paymentCredentialsRoutes from './routes/payment-credentials'
 import plansRoutes from './routes/plans'
 import portalRoutes from './routes/portal'
@@ -32,11 +32,13 @@ api.route('/v1/artifacts', artifactsRoutes)
 api.route('/v1/credentials', credentialsRoutes)
 api.route('/v1/tenant', tenantRoutes)
 api.route('/v1/releases', releasesRoutes)
-// /v1/licensing is public — called by end users' devices, keyed by license
-// code alone; the stripe webhook receiver is public too, authenticated by
-// signature. plans/licenses/payment-credentials are tenant-authed.
-api.route('/v1/licensing', licensingRoutes)
+// /v1/licensing/activate and /check are public — called by end users'
+// devices, keyed by license code alone; /v1/licensing/entitlements and /bind
+// are tenant-authed for server-side backends; the stripe webhook receiver is
+// public, authenticated by signature.
 api.route('/v1/licensing/webhooks/stripe', stripeWebhookRoutes)
+api.route('/v1/licensing', licensingRoutes)
+api.route('/v1/licensing', licensingTenantRoutes)
 // Buyer portal (portal.extport.dev): success-page lookup + magic-link
 // sign-in + read-only purchase list. Cookie-authed, same-origin.
 api.route('/v1/portal', portalRoutes)
@@ -51,7 +53,11 @@ api.route('/v1/payment-credentials', paymentCredentialsRoutes)
 type OpenApiDocumentation = NonNullable<NonNullable<Parameters<typeof openAPIRouteHandler>[1]>['documentation']>
 
 export const OPENAPI_DOCUMENTATION: OpenApiDocumentation = {
-  info: { title: 'extport API', version: '1.0.0', description: 'Publish and manage browser extension releases across Chrome, Firefox, Edge, and Safari.' },
+  info: {
+    title: 'extport API',
+    version: '1.0.0',
+    description: 'Publish and manage browser extension releases across Chrome, Firefox, Edge, and Safari.',
+  },
   // openAPIRouteHandler was handed `api` (the /api-mounted sub-router), so
   // every generated path is relative to it, e.g. "/v1/artifacts" — the
   // server URL has to carry the /api prefix back for paths to resolve
@@ -70,21 +76,52 @@ export const OPENAPI_DOCUMENTATION: OpenApiDocumentation = {
       apiKey: {
         type: 'http',
         scheme: 'bearer',
-        description: 'Tenant API key, sent as `Authorization: Bearer <key>`. Generated in the dashboard or via `extport login`.'
+        description:
+          'Tenant API key, sent as `Authorization: Bearer <key>`. Generated in the dashboard or via `extport login`.',
       },
       session: { type: 'apiKey', in: 'cookie', name: 'extport_session', description: 'Dashboard session cookie.' },
-      buyerSession: { type: 'apiKey', in: 'cookie', name: 'extport_buyer_session', description: 'Buyer portal session cookie.' },
+      buyerSession: {
+        type: 'apiKey',
+        in: 'cookie',
+        name: 'extport_buyer_session',
+        description: 'Buyer portal session cookie.',
+      },
     },
   },
   tags: [
-    { name: 'Analytics', description: 'One-anonymous-ping-a-day usage analytics: installs, weekly actives, and version adoption across every store.' },
-    { name: 'API keys', description: 'Tenant API keys for automation. Session-only: an API key must never mint or revoke another.' },
+    {
+      name: 'Analytics',
+      description:
+        'One-anonymous-ping-a-day usage analytics: installs, weekly actives, and version adoption across every store.',
+    },
+    {
+      name: 'API keys',
+      description: 'Tenant API keys for automation. Session-only: an API key must never mint or revoke another.',
+    },
     { name: 'Artifacts', description: 'Push a build and it is submitted to every store you have connected.' },
-    { name: 'Buyer portal', description: 'The shopper-facing surface: order lookup, magic-link sign-in, and a read-only purchase list.' },
-    { name: 'CLI login', description: '`extport login` — a session-only exchange that mints a one-time code the CLI redeems for an API key.' },
-    { name: 'Extensions', description: 'Your extension fleet: create, update, reconcile, and inspect publishing status across stores.' },
-    { name: 'Licensing', description: 'Plans, issued licenses, activations, Stripe Payment Link fulfillment, and the end-user verify/activate flow.' },
-    { name: 'Store credentials', description: 'Store API credentials and their verification status. Session-only: secrets never leave the dashboard.' },
+    {
+      name: 'Buyer portal',
+      description: 'The shopper-facing surface: order lookup, magic-link sign-in, and a read-only purchase list.',
+    },
+    {
+      name: 'CLI login',
+      description:
+        '`extport login` — a session-only exchange that mints a one-time code the CLI redeems for an API key.',
+    },
+    {
+      name: 'Extensions',
+      description: 'Your extension fleet: create, update, reconcile, and inspect publishing status across stores.',
+    },
+    {
+      name: 'Licensing',
+      description:
+        'Plans, issued licenses, activations, Stripe Payment Link fulfillment, and the end-user verify/activate flow.',
+    },
+    {
+      name: 'Store credentials',
+      description:
+        'Store API credentials and their verification status. Session-only: secrets never leave the dashboard.',
+    },
     { name: 'Tenant', description: 'Workspace settings.' },
   ],
 }

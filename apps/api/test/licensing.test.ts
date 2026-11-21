@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { activations, licenseEvents, licenses, plans, type License, type Plan } from '../src/db'
-import { createExtension, request, seedTenantWithUser } from './helpers'
+import { createApiKey, createExtension, request, seedTenantWithUser } from './helpers'
 
 const KEY_RE = /^[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){3}$/
 
@@ -98,6 +98,22 @@ describe('plans & manual license issuance', () => {
       body: JSON.stringify({ extensionId: extension.id, tier: 'basic' }),
     })
     expect(basic.status).toBe(201)
+
+    // Same tier with entitlementType='recurring' coexists with perpetual, and rejects duplicate recurring.
+    const recurringPro = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ extensionId: extension.id, tier: 'pro', entitlementType: 'recurring' }),
+    })
+    expect(recurringPro.status).toBe(201)
+    expect(((await recurringPro.json()) as { plan: Plan }).plan.entitlementType).toBe('recurring')
+
+    const dupeRecurring = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ extensionId: extension.id, tier: 'pro', entitlementType: 'recurring' }),
+    })
+    expect(dupeRecurring.status).toBe(409)
   })
 
   it('requires auth and scopes both resources to the owning tenant', async () => {
@@ -198,15 +214,21 @@ describe('POST /v1/licensing/activate', () => {
   it('fails cleanly for an unknown code, a wrong extension id, and a refunded license', async () => {
     const { db, extension, license } = await setupLicensedProduct()
 
-    const unknown = (await (await activate({ code: 'AAAA-AAAA-AAAA-AAAA', extensionId: extension.id, fingerprint: 'fp-1' })).json()) as WireResult
+    const unknown = (await (
+      await activate({ code: 'AAAA-AAAA-AAAA-AAAA', extensionId: extension.id, fingerprint: 'fp-1' })
+    ).json()) as WireResult
     expect(unknown.success).toBe(false)
     expect(unknown.message).toMatch(/invalid/)
 
-    const wrongExtension = (await (await activate({ code: license.key, extensionId: 'ext_wrong', fingerprint: 'fp-1' })).json()) as WireResult
+    const wrongExtension = (await (
+      await activate({ code: license.key, extensionId: 'ext_wrong', fingerprint: 'fp-1' })
+    ).json()) as WireResult
     expect(wrongExtension.success).toBe(false)
 
     await db.update(licenses).set({ status: 'refunded' }).where(eq(licenses.id, license.id))
-    const refunded = (await (await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })).json()) as WireResult
+    const refunded = (await (
+      await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })
+    ).json()) as WireResult
     expect(refunded.success).toBe(false)
     expect(refunded.message).toMatch(/no longer active/)
   })
@@ -219,8 +241,16 @@ describe('POST /v1/licensing/activate', () => {
 
   it('enforces the seat limit', async () => {
     const { extension, license } = await setupLicensedProduct({ maxActivations: 1 })
-    expect(((await (await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })).json()) as WireResult).success).toBe(true)
-    const second = (await (await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-2' })).json()) as WireResult
+    expect(
+      (
+        (await (
+          await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })
+        ).json()) as WireResult
+      ).success,
+    ).toBe(true)
+    const second = (await (
+      await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-2' })
+    ).json()) as WireResult
     expect(second.success).toBe(false)
     expect(second.message).toMatch(/maximum number of devices \(1\)/)
   })
@@ -232,14 +262,29 @@ describe('POST /v1/licensing/activate', () => {
     // 29 days idle: still occupying the seat, new device rejected.
     const days29 = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString()
     await db.update(activations).set({ lastHeartbeatAt: days29 }).where(eq(activations.licenseId, license.id))
-    expect(((await (await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-new' })).json()) as WireResult).success).toBe(false)
+    expect(
+      (
+        (await (
+          await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-new' })
+        ).json()) as WireResult
+      ).success,
+    ).toBe(false)
 
     // 31 days idle: decays at the moment the new device asks.
     const days31 = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString()
     await db.update(activations).set({ lastHeartbeatAt: days31 }).where(eq(activations.deviceFingerprint, 'fp-old'))
-    expect(((await (await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-new' })).json()) as WireResult).success).toBe(true)
+    expect(
+      (
+        (await (
+          await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-new' })
+        ).json()) as WireResult
+      ).success,
+    ).toBe(true)
 
-    const [old] = await db.select().from(activations).where(and(eq(activations.licenseId, license.id), eq(activations.deviceFingerprint, 'fp-old')))
+    const [old] = await db
+      .select()
+      .from(activations)
+      .where(and(eq(activations.licenseId, license.id), eq(activations.deviceFingerprint, 'fp-old')))
     expect(old!.releasedAt).not.toBeNull()
     const events = await db.select().from(licenseEvents).where(eq(licenseEvents.licenseId, license.id))
     expect(events.filter((e) => e.type === 'seat_released')).toHaveLength(1)
@@ -248,9 +293,14 @@ describe('POST /v1/licensing/activate', () => {
   it('reuses the activation row when a released device returns', async () => {
     const { db, extension, license } = await setupLicensedProduct({ maxActivations: 2 })
     await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })
-    await db.update(activations).set({ releasedAt: new Date().toISOString() }).where(eq(activations.deviceFingerprint, 'fp-1'))
+    await db
+      .update(activations)
+      .set({ releasedAt: new Date().toISOString() })
+      .where(eq(activations.deviceFingerprint, 'fp-1'))
 
-    const res = (await (await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })).json()) as WireResult
+    const res = (await (
+      await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })
+    ).json()) as WireResult
     expect(res.success).toBe(true)
     const rows = await db.select().from(activations).where(eq(activations.licenseId, license.id))
     expect(rows).toHaveLength(1)
@@ -266,7 +316,9 @@ describe('POST /v1/licensing/check', () => {
     // Aged 13h: the check refreshes the heartbeat.
     const hours13 = new Date(Date.now() - 13 * 60 * 60 * 1000).toISOString()
     await db.update(activations).set({ lastHeartbeatAt: hours13 }).where(eq(activations.licenseId, license.id))
-    const res = (await (await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })).json()) as WireResult
+    const res = (await (
+      await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })
+    ).json()) as WireResult
     expect(res.success).toBe(true)
     expect(res.data).toEqual({ isActive: true, tier: 'pro', expiresAt: null })
     const [afterStale] = await db.select().from(activations).where(eq(activations.licenseId, license.id))
@@ -284,20 +336,31 @@ describe('POST /v1/licensing/check', () => {
     const { db, extension, license } = await setupLicensedProduct()
     await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })
 
-    const unknownDevice = (await (await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-other' })).json()) as WireResult
+    const unknownDevice = (await (
+      await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-other' })
+    ).json()) as WireResult
     expect(unknownDevice.data?.isActive).toBe(false)
 
-    const unknownCode = (await (await check({ code: 'AAAA-AAAA-AAAA-AAAA', extensionId: extension.id, fingerprint: 'fp-1' })).json()) as WireResult
+    const unknownCode = (await (
+      await check({ code: 'AAAA-AAAA-AAAA-AAAA', extensionId: extension.id, fingerprint: 'fp-1' })
+    ).json()) as WireResult
     expect(unknownCode.success).toBe(true)
     expect(unknownCode.data).toEqual({ isActive: false, tier: null, expiresAt: null })
 
-    await db.update(activations).set({ releasedAt: new Date().toISOString() }).where(eq(activations.licenseId, license.id))
-    const released = (await (await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })).json()) as WireResult
+    await db
+      .update(activations)
+      .set({ releasedAt: new Date().toISOString() })
+      .where(eq(activations.licenseId, license.id))
+    const released = (await (
+      await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })
+    ).json()) as WireResult
     expect(released.data?.isActive).toBe(false)
 
     await db.update(activations).set({ releasedAt: null }).where(eq(activations.licenseId, license.id))
     await db.update(licenses).set({ status: 'refunded' }).where(eq(licenses.id, license.id))
-    const refunded = (await (await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })).json()) as WireResult
+    const refunded = (await (
+      await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })
+    ).json()) as WireResult
     expect(refunded.data?.isActive).toBe(false)
   })
 
@@ -336,19 +399,27 @@ describe('identity: extensionId', () => {
   it('activates and checks via extensionId alone', async () => {
     const { extension, license } = await setupLicensedProduct()
 
-    const activated = (await (await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })).json()) as WireResult
+    const activated = (await (
+      await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })
+    ).json()) as WireResult
     expect(activated.success).toBe(true)
 
-    const checked = (await (await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })).json()) as WireResult
+    const checked = (await (
+      await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-1' })
+    ).json()) as WireResult
     expect(checked.data?.isActive).toBe(true)
   })
 
   it('rejects when extensionId does not match the license’s extension', async () => {
     const { license } = await setupLicensedProduct()
-    const res = (await (await activate({ code: license.key, extensionId: 'ext_wrong', fingerprint: 'fp-1' })).json()) as WireResult
+    const res = (await (
+      await activate({ code: license.key, extensionId: 'ext_wrong', fingerprint: 'fp-1' })
+    ).json()) as WireResult
     expect(res.success).toBe(false)
 
-    const checked = (await (await check({ code: license.key, extensionId: 'ext_wrong', fingerprint: 'fp-1' })).json()) as WireResult
+    const checked = (await (
+      await check({ code: license.key, extensionId: 'ext_wrong', fingerprint: 'fp-1' })
+    ).json()) as WireResult
     expect(checked.data?.isActive).toBe(false)
   })
 
@@ -362,14 +433,22 @@ describe('identity: extensionId', () => {
 describe('extension deletion vs issued licenses', () => {
   it('blocks deletion while licenses exist, allows it for license-less plans', async () => {
     const { sessionCookie, extension, db, license } = await setupLicensedProduct()
-    const blocked = await request(`/api/v1/extensions/${extension.id}`, { method: 'DELETE', headers: { cookie: sessionCookie } })
+    const blocked = await request(`/api/v1/extensions/${extension.id}`, {
+      method: 'DELETE',
+      headers: { cookie: sessionCookie },
+    })
     expect(blocked.status).toBe(409)
-    expect((await request(`/api/v1/extensions/${extension.id}`, { headers: { cookie: sessionCookie } })).status).toBe(200)
+    expect((await request(`/api/v1/extensions/${extension.id}`, { headers: { cookie: sessionCookie } })).status).toBe(
+      200,
+    )
 
     // With the license gone (test-only surgery), deletion proceeds and takes
     // the plan with it.
     await db.delete(licenses).where(eq(licenses.id, license.id))
-    const allowed = await request(`/api/v1/extensions/${extension.id}`, { method: 'DELETE', headers: { cookie: sessionCookie } })
+    const allowed = await request(`/api/v1/extensions/${extension.id}`, {
+      method: 'DELETE',
+      headers: { cookie: sessionCookie },
+    })
     expect(allowed.status).toBe(200)
     expect(await db.select().from(plans).where(eq(plans.extensionId, extension.id))).toHaveLength(0)
   })
@@ -387,8 +466,13 @@ describe('scenario: the long-idle device comes back', () => {
     const { db, extension, license } = await setupLicensedProduct({ maxActivations: 2 })
     await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-a' })
 
-    await db.update(activations).set({ lastHeartbeatAt: days(90) }).where(eq(activations.deviceFingerprint, 'fp-a'))
-    const res = (await (await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-a' })).json()) as WireResult
+    await db
+      .update(activations)
+      .set({ lastHeartbeatAt: days(90) })
+      .where(eq(activations.deviceFingerprint, 'fp-a'))
+    const res = (await (
+      await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-a' })
+    ).json()) as WireResult
     expect(res.data?.isActive).toBe(true)
 
     const [row] = await db.select().from(activations).where(eq(activations.deviceFingerprint, 'fp-a'))
@@ -402,17 +486,37 @@ describe('scenario: the long-idle device comes back', () => {
     await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-b' })
 
     // A goes idle; C's activation evicts it (the only idle seat).
-    await db.update(activations).set({ lastHeartbeatAt: days(31) }).where(eq(activations.deviceFingerprint, 'fp-a'))
-    expect(((await (await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-c' })).json()) as WireResult).success).toBe(true)
+    await db
+      .update(activations)
+      .set({ lastHeartbeatAt: days(31) })
+      .where(eq(activations.deviceFingerprint, 'fp-a'))
+    expect(
+      (
+        (await (
+          await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-c' })
+        ).json()) as WireResult
+      ).success,
+    ).toBe(true)
 
     // Later B goes idle too. A comes back: server no longer knows it…
-    await db.update(activations).set({ lastHeartbeatAt: days(31) }).where(eq(activations.deviceFingerprint, 'fp-b'))
-    const back = (await (await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-a' })).json()) as WireResult
+    await db
+      .update(activations)
+      .set({ lastHeartbeatAt: days(31) })
+      .where(eq(activations.deviceFingerprint, 'fp-b'))
+    const back = (await (
+      await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-a' })
+    ).json()) as WireResult
     expect(back.data?.isActive).toBe(false)
 
     // …so the SDK re-activates with the stored code+fingerprint, which
     // decays B and reuses A's original row. Silent resurrection.
-    expect(((await (await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-a' })).json()) as WireResult).success).toBe(true)
+    expect(
+      (
+        (await (
+          await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-a' })
+        ).json()) as WireResult
+      ).success,
+    ).toBe(true)
 
     const rows = await db.select().from(activations).where(eq(activations.licenseId, license.id))
     expect(rows).toHaveLength(3) // a, b, c — rows are reused, never duplicated
@@ -429,11 +533,22 @@ describe('scenario: the long-idle device comes back', () => {
     await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-a' })
     await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-b' })
 
-    await db.update(activations).set({ lastHeartbeatAt: days(31) }).where(eq(activations.deviceFingerprint, 'fp-a'))
-    expect(((await (await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-c' })).json()) as WireResult).success).toBe(true)
+    await db
+      .update(activations)
+      .set({ lastHeartbeatAt: days(31) })
+      .where(eq(activations.deviceFingerprint, 'fp-a'))
+    expect(
+      (
+        (await (
+          await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-c' })
+        ).json()) as WireResult
+      ).success,
+    ).toBe(true)
 
     // B and C are both live: A's return is genuine over-subscription.
-    const res = (await (await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-a' })).json()) as WireResult
+    const res = (await (
+      await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-a' })
+    ).json()) as WireResult
     expect(res.success).toBe(false)
     expect(res.message).toMatch(/maximum number of devices \(2\)/)
   })
@@ -490,9 +605,9 @@ describe('GET /v1/licenses global view', () => {
   it('carries tier + extension on every row and searches by code or email substring', async () => {
     const { license, extension, sessionCookie } = await setupLicensedProduct()
 
-    const all = (await (
-      await request('/api/v1/licenses', { headers: { cookie: sessionCookie } })
-    ).json()) as { licenses: EnrichedRow[] }
+    const all = (await (await request('/api/v1/licenses', { headers: { cookie: sessionCookie } })).json()) as {
+      licenses: EnrichedRow[]
+    }
     const row = all.licenses.find((l) => l.id === license.id)!
     expect(row.tier).toBe('pro')
     expect(row.extensionId).toBe(extension.id)
@@ -607,9 +722,11 @@ describe('GET /v1/licenses/overview', () => {
     const dayOf = (offsetMinutes: number) =>
       new Date(new Date(instant).getTime() + offsetMinutes * 60_000).toISOString().slice(0, 10)
     const fetchDays = async (query: string) =>
-      ((await (await request(`/api/v1/licenses/overview${query}`, { headers: { cookie: sessionCookie } })).json()) as {
-        days: { date: string; revenue: number; count: number }[]
-      }).days
+      (
+        (await (await request(`/api/v1/licenses/overview${query}`, { headers: { cookie: sessionCookie } })).json()) as {
+          days: { date: string; revenue: number; count: number }[]
+        }
+      ).days
 
     expect(dayOf(420)).not.toBe(dayOf(0))
     const utc = await fetchDays('')
@@ -644,5 +761,209 @@ describe('host-based surface isolation', () => {
     // host guard's flat rejection of foreign paths).
     const ownApi = await request('https://portal.extport.dev/api/v1/portal/licenses')
     expect([200, 401]).toContain(ownApi.status)
+  })
+})
+
+describe('recurring licensing & server-side entitlement API', () => {
+  it('enforces subscription entitlement states on /activate and /check', async () => {
+    const { db, sessionCookie, extension } = await setupLicensedProduct()
+    const planRes = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ extensionId: extension.id, tier: 'pro', entitlementType: 'recurring' }),
+    })
+    const { plan } = (await planRes.json()) as { plan: Plan }
+    const licRes = await request('/api/v1/licenses', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ planId: plan.id, buyerEmail: 'sub@example.com' }),
+    })
+    const { license } = (await licRes.json()) as { license: License }
+    expect(license.subscriptionStatus).toBe('active')
+
+    const futureIso = new Date(Date.now() + 7 * 86400_000).toISOString()
+    const pastIso = new Date(Date.now() - 86400_000).toISOString()
+
+    // Canceled with future currentPeriodEnd -> still entitled.
+    await db
+      .update(licenses)
+      .set({ subscriptionStatus: 'canceled', currentPeriodEnd: futureIso, cancelAtPeriodEnd: true })
+      .where(eq(licenses.id, license.id))
+    const actCanceledFuture = (await (
+      await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-rec' })
+    ).json()) as WireResult & { data?: { subscriptionStatus?: string; cancelAtPeriodEnd?: boolean } }
+    expect(actCanceledFuture.success).toBe(true)
+    expect(actCanceledFuture.data).toEqual({
+      tier: 'pro',
+      expiresAt: futureIso,
+      subscriptionStatus: 'canceled',
+      cancelAtPeriodEnd: true,
+    })
+
+    // Canceled with past currentPeriodEnd -> rejected on check & activate.
+    await db.update(licenses).set({ currentPeriodEnd: pastIso }).where(eq(licenses.id, license.id))
+    expect(
+      (
+        (await (
+          await check({ code: license.key, extensionId: extension.id, fingerprint: 'fp-rec' })
+        ).json()) as WireResult
+      ).data?.isActive,
+    ).toBe(false)
+    expect(
+      (
+        (await (
+          await activate({ code: license.key, extensionId: extension.id, fingerprint: 'fp-rec' })
+        ).json()) as WireResult
+      ).success,
+    ).toBe(false)
+  })
+
+  it('GET /v1/licensing/entitlements verifies by externalUserId, email, or key and picks best active license', async () => {
+    const { db, sessionCookie, extension } = await setupLicensedProduct()
+    const apiKey = await createApiKey(sessionCookie)
+    const other = await seedTenantWithUser()
+    const otherKey = await createApiKey(other.sessionCookie)
+
+    await request('/api/v1/tenant/settings', {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ billingPortalUrl: 'https://billing.stripe.com/p/login/ent_test' }),
+    })
+
+    const recPlanRes = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ extensionId: extension.id, tier: 'pro', entitlementType: 'recurring' }),
+    })
+    const { plan: recPlan } = (await recPlanRes.json()) as { plan: Plan }
+
+    // Unauthenticated -> 401; missing identifiers -> 400; other tenant's extension -> 404.
+    expect((await request(`/api/v1/licensing/entitlements?extensionId=${extension.id}&externalUserId=u1`)).status).toBe(
+      401,
+    )
+    expect(
+      (
+        await request(`/api/v1/licensing/entitlements?extensionId=${extension.id}`, {
+          headers: { authorization: `Bearer ${apiKey}` },
+        })
+      ).status,
+    ).toBe(400)
+    expect(
+      (
+        await request(`/api/v1/licensing/entitlements?extensionId=${extension.id}&externalUserId=u1`, {
+          headers: { authorization: `Bearer ${otherKey}` },
+        })
+      ).status,
+    ).toBe(404)
+
+    // No matching license -> active: false, tier: 'free', billingPortalUrl surfaced.
+    const emptyRes = await request(
+      `/api/v1/licensing/entitlements?extensionId=${extension.id}&externalUserId=missing`,
+      {
+        headers: { authorization: `Bearer ${apiKey}` },
+      },
+    )
+    expect(emptyRes.status).toBe(200)
+    // Tenant-authed endpoint must not send wildcard CORS headers.
+    expect(emptyRes.headers.get('access-control-allow-origin')).toBeNull()
+    expect(await emptyRes.json()).toEqual({
+      active: false,
+      tier: 'free',
+      entitlementType: null,
+      licenseId: null,
+      subscriptionStatus: null,
+      currentPeriodStart: null,
+      currentPeriodEnd: null,
+      cancelAtPeriodEnd: false,
+      billingPortalUrl: 'https://billing.stripe.com/p/login/ent_test',
+    })
+
+    // Create an old expired subscription AND a newer active subscription for the same externalUserId.
+    const expiredRes = await request('/api/v1/licenses', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ planId: recPlan.id, buyerEmail: 'User@Example.com', externalUserId: 'ext_u_1' }),
+    })
+    const { license: expiredLic } = (await expiredRes.json()) as { license: License }
+    await db
+      .update(licenses)
+      .set({
+        subscriptionStatus: 'expired',
+        currentPeriodEnd: new Date(Date.now() - 86400_000).toISOString(),
+      })
+      .where(eq(licenses.id, expiredLic.id))
+
+    const activeRes = await request('/api/v1/licenses', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ planId: recPlan.id, buyerEmail: 'User@Example.com', externalUserId: 'ext_u_1' }),
+    })
+    const { license: activeLic } = (await activeRes.json()) as { license: License }
+    const periodStart = new Date(Date.now() - 86400_000).toISOString()
+    const periodEnd = new Date(Date.now() + 29 * 86400_000).toISOString()
+    await db
+      .update(licenses)
+      .set({ currentPeriodStart: periodStart, currentPeriodEnd: periodEnd })
+      .where(eq(licenses.id, activeLic.id))
+
+    const byExtUser = (await (
+      await request(`/api/v1/licensing/entitlements?extensionId=${extension.id}&externalUserId=ext_u_1`, {
+        headers: { authorization: `Bearer ${apiKey}` },
+      })
+    ).json()) as { active: boolean; licenseId: string; tier: string; billingPortalUrl: string }
+    expect(byExtUser).toEqual({
+      active: true,
+      tier: 'pro',
+      entitlementType: 'recurring',
+      licenseId: activeLic.id,
+      subscriptionStatus: 'active',
+      currentPeriodStart: periodStart,
+      currentPeriodEnd: periodEnd,
+      cancelAtPeriodEnd: false,
+      billingPortalUrl: 'https://billing.stripe.com/p/login/ent_test',
+    })
+
+    // Case-insensitive email lookup and key lookup both resolve the active license.
+    const byEmail = (await (
+      await request(`/api/v1/licensing/entitlements?extensionId=${extension.id}&email=user@example.com`, {
+        headers: { authorization: `Bearer ${apiKey}` },
+      })
+    ).json()) as { licenseId: string; active: boolean }
+    expect(byEmail.active).toBe(true)
+    expect(byEmail.licenseId).toBe(activeLic.id)
+
+    const byKey = (await (
+      await request(`/api/v1/licensing/entitlements?extensionId=${extension.id}&key=${expiredLic.key.toLowerCase()}`, {
+        headers: { authorization: `Bearer ${apiKey}` },
+      })
+    ).json()) as { active: boolean; tier: string; licenseId: string; subscriptionStatus: string }
+    expect(byKey.active).toBe(false)
+    expect(byKey.tier).toBe('free')
+    expect(byKey.licenseId).toBe(expiredLic.id)
+    expect(byKey.subscriptionStatus).toBe('expired')
+  })
+
+  it('POST /v1/licensing/bind attaches externalUserId to an existing key and guards conflicts', async () => {
+    const { sessionCookie, extension, license } = await setupLicensedProduct()
+    const apiKey = await createApiKey(sessionCookie)
+
+    const bind = (payload: Record<string, unknown>) =>
+      request('/api/v1/licensing/bind', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+    const first = await bind({ extensionId: extension.id, key: license.key.toLowerCase(), externalUserId: 'acc_1' })
+    expect(first.status).toBe(200)
+    const firstBody = (await first.json()) as { externalUserId: string; active: boolean; licenseId: string }
+    expect(firstBody.externalUserId).toBe('acc_1')
+    expect(firstBody.active).toBe(true)
+    expect(firstBody.licenseId).toBe(license.id)
+
+    // Idempotent for same externalUserId.
+    expect((await bind({ extensionId: extension.id, key: license.key, externalUserId: 'acc_1' })).status).toBe(200)
+    // Conflict when bound to a different user.
+    expect((await bind({ extensionId: extension.id, key: license.key, externalUserId: 'acc_2' })).status).toBe(409)
   })
 })

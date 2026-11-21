@@ -161,6 +161,60 @@ describe('checkActivation', () => {
     expect(await idbGet('plan')).toEqual(storedConfig())
   })
 
+  it('设备有效且服务端刷新 expiresAt / tier：持久化最新值并广播通知', async () => {
+    const oldExpiry = past()
+    const newExpiry = future()
+    await idbSet('plan', storedConfig({ tier: 'basic', expiresAt: oldExpiry }))
+    const broadcast = vi.fn()
+    const listener = vi.fn()
+    stubWire({
+      check: () =>
+        jsonResponse({
+          success: true,
+          data: { isActive: true, tier: 'pro', expiresAt: newExpiry, subscriptionStatus: 'active' },
+        }),
+    })
+
+    const client = createActivationClient<'free' | 'basic' | 'pro', Limit>({
+      extensionId: 'ext_test',
+      apiBase: 'https://dash.example.com',
+      plans: { free: FREE_LIMIT, basic: { records: 500 }, pro: PRO_LIMIT },
+      transport: { broadcast, listen: () => {} },
+    })
+    await client.getPlan() // oldExpiry 已过期，初始快照为 free
+    client.subscribe(listener)
+
+    expect(await client.checkActivation()).toBe(true)
+
+    const updated = (await idbGet('plan')) as PlanConfig
+    expect(updated.tier).toBe('pro')
+    expect(updated.expiresAt).toBe(newExpiry)
+    expect(client.getSnapshot().tier).toBe('pro')
+    expect(broadcast).toHaveBeenCalledTimes(1)
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ tier: 'pro' }),
+      expect.objectContaining({ tier: 'free' }),
+    )
+  })
+
+  it('设备有效且 tier 与 expiresAt 未变化：不重复写存储或广播', async () => {
+    const expiry = future()
+    await idbSet('plan', storedConfig({ expiresAt: expiry }))
+    const broadcast = vi.fn()
+    const setSpy = vi.fn(idbSet)
+    stubWire({
+      check: () => jsonResponse({ success: true, data: { isActive: true, tier: 'pro', expiresAt: expiry } }),
+    })
+
+    const client = createClient({
+      storage: { get: idbGet, set: setSpy, del: async () => {} },
+      transport: { broadcast, listen: () => {} },
+    })
+    expect(await client.checkActivation()).toBe(true)
+    expect(setSpy).not.toHaveBeenCalled()
+    expect(broadcast).not.toHaveBeenCalled()
+  })
+
   it('设备未激活但重激活成功：自愈,返回 true（座位衰减回归 / 车队迁移窗口）', async () => {
     await idbSet('plan', storedConfig())
     const { calls } = stubWire({ check: CHECK_INACTIVE, activate: ACTIVATE_OK })
@@ -229,23 +283,35 @@ describe('身份解析（extensionId）', () => {
 
   it('构造本身不抛错——extensionId 解析延后到真正联网时(见下一条),避免赶在 WXT 插件注入前跑', () => {
     expect(() =>
-      createActivationClient<Tier, Limit>({ apiBase: 'https://dash.example.com', plans: { free: FREE_LIMIT, pro: PRO_LIMIT } }),
+      createActivationClient<Tier, Limit>({
+        apiBase: 'https://dash.example.com',
+        plans: { free: FREE_LIMIT, pro: PRO_LIMIT },
+      }),
     ).not.toThrow()
   })
 
   it('activate() 抛错——没有 extensionId(显式传参或注入的全局都没有)时,licensing 必须响亮失败', async () => {
-    const client = createActivationClient<Tier, Limit>({ apiBase: 'https://dash.example.com', plans: { free: FREE_LIMIT, pro: PRO_LIMIT } })
+    const client = createActivationClient<Tier, Limit>({
+      apiBase: 'https://dash.example.com',
+      plans: { free: FREE_LIMIT, pro: PRO_LIMIT },
+    })
     await expect(client.activate('AAAA-BBBB-CCCC-DDDD')).rejects.toThrow(/extensionId/)
   })
 
   it('checkActivation() 同样抛错——即使本地已有激活记录', async () => {
     await idbSet('plan', storedConfig())
-    const client = createActivationClient<Tier, Limit>({ apiBase: 'https://dash.example.com', plans: { free: FREE_LIMIT, pro: PRO_LIMIT } })
+    const client = createActivationClient<Tier, Limit>({
+      apiBase: 'https://dash.example.com',
+      plans: { free: FREE_LIMIT, pro: PRO_LIMIT },
+    })
     await expect(client.checkActivation()).rejects.toThrow(/extensionId/)
   })
 
   it('getPlan() 不需要 extensionId,没有也能读本地存储', async () => {
-    const client = createActivationClient<Tier, Limit>({ apiBase: 'https://dash.example.com', plans: { free: FREE_LIMIT, pro: PRO_LIMIT } })
+    const client = createActivationClient<Tier, Limit>({
+      apiBase: 'https://dash.example.com',
+      plans: { free: FREE_LIMIT, pro: PRO_LIMIT },
+    })
     expect((await client.getPlan()).tier).toBe('free')
   })
 

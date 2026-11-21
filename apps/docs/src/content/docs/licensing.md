@@ -25,6 +25,9 @@ Then create a plan. A plan is one sellable tier of one extension:
 
 - **Tier** — the level the SDK resolves (e.g. `pro`). `free` is reserved
   for the unpaid tier.
+- **Billing model** — **One-time** (`perpetual`) or **Subscription**
+  (`recurring`). Pricing, monthly/yearly intervals, trials, and coupons
+  stay in Stripe.
 - **Max devices** — how many devices one license covers (editable later;
   applies to codes issued from then on).
 
@@ -47,15 +50,15 @@ export const client = createActivationClient({
   // (extport: { extension: 'ext_…' }); otherwise pass it here:
   // extensionId: 'ext_…',
   plans: {
-    free: { records: 100 },               // 'free' is required
-    pro: { records: Infinity },           // tier names = your plan tiers
+    free: { records: 100 }, // 'free' is required
+    pro: { records: Infinity }, // tier names = your plan tiers
   },
   transport: webextTransport(),
 })
 
 // in your UI: activate once, then the plan resolves locally
 await client.activate('XXXX-XXXX-XXXX-XXXX')
-const plan = await client.getPlan()       // { tier: 'pro', limit: … }
+const plan = await client.getPlan() // { tier: 'pro', limit: … }
 ```
 
 Call `attachBackground(client)` (from `@extport/sdk/webext`) in your
@@ -79,7 +82,7 @@ which Stripe always collects.
 Two settings on the link matter. **After payment** is part of the creation form itself; **Metadata** isn't — Stripe
 only exposes it once the link already exists, from its detail page:
 
-1. **After payment** (set while creating the link, or later via edit → *After payment* tab): redirect to
+1. **After payment** (set while creating the link, or later via edit → _After payment_ tab): redirect to
 
    ```
    https://portal.extport.dev/purchase/success?session_id={CHECKOUT_SESSION_ID}
@@ -89,14 +92,15 @@ only exposes it once the link already exists, from its detail page:
    the payment settles (`{CHECKOUT_SESSION_ID}` stays literal — Stripe
    fills it in). Skipping this works too — the code still arrives by
    email — but the redirect is the smoothest experience.
+
 2. **Metadata** (only after creating the link, from its detail page →
-   *Edit metadata*): add one entry, key `extport_plan`, value the
+   _Edit metadata_): add one entry, key `extport_plan`, value the
    `plan_…` id from your plans table. This is how a payment finds the
    plan to fulfill — without it, extport ignores the sale.
 
 ![The Payment Link detail page with the extport_plan metadata entry and the portal confirmation-page redirect](../../assets/screenshots/stripe-payment-link-metadata.jpg)
 
-Enable *Allow promotion codes* under Advanced options if you use
+Enable _Allow promotion codes_ under Advanced options if you use
 discount codes.
 
 ## 4. Point a webhook at extport
@@ -107,8 +111,11 @@ In Workbench → **Webhooks**, add an event destination:
   — the exact URL is shown ready-to-copy in [**Settings → Payment
   credentials**](https://dash.extport.dev/settings#payment-credentials).
 - **Events**: `checkout.session.completed`, `charge.refunded`,
-  `charge.dispute.created` — the first fulfills purchases, the other two
-  revoke licenses automatically on refunds and disputes.
+  `charge.dispute.created` (plus `customer.subscription.created`,
+  `customer.subscription.updated`, `customer.subscription.deleted`,
+  `invoice.paid`, and `invoice.payment_failed` if you sell
+  subscriptions) — the first fulfills purchases, while the subscription
+  events keep renewals, trials, and cancellations in sync.
 - **Payload style**: Snapshot (the default).
 
 ![The event destination in Stripe's Workbench, showing the endpoint URL, the three events, and the masked signing secret](../../assets/screenshots/stripe-webhook-detail.jpg)

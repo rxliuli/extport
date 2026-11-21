@@ -36,18 +36,24 @@ route.get(
   '/purchase/:sessionId',
   describeRoute({
     summary: 'Look up a fulfilled purchase by Stripe Checkout Session id',
-    description: 'Polled by the checkout success page. 404 until the webhook fulfills; 410 once the 24h window has passed.',
+    description:
+      'Polled by the checkout success page. 404 until the webhook fulfills; 410 once the 24h window has passed.',
     tags: ['Buyer portal'],
     security: [],
-    responses: { 200: { description: 'Fulfilled' }, 404: { description: 'Not fulfilled (yet)' }, 410: { description: 'Window expired' } },
+    responses: {
+      200: { description: 'Fulfilled' },
+      404: { description: 'Not fulfilled (yet)' },
+      410: { description: 'Window expired' },
+    },
   }),
   async (c) => {
     const db = c.get('db')
     const [row] = await db
-      .select({ license: licenses, plan: plans, extension: extensions })
+      .select({ license: licenses, plan: plans, extension: extensions, tenantSettings: tenants.settings })
       .from(licenses)
       .innerJoin(plans, eq(licenses.planId, plans.id))
       .innerJoin(extensions, eq(plans.extensionId, extensions.id))
+      .innerJoin(tenants, eq(extensions.tenantId, tenants.id))
       .where(eq(licenses.checkoutSessionId, c.req.param('sessionId')))
     if (!row) return c.json({ error: 'not found' }, 404)
     if (Date.now() - new Date(row.license.createdAt).getTime() > PURCHASE_LOOKUP_WINDOW_MS) {
@@ -68,8 +74,16 @@ route.get(
         key: row.license.key,
         productName: row.extension.name,
         tier: row.plan.tier,
+        entitlementType: row.license.entitlementType,
+        subscriptionStatus: row.license.subscriptionStatus,
+        currentPeriodStart: row.license.currentPeriodStart,
+        currentPeriodEnd: row.license.currentPeriodEnd,
+        cancelAtPeriodEnd: row.license.cancelAtPeriodEnd,
+        externalUserId: row.license.externalUserId,
         maxActivations: row.license.maxActivations,
         buyerEmail: row.license.buyerEmail,
+        supportUrl: row.tenantSettings.supportUrl ?? null,
+        billingPortalUrl: row.tenantSettings.billingPortalUrl ?? null,
         createdAt: row.license.createdAt,
       },
     })
@@ -181,13 +195,20 @@ route.get(
       licenses: rows.map(({ license, plan, extension, tenantSettings }) => ({
         key: license.key,
         status: license.status,
+        entitlementType: license.entitlementType,
+        subscriptionStatus: license.subscriptionStatus,
+        currentPeriodStart: license.currentPeriodStart,
+        currentPeriodEnd: license.currentPeriodEnd,
+        cancelAtPeriodEnd: license.cancelAtPeriodEnd,
+        externalUserId: license.externalUserId,
         maxActivations: license.maxActivations,
         createdAt: license.createdAt,
         productName: extension.name,
         tier: plan.tier,
-        // The selling developer's help link — each license can come from a
-        // different tenant, so it travels per license.
+        // The selling developer's help and billing links — each license can come
+        // from a different tenant, so they travel per license.
         supportUrl: tenantSettings.supportUrl ?? null,
+        billingPortalUrl: tenantSettings.billingPortalUrl ?? null,
         devices: (devicesByLicense.get(license.id) ?? []).map((d) => ({
           fingerprint: d.deviceFingerprint,
           activatedAt: d.activatedAt,
@@ -201,7 +222,12 @@ route.get(
 
 route.post(
   '/logout',
-  describeRoute({ summary: 'Sign out of the buyer portal', tags: ['Buyer portal'], security: [{ buyerSession: [] }], responses: { 200: { description: 'OK' } } }),
+  describeRoute({
+    summary: 'Sign out of the buyer portal',
+    tags: ['Buyer portal'],
+    security: [{ buyerSession: [] }],
+    responses: { 200: { description: 'OK' } },
+  }),
   async (c) => {
     const token = getCookie(c, BUYER_SESSION_COOKIE)
     if (token) await destroyBuyerSession(c.get('db'), token)

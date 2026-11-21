@@ -8,13 +8,7 @@ export type Store = (typeof STORES)[number]
  * which takes priority over everything else since it means reconcile couldn't
  * even get far enough to know what a version is doing.
  */
-export type DeploymentStatus =
-  | 'synced'
-  | 'queued'
-  | 'in_review'
-  | 'blocked'
-  | 'rejected'
-  | 'error'
+export type DeploymentStatus = 'synced' | 'queued' | 'in_review' | 'blocked' | 'rejected' | 'error'
 
 /**
  * One failure behind publish_targets.lastErrorDetail, kept structured so the
@@ -47,6 +41,9 @@ export type ArtifactSource = 'github_release' | 'cli_upload'
 
 export type EntitlementType = 'perpetual' | 'balance' | 'recurring'
 
+export const SUBSCRIPTION_STATUSES = ['trialing', 'active', 'past_due', 'canceled', 'expired'] as const
+export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number]
+
 export type Plan = 'free' | 'starter' | 'pro'
 
 export interface PlanLimits {
@@ -69,17 +66,29 @@ export interface TenantSettings {
    * no link at all (extport never falls back to the account email).
    */
   supportUrl?: string
+  /**
+   * Stripe No-code Customer Portal Login Link (https://billing.stripe.com/p/login/...).
+   * Surfaced in subscription emails, the buyer portal, and entitlement API responses
+   * so subscribers can manage or cancel their subscription without extport holding
+   * any Stripe secret API key.
+   */
+  billingPortalUrl?: string
 }
 
-/** True for an absolute http(s) URL or a mailto: with an address. */
-export function isValidSupportUrl(value: string): boolean {
-  if (/^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(value)) return true
+/** True for an absolute http(s) URL. */
+export function isValidHttpUrl(value: string): boolean {
   try {
     const url = new URL(value)
     return (url.protocol === 'https:' || url.protocol === 'http:') && Boolean(url.hostname)
   } catch {
     return false
   }
+}
+
+/** True for an absolute http(s) URL or a mailto: with an address. */
+export function isValidSupportUrl(value: string): boolean {
+  if (/^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(value)) return true
+  return isValidHttpUrl(value)
 }
 
 export const DEFAULT_STALE_REVIEW_DAYS: Record<Store, number> = {

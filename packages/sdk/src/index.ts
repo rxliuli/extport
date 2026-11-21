@@ -50,12 +50,23 @@ export interface Transport {
 export interface ActivateResponse {
   success: boolean
   message: string
-  data?: { tier: string; expiresAt: string | null }
+  data?: {
+    tier: string
+    expiresAt: string | null
+    subscriptionStatus?: string | null
+    cancelAtPeriodEnd?: boolean
+  }
 }
 
 interface CheckResponse {
   success: boolean
-  data?: { isActive: boolean; tier: string | null; expiresAt: string | null }
+  data?: {
+    isActive: boolean
+    tier: string | null
+    expiresAt: string | null
+    subscriptionStatus?: string | null
+    cancelAtPeriodEnd?: boolean
+  }
 }
 
 export type PlanListener<TTier extends string, TLimit> = (plan: Plan<TTier, TLimit>, prev: Plan<TTier, TLimit>) => void
@@ -228,6 +239,7 @@ export class ActivationClient<TTier extends string, TLimit> {
     if (!config) return undefined
 
     let active: boolean
+    let checkedData: CheckResponse['data'] | undefined
     const result = await this.postJson<CheckResponse>(this.backend.checkUrl, {
       code: config.code,
       extensionId: this.resolveExtensionIdOrThrow(),
@@ -239,9 +251,21 @@ export class ActivationClient<TTier extends string, TLimit> {
       active = false
     } else {
       if (!result.body.success || !result.body.data) throw new Error('Check device failed: no data')
-      active = result.body.data.isActive
+      checkedData = result.body.data
+      active = checkedData.isActive
     }
-    if (active) return true
+    if (active) {
+      const nextTier = checkedData?.tier ?? config.tier
+      const nextExpiresAt = checkedData?.expiresAt ?? null
+      if (nextTier !== config.tier || nextExpiresAt !== (config.expiresAt ?? null)) {
+        await this.persist({
+          ...config,
+          tier: nextTier,
+          expiresAt: nextExpiresAt,
+        })
+      }
+      return true
+    }
 
     const reactivate = await this.tryActivate(config.code, config.fingerprint)
     if (reactivate.success && reactivate.data) {

@@ -23,7 +23,7 @@ route.get(
     tags: ['Licensing'],
     summary: 'List licenses',
     description:
-      'Newest first, 20 per page, each row carrying its plan tier and extension for cross-product views. Filter with ?plan=, ?extension=, or ?search= (case-insensitive substring of an activation code or buyer email); pass the previous response\'s nextCursor as ?cursor= to fetch the next page.',
+      "Newest first, 20 per page, each row carrying its plan tier and extension for cross-product views. Filter with ?plan=, ?extension=, or ?search= (case-insensitive substring of an activation code or buyer email); pass the previous response's nextCursor as ?cursor= to fetch the next page.",
     responses: { 200: { description: 'OK' } },
   }),
   async (c) => {
@@ -44,7 +44,11 @@ route.get(
     if (search) {
       const pattern = `%${search.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`
       filters.push(
-        or(sql`${licenses.key} like ${pattern} escape '\\'`, sql`${licenses.buyerEmail} like ${pattern} escape '\\'`)!,
+        or(
+          sql`${licenses.key} like ${pattern} escape '\\'`,
+          sql`${licenses.buyerEmail} like ${pattern} escape '\\'`,
+          sql`coalesce(${licenses.externalUserId}, '') like ${pattern} escape '\\'`,
+        )!,
       )
     }
     // Keyset cursor "createdAt~id": strictly older rows, with the random id
@@ -54,9 +58,7 @@ route.get(
       if (sep === -1) return c.json({ error: 'cursor must be "createdAt~id"' }, 400)
       const createdAt = cursor.slice(0, sep)
       const id = cursor.slice(sep + 1)
-      filters.push(
-        or(lt(licenses.createdAt, createdAt), and(eq(licenses.createdAt, createdAt), lt(licenses.id, id)))!,
-      )
+      filters.push(or(lt(licenses.createdAt, createdAt), and(eq(licenses.createdAt, createdAt), lt(licenses.id, id)))!)
     }
 
     const rows = await db
@@ -68,7 +70,9 @@ route.get(
       .orderBy(desc(licenses.createdAt), desc(licenses.id))
       .limit(PAGE_SIZE + 1)
 
-    const page = rows.slice(0, PAGE_SIZE).map((r) => ({ ...r.license, tier: r.tier, extensionId: r.extensionId, extensionName: r.extensionName }))
+    const page = rows
+      .slice(0, PAGE_SIZE)
+      .map((r) => ({ ...r.license, tier: r.tier, extensionId: r.extensionId, extensionName: r.extensionName }))
     const last = page[page.length - 1]
     const nextCursor = rows.length > PAGE_SIZE ? `${last!.createdAt}~${last!.id}` : null
     return c.json({ licenses: page, nextCursor })
@@ -95,7 +99,8 @@ route.get(
     // UTC — its days are per-install dedup buckets, not calendar days —
     // so the offset deliberately stops at the money surfaces.
     const tz = Math.max(-720, Math.min(840, Math.trunc(Number(c.req.query('tz')) || 0)))
-    const dayIso = (back: number) => new Date(Date.now() + tz * 60_000 - back * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const dayIso = (back: number) =>
+      new Date(Date.now() + tz * 60_000 - back * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
     // One padding day: east of UTC, the window's first local day starts on
     // the previous UTC date. Surplus rows never match a charted day.
     const windowStart = dayIso(2 * OVERVIEW_DAYS)
@@ -140,7 +145,14 @@ route.get(
       const prevDate = dayIso(2 * OVERVIEW_DAYS - 1 - i)
       const current = bucket(date)
       const previous = bucket(prevDate)
-      return { date, revenue: current.revenue, count: current.count, prevDate, prevRevenue: previous.revenue, prevCount: previous.count }
+      return {
+        date,
+        revenue: current.revenue,
+        count: current.count,
+        prevDate,
+        prevRevenue: previous.revenue,
+        prevCount: previous.count,
+      }
     })
     const totals = days.reduce(
       (acc, d) => ({
@@ -159,6 +171,7 @@ route.get(
 const issueLicenseBodySchema = v.object({
   planId: v.pipe(v.string('planId is required'), v.trim(), v.minLength(1, 'planId is required')),
   buyerEmail: v.pipe(v.string('buyerEmail is required'), v.trim(), v.email('buyerEmail must be a valid email')),
+  externalUserId: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(255))),
 })
 
 route.post(
@@ -166,7 +179,8 @@ route.post(
   describeRoute({
     tags: ['Licensing'],
     summary: 'Issue a license',
-    description: 'Manually issues an activation code for a plan. The response is the only place the key is shown in full.',
+    description:
+      'Manually issues an activation code for a plan. The response is the only place the key is shown in full.',
     responses: { 201: { description: 'Issued' }, 404: { description: 'Plan not found' } },
   }),
   validator('json', issueLicenseBodySchema, badRequest),
@@ -184,13 +198,16 @@ route.post(
     const key = await uniqueLicenseKey(db)
 
     const id = newId('license')
+    const externalUserId = body.externalUserId || null
     await db.insert(licenses).values({
       id,
       tenantId: tenant.id,
       planId: plan.id,
       key,
       buyerEmail: body.buyerEmail,
+      externalUserId,
       entitlementType: plan.entitlementType,
+      subscriptionStatus: plan.entitlementType === 'recurring' ? 'active' : null,
       // Snapshot: later plan edits must not retroactively change
       // already-issued licenses.
       maxActivations: plan.maxActivations,
@@ -201,7 +218,7 @@ route.post(
       tenantId: tenant.id,
       licenseId: id,
       type: 'issued',
-      payload: { source: 'manual', planId: plan.id },
+      payload: { source: 'manual', planId: plan.id, ...(externalUserId ? { externalUserId } : {}) },
     })
 
     const [created] = await db.select().from(licenses).where(eq(licenses.id, id))
@@ -211,7 +228,11 @@ route.post(
 
 route.get(
   '/:id',
-  describeRoute({ summary: 'Get a license with its activations', responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } }, tags: ['Licensing'] }),
+  describeRoute({
+    summary: 'Get a license with its activations',
+    responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } },
+    tags: ['Licensing'],
+  }),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
@@ -221,7 +242,11 @@ route.get(
       .where(and(eq(licenses.tenantId, tenant.id), eq(licenses.id, c.req.param('id'))))
     if (!license) return c.json({ error: 'not found' }, 404)
     const [plan] = await db.select().from(plans).where(eq(plans.id, license.planId))
-    const deviceRows = await db.select().from(activations).where(eq(activations.licenseId, license.id)).orderBy(activations.activatedAt)
+    const deviceRows = await db
+      .select()
+      .from(activations)
+      .where(eq(activations.licenseId, license.id))
+      .orderBy(activations.activatedAt)
     return c.json({ license, plan: plan ?? null, activations: deviceRows })
   },
 )

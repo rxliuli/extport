@@ -25,18 +25,27 @@ export const tenants = sqliteTable('tenants', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   email: text('email').notNull(),
-  plan: text('plan', { enum: ['free', 'starter', 'pro'] }).notNull().$defaultFn(() => 'free'),
+  plan: text('plan', { enum: ['free', 'starter', 'pro'] })
+    .notNull()
+    .$defaultFn(() => 'free'),
   // Open signup: new tenants are active immediately. 'pending' remains as
   // the moderation lever — flip an abusive tenant back and
   // requireActiveTenant shuts them out. (It started life as the closed
   // beta's manual-approval gate; open signup inverted the default from
   // approve-before to revoke-after. Platform-side abuse is bounded by the
   // 64 MB artifact cap and the free plan's 3-extension limit.)
-  status: text('status', { enum: ['pending', 'active'] }).notNull().$defaultFn(() => 'active'),
-  settings: text('settings', { mode: 'json' }).$type<TenantSettings>().notNull().$defaultFn(() => ({})),
+  status: text('status', { enum: ['pending', 'active'] })
+    .notNull()
+    .$defaultFn(() => 'active'),
+  settings: text('settings', { mode: 'json' })
+    .$type<TenantSettings>()
+    .notNull()
+    .$defaultFn(() => ({})),
   // Envelope encryption: per-tenant DEK, wrapped by the versioned master KEK.
   dekEncrypted: text('dek_encrypted').notNull(),
-  dekKeyVersion: integer('dek_key_version').notNull().$defaultFn(() => 1),
+  dekKeyVersion: integer('dek_key_version')
+    .notNull()
+    .$defaultFn(() => 1),
   ...timestamps,
 })
 
@@ -51,10 +60,7 @@ export const users = sqliteTable(
     authSubject: text('auth_subject').notNull(),
     ...timestamps,
   },
-  (t) => [
-    uniqueIndex('users_auth_idx').on(t.authProvider, t.authSubject),
-    index('users_tenant_idx').on(t.tenantId),
-  ],
+  (t) => [uniqueIndex('users_auth_idx').on(t.authProvider, t.authSubject), index('users_tenant_idx').on(t.tenantId)],
 )
 
 export const sessions = sqliteTable(
@@ -81,10 +87,7 @@ export const apiKeys = sqliteTable(
     revokedAt: text('revoked_at'),
     ...timestamps,
   },
-  (t) => [
-    uniqueIndex('api_keys_hash_idx').on(t.keyHash),
-    index('api_keys_tenant_idx').on(t.tenantId),
-  ],
+  (t) => [uniqueIndex('api_keys_hash_idx').on(t.keyHash), index('api_keys_tenant_idx').on(t.tenantId)],
 )
 
 // `extport login`'s loopback flow: the dashboard mints a real API key and a
@@ -114,7 +117,9 @@ export const extensions = sqliteTable(
     // Publishing has no extension-level switch: configuring a store target IS
     // the opt-in, and pausing is per-target (publish_targets.enabled).
     // Licensing stays opt-in because it changes end-user runtime behavior.
-    licensingEnabled: integer('licensing_enabled', { mode: 'boolean' }).notNull().$defaultFn(() => false),
+    licensingEnabled: integer('licensing_enabled', { mode: 'boolean' })
+      .notNull()
+      .$defaultFn(() => false),
     ...timestamps,
   },
   (t) => [
@@ -133,17 +138,25 @@ export const storeCredentials = sqliteTable(
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull(),
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
-    label: text('label').notNull().$defaultFn(() => ''),
+    label: text('label')
+      .notNull()
+      .$defaultFn(() => ''),
     // Last four characters of the most identifying secret field — the only
     // plaintext-derived value ever stored; the UI shows nothing else.
-    hint: text('hint').notNull().$defaultFn(() => ''),
+    hint: text('hint')
+      .notNull()
+      .$defaultFn(() => ''),
     // Credential JSON encrypted with the tenant DEK; plaintext never touches D1.
     encryptedPayload: text('encrypted_payload').notNull(),
-    keyVersion: integer('key_version').notNull().$defaultFn(() => 1),
+    keyVersion: integer('key_version')
+      .notNull()
+      .$defaultFn(() => 1),
     // Edge API keys expire — used to drive rotation reminders.
     expiresAt: text('expires_at'),
     lastVerifiedAt: text('last_verified_at'),
-    status: text('status', { enum: ['active', 'invalid', 'expiring'] }).notNull().$defaultFn(() => 'active'),
+    status: text('status', { enum: ['active', 'invalid', 'expiring'] })
+      .notNull()
+      .$defaultFn(() => 'active'),
     ...timestamps,
   },
   (t) => [index('store_credentials_tenant_idx').on(t.tenantId)],
@@ -171,7 +184,9 @@ export const publishTargets = sqliteTable(
     // platform that will never have one; see docs/safari-pipeline.md.
     platforms: text('platforms', { mode: 'json' }).$type<string[]>(),
     credentialId: text('credential_id').notNull(),
-    enabled: integer('enabled', { mode: 'boolean' }).notNull().$defaultFn(() => true),
+    enabled: integer('enabled', { mode: 'boolean' })
+      .notNull()
+      .$defaultFn(() => true),
     // Who flipped enabled off and why — 'auto' is reconcile pausing after
     // two back-to-back rejections (repeat submissions of an unaddressed
     // violation risk store-account strikes), 'manual' is the tenant. All
@@ -273,7 +288,9 @@ export const deploymentVersions = sqliteTable(
     artifactId: text('artifact_id'),
     status: text('status', {
       enum: ['queued', 'in_review', 'online', 'rejected', 'skipped'],
-    }).notNull().$defaultFn(() => 'queued'),
+    })
+      .notNull()
+      .$defaultFn(() => 'queued'),
     statusDetail: text('status_detail'),
     // Set once, when the row enters in_review — drives the stale_review
     // threshold and is never overwritten by later transitions.
@@ -299,7 +316,10 @@ export const publishEvents = sqliteTable(
     extensionId: text('extension_id').notNull(),
     store: text('store', { enum: ['chrome', 'firefox', 'edge', 'safari'] }).notNull(),
     type: text('type', { enum: ['error', 'recovered', 'stale_review', 'paused', 'interrupted'] }).notNull(),
-    payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>().notNull().$defaultFn(() => ({})),
+    payload: text('payload', { mode: 'json' })
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .$defaultFn(() => ({})),
     createdAt: text('created_at').notNull().$defaultFn(now),
   },
   (t) => [
@@ -323,10 +343,7 @@ export const announcedReleases = sqliteTable(
     version: text('version').notNull(),
     announcedAt: text('announced_at').notNull().$defaultFn(now),
   },
-  (t) => [
-    primaryKey({ columns: [t.extensionId, t.version] }),
-    index('announced_releases_tenant_idx').on(t.tenantId),
-  ],
+  (t) => [primaryKey({ columns: [t.extensionId, t.version] }), index('announced_releases_tenant_idx').on(t.tenantId)],
 )
 
 // ===== Licensing 模块(Phase 2 实现,schema 先落地) =====
@@ -343,13 +360,17 @@ export const plans = sqliteTable(
     tier: text('tier').notNull(),
     entitlementType: text('entitlement_type', {
       enum: ['perpetual', 'balance', 'recurring'],
-    }).notNull().$defaultFn(() => 'perpetual'),
-    maxActivations: integer('max_activations').notNull().$defaultFn(() => 3),
+    })
+      .notNull()
+      .$defaultFn(() => 'perpetual'),
+    maxActivations: integer('max_activations')
+      .notNull()
+      .$defaultFn(() => 3),
     ...timestamps,
   },
   (t) => [
     index('plans_tenant_idx').on(t.tenantId),
-    uniqueIndex('plans_ext_tier_idx').on(t.extensionId, t.tier),
+    uniqueIndex('plans_ext_tier_idx').on(t.extensionId, t.tier, t.entitlementType),
   ],
 )
 
@@ -361,13 +382,21 @@ export const licenses = sqliteTable(
     planId: text('plan_id').notNull(),
     key: text('key').notNull(),
     buyerEmail: text('buyer_email').notNull(),
+    // Populated from Stripe Checkout Session `client_reference_id` (or bound
+    // via API) for account-based extensions so users don't have to copy-paste
+    // activation codes.
+    externalUserId: text('external_user_id'),
     entitlementType: text('entitlement_type', {
       enum: ['perpetual', 'balance', 'recurring'],
-    }).notNull().$defaultFn(() => 'perpetual'),
+    })
+      .notNull()
+      .$defaultFn(() => 'perpetual'),
     // Snapshot at issuance — later plan edits must not retroactively
     // change already-sold licenses.
     maxActivations: integer('max_activations').notNull(),
-    status: text('status', { enum: ['active', 'locked', 'refunded'] }).notNull().$defaultFn(() => 'active'),
+    status: text('status', { enum: ['active', 'locked', 'refunded'] })
+      .notNull()
+      .$defaultFn(() => 'active'),
     source: text('source', { enum: ['stripe_webhook', 'manual', 'imported'] }).notNull(),
     // Sale amount snapshot (Stripe's smallest currency unit) — the basis for
     // future percentage-based licensing billing. Null for manual/imported
@@ -383,20 +412,30 @@ export const licenses = sqliteTable(
     // Stripe Checkout Session id (cs_…), stored at fulfillment for the
     // success page's time-boxed lookup — extport holds no tenant API key
     // to resolve cs → pi later. sourceRef stays the PaymentIntent (what
-    // refund events reference).
+    // refund events reference) for perpetual, or subscription id for recurring.
     checkoutSessionId: text('checkout_session_id'),
+    // Recurring subscription lifecycle (null / default false for perpetual).
+    stripeSubscriptionId: text('stripe_subscription_id'),
+    subscriptionStatus: text('subscription_status', {
+      enum: ['trialing', 'active', 'past_due', 'canceled', 'expired'],
+    }),
+    currentPeriodStart: text('current_period_start'),
+    currentPeriodEnd: text('current_period_end'),
+    cancelAtPeriodEnd: integer('cancel_at_period_end', { mode: 'boolean' }).notNull().default(false),
     ...timestamps,
   },
   (t) => [
     uniqueIndex('licenses_key_idx').on(t.key),
     index('licenses_tenant_idx').on(t.tenantId),
     index('licenses_buyer_idx').on(t.tenantId, t.buyerEmail),
+    index('licenses_tenant_external_user_idx').on(t.tenantId, t.externalUserId),
     // Keyset pagination for the dashboard's license list.
     index('licenses_plan_created_idx').on(t.planId, t.createdAt),
     // Webhook idempotency + refund lookup. SQLite unique indexes admit any
     // number of NULLs, so manual licenses (no sourceRef) are unaffected.
     uniqueIndex('licenses_source_ref_idx').on(t.sourceRef),
     uniqueIndex('licenses_checkout_session_idx').on(t.checkoutSessionId),
+    uniqueIndex('licenses_stripe_subscription_idx').on(t.stripeSubscriptionId),
   ],
 )
 
@@ -431,12 +470,49 @@ export const licenseEvents = sqliteTable(
     licenseId: text('license_id').notNull(),
     // Heartbeats are deliberately not events.
     type: text('type', {
-      enum: ['issued', 'activated', 'seat_released', 'revoked', 'reset'],
+      enum: [
+        'issued',
+        'activated',
+        'seat_released',
+        'revoked',
+        'reset',
+        'renewed',
+        'subscription_updated',
+        'payment_failed',
+        'canceled',
+        'expired',
+      ],
     }).notNull(),
-    payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>().notNull().$defaultFn(() => ({})),
+    payload: text('payload', { mode: 'json' })
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .$defaultFn(() => ({})),
     createdAt: text('created_at').notNull().$defaultFn(now),
   },
   (t) => [index('license_events_license_idx').on(t.licenseId, t.createdAt)],
+)
+
+// Staging buffer for Stripe subscription/invoice webhooks that arrive before
+// `checkout.session.completed` (Stripe does not guarantee delivery order, and
+// `checkout.session.completed` omits period dates while subscription/invoice
+// events omit buyer email and `client_reference_id`). Consumed and deleted when
+// `checkout.session.completed` fulfills the license.
+export const pendingStripeSubscriptions = sqliteTable(
+  'pending_stripe_subscriptions',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    stripeSubscriptionId: text('stripe_subscription_id').notNull(),
+    subscriptionStatus: text('subscription_status', {
+      enum: ['trialing', 'active', 'past_due', 'canceled', 'expired'],
+    }).notNull(),
+    currentPeriodStart: text('current_period_start'),
+    currentPeriodEnd: text('current_period_end'),
+    cancelAtPeriodEnd: integer('cancel_at_period_end', { mode: 'boolean' }).notNull().default(false),
+    lastEventCreated: integer('last_event_created'),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('pending_stripe_subs_tenant_sub_idx').on(t.tenantId, t.stripeSubscriptionId)],
 )
 
 // One payment-provider credential per (tenant, provider) — the Stripe
@@ -453,7 +529,9 @@ export const paymentCredentials = sqliteTable(
     hint: text('hint').notNull(),
     // { webhookSecret } encrypted with the tenant DEK.
     encryptedPayload: text('encrypted_payload').notNull(),
-    keyVersion: integer('key_version').notNull().$defaultFn(() => 1),
+    keyVersion: integer('key_version')
+      .notNull()
+      .$defaultFn(() => 1),
     ...timestamps,
   },
   (t) => [uniqueIndex('payment_credentials_tenant_provider_idx').on(t.tenantId, t.provider)],
@@ -475,10 +553,7 @@ export const magicLinks = sqliteTable(
     expiresAt: text('expires_at').notNull(),
     createdAt: text('created_at').notNull().$defaultFn(now),
   },
-  (t) => [
-    uniqueIndex('magic_links_code_idx').on(t.codeHash),
-    index('magic_links_email_idx').on(t.email),
-  ],
+  (t) => [uniqueIndex('magic_links_code_idx').on(t.codeHash), index('magic_links_email_idx').on(t.email)],
 )
 
 export const buyerSessions = sqliteTable(
@@ -490,10 +565,7 @@ export const buyerSessions = sqliteTable(
     expiresAt: text('expires_at').notNull(),
     createdAt: text('created_at').notNull().$defaultFn(now),
   },
-  (t) => [
-    uniqueIndex('buyer_sessions_token_idx').on(t.tokenHash),
-    index('buyer_sessions_email_idx').on(t.email),
-  ],
+  (t) => [uniqueIndex('buyer_sessions_token_idx').on(t.tokenHash), index('buyer_sessions_email_idx').on(t.email)],
 )
 
 // ===== Analytics =====
@@ -612,6 +684,7 @@ export type License = typeof licenses.$inferSelect
 export type Activation = typeof activations.$inferSelect
 export type LicenseEvent = typeof licenseEvents.$inferSelect
 export type PaymentCredential = typeof paymentCredentials.$inferSelect
+export type PendingStripeSubscription = typeof pendingStripeSubscriptions.$inferSelect
 export type MagicLink = typeof magicLinks.$inferSelect
 export type BuyerSession = typeof buyerSessions.$inferSelect
 export type AnalyticsInstall = typeof analyticsInstalls.$inferSelect

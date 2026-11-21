@@ -5,7 +5,7 @@ import { PageHeader, Section, sectionBodyClass, sectionEmptyClass, sectionToolba
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { DevicesDialog, formatAmount } from '@/LicensingSection'
+import { DevicesDialog, formatAmount, LicenseBuyerCell, LicensePlanCell, LicenseStatusCell } from '@/LicensingSection'
 import { globalLicensesQuery, licensesOverviewQuery, type LicensesOverview } from '@/queries'
 import { formatDate } from '@/status'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
@@ -62,7 +62,7 @@ function LicensesPage() {
             <InputGroupInput
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Search by activation code or buyer email"
+              placeholder="Search by activation code, buyer email, or user ID"
             />
             {input && (
               <InputGroupAddon align="inline-end">
@@ -114,18 +114,16 @@ function LicensesPage() {
                     </Link>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{license.tier}</Badge>
+                    <LicensePlanCell tier={license.tier} entitlementType={license.entitlementType} />
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{license.buyerEmail}</TableCell>
+                  <TableCell>
+                    <LicenseBuyerCell buyerEmail={license.buyerEmail} externalUserId={license.externalUserId} />
+                  </TableCell>
                   <TableCell className="text-muted-foreground">
                     {formatAmount(license.amountTotal, license.currency)}
                   </TableCell>
                   <TableCell>
-                    {license.status === 'active' ? (
-                      <span className="text-muted-foreground">active</span>
-                    ) : (
-                      <Badge variant="destructive">{license.status}</Badge>
-                    )}
+                    <LicenseStatusCell license={license} />
                   </TableCell>
                   <TableCell className="text-muted-foreground">{license.source.replace('_webhook', '')}</TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(license.createdAt)}</TableCell>

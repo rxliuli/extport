@@ -7,8 +7,8 @@ import { extensions, plans } from '../db'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
 
-// Licensing plan catalog: one row per (extension, tier) — a plan has no
-// name of its own, the extension (ext_… id) is its identity.
+// Licensing plan catalog: one row per (extension, tier, entitlementType) —
+// a plan has no name of its own, the extension (ext_… id) is its identity.
 // See docs/licensing.md.
 const route = new Hono<AppEnv>()
 
@@ -34,10 +34,20 @@ route.get(
   },
 )
 
-const createProductBodySchema = v.object({
+const createPlanBodySchema = v.object({
   extensionId: v.pipe(v.string('extensionId is required'), v.trim(), v.minLength(1, 'extensionId is required')),
   tier: v.pipe(v.string('tier is required'), v.trim(), v.minLength(1, 'tier is required'), v.maxLength(32)),
-  maxActivations: v.optional(v.pipe(v.number('maxActivations must be a number'), v.integer('maxActivations must be an integer'), v.minValue(1, 'maxActivations must be at least 1'), v.maxValue(100, 'maxActivations must be at most 100'))),
+  entitlementType: v.optional(
+    v.picklist(['perpetual', 'recurring'], 'entitlementType must be "perpetual" or "recurring"'),
+  ),
+  maxActivations: v.optional(
+    v.pipe(
+      v.number('maxActivations must be a number'),
+      v.integer('maxActivations must be an integer'),
+      v.minValue(1, 'maxActivations must be at least 1'),
+      v.maxValue(100, 'maxActivations must be at most 100'),
+    ),
+  ),
 })
 
 route.post(
@@ -45,14 +55,19 @@ route.post(
   describeRoute({
     tags: ['Licensing'],
     summary: 'Create a plan',
-    description: "One plan per (extension, tier) — a plan has no name of its own.",
-    responses: { 201: { description: 'Created' }, 404: { description: 'Extension not found' }, 409: { description: 'Tier already exists for this extension' } },
+    description: 'One plan per (extension, tier, entitlementType) — a plan has no name of its own.',
+    responses: {
+      201: { description: 'Created' },
+      404: { description: 'Extension not found' },
+      409: { description: 'Plan already exists for this extension' },
+    },
   }),
-  validator('json', createProductBodySchema, badRequest),
+  validator('json', createPlanBodySchema, badRequest),
   async (c) => {
     const db = c.get('db')
     const tenant = c.get('tenant')
     const body = c.req.valid('json')
+    const entitlementType = body.entitlementType ?? 'perpetual'
 
     // The SDK resolves unknown tiers to 'free' — a paid plan named
     // 'free' could never activate anything.
@@ -67,8 +82,11 @@ route.post(
     const [conflict] = await db
       .select({ id: plans.id })
       .from(plans)
-      .where(and(eq(plans.extensionId, extension.id), eq(plans.tier, body.tier)))
-    if (conflict) return c.json({ error: `tier "${body.tier}" already exists for this extension` }, 409)
+      .where(
+        and(eq(plans.extensionId, extension.id), eq(plans.tier, body.tier), eq(plans.entitlementType, entitlementType)),
+      )
+    if (conflict)
+      return c.json({ error: `${entitlementType} plan for tier "${body.tier}" already exists for this extension` }, 409)
 
     const id = newId('plan')
     await db.insert(plans).values({
@@ -76,6 +94,7 @@ route.post(
       tenantId: tenant.id,
       extensionId: extension.id,
       tier: body.tier,
+      entitlementType,
       maxActivations: body.maxActivations ?? 3,
     })
     const [created] = await db.select().from(plans).where(eq(plans.id, id))
@@ -84,7 +103,12 @@ route.post(
 )
 
 const patchPlanBodySchema = v.object({
-  maxActivations: v.pipe(v.number('maxActivations must be a number'), v.integer('maxActivations must be an integer'), v.minValue(1, 'maxActivations must be at least 1'), v.maxValue(100, 'maxActivations must be at most 100')),
+  maxActivations: v.pipe(
+    v.number('maxActivations must be a number'),
+    v.integer('maxActivations must be an integer'),
+    v.minValue(1, 'maxActivations must be at least 1'),
+    v.maxValue(100, 'maxActivations must be at most 100'),
+  ),
 })
 
 // Deliberately only maxActivations (snapshot semantics — affects future
@@ -109,7 +133,10 @@ route.patch(
       .set({ maxActivations: body.maxActivations })
       .where(and(eq(plans.tenantId, tenant.id), eq(plans.id, c.req.param('id'))))
     if (result.meta.changes === 0) return c.json({ error: 'not found' }, 404)
-    const [updated] = await db.select().from(plans).where(eq(plans.id, c.req.param('id')))
+    const [updated] = await db
+      .select()
+      .from(plans)
+      .where(eq(plans.id, c.req.param('id')))
     return c.json({ plan: updated })
   },
 )

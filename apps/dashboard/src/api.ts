@@ -138,12 +138,15 @@ export interface CredentialRow {
   lastVerifiedAt: string | null
 }
 
+export type EntitlementType = 'perpetual' | 'balance' | 'recurring'
+export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired'
+
 export interface Plan {
   id: string
   extensionId: string
   /** A plan has no name of its own — the extension it belongs to is its identity. */
   tier: string
-  entitlementType: 'perpetual' | 'balance' | 'recurring'
+  entitlementType: EntitlementType
   maxActivations: number
   /** ISO date string (Date -> JSON) */
   createdAt: string
@@ -154,7 +157,14 @@ export interface LicenseRow {
   planId: string
   key: string
   buyerEmail: string
+  externalUserId: string | null
+  entitlementType: EntitlementType
   status: 'active' | 'locked' | 'refunded'
+  stripeSubscriptionId: string | null
+  subscriptionStatus: SubscriptionStatus | null
+  currentPeriodStart: string | null
+  currentPeriodEnd: string | null
+  cancelAtPeriodEnd: boolean
   maxActivations: number
   source: 'stripe_webhook' | 'manual' | 'imported'
   /** Smallest currency unit (e.g. cents); null for manual/imported rows not yet backfilled. */
@@ -243,6 +253,16 @@ export interface FleetExtensionAnalytics {
   name: string
   weeklyActives: number
   allTimeInstalls: number
+}
+
+export function isSafeHttpUrl(value: string | null | undefined): value is string {
+  if (!value) return false
+  try {
+    const url = new URL(value)
+    return (url.protocol === 'https:' || url.protocol === 'http:') && Boolean(url.hostname)
+  } catch {
+    return false
+  }
 }
 
 export class ApiError extends Error {

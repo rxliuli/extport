@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
-import { describe, expect, it } from 'vitest'
-import { licenseEvents, licenses, type License, type Plan } from '../src/db'
+import { env } from 'cloudflare:test'
+import { describe, expect, it, vi } from 'vitest'
+import { licenseEvents, licenses, pendingStripeSubscriptions, type License, type Plan } from '../src/db'
 import { createApiKey, createExtension, request, seedTenantWithUser } from './helpers'
 
 const SECRET = 'whsec_testsecret123'
@@ -20,7 +21,11 @@ async function stripeSignature(body: string, opts: { secret?: string; timestamp?
   return `t=${timestamp},v1=${hex}`
 }
 
-async function deliver(tenantId: string, event: unknown, opts: { secret?: string; timestamp?: number; signature?: string | null } = {}): Promise<Response> {
+async function deliver(
+  tenantId: string,
+  event: unknown,
+  opts: { secret?: string; timestamp?: number; signature?: string | null } = {},
+): Promise<Response> {
   const body = JSON.stringify(event)
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (opts.signature !== null) {
@@ -52,7 +57,7 @@ function checkoutEvent(planId: string, sessionOverrides: Record<string, unknown>
   }
 }
 
-async function setupStripeTenant() {
+async function setupStripeTenant(opts: { entitlementType?: 'perpetual' | 'recurring' } = {}) {
   const seeded = await seedTenantWithUser()
   const { sessionCookie } = seeded
   const extension = await createExtension(sessionCookie)
@@ -64,7 +69,11 @@ async function setupStripeTenant() {
   const productRes = await request('/api/v1/plans', {
     method: 'POST',
     headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ extensionId: extension.id, tier: 'pro' }),
+    body: JSON.stringify({
+      extensionId: extension.id,
+      tier: 'pro',
+      ...(opts.entitlementType ? { entitlementType: opts.entitlementType } : {}),
+    }),
   })
   const { plan } = (await productRes.json()) as { plan: Plan }
   const credRes = await request('/api/v1/payment-credentials', {
@@ -76,7 +85,10 @@ async function setupStripeTenant() {
   return { ...seeded, extension, plan }
 }
 
-async function tenantLicenses(db: Awaited<ReturnType<typeof seedTenantWithUser>>['db'], tenantId: string): Promise<License[]> {
+async function tenantLicenses(
+  db: Awaited<ReturnType<typeof seedTenantWithUser>>['db'],
+  tenantId: string,
+): Promise<License[]> {
   return db.select().from(licenses).where(eq(licenses.tenantId, tenantId))
 }
 
@@ -197,7 +209,9 @@ describe('checkout.session.completed fulfillment', () => {
 
   it('stores the billing country when the session collected one', async () => {
     const { db, tenantId, plan } = await setupStripeTenant()
-    const event = checkoutEvent(plan.id, { customer_details: { email: 'buyer@example.com', address: { country: 'TH' } } })
+    const event = checkoutEvent(plan.id, {
+      customer_details: { email: 'buyer@example.com', address: { country: 'TH' } },
+    })
     await deliver(tenantId, event)
     const [license] = await tenantLicenses(db, tenantId)
     expect(license!.country).toBe('TH')
@@ -256,18 +270,21 @@ describe('charge.refunded / charge.dispute.created revocation', () => {
     const { db, tenantId, plan } = await setupStripeTenant()
     const event = checkoutEvent(plan.id)
     await deliver(tenantId, event)
-    const refund = { type: 'charge.refunded', data: { object: { payment_intent: (event.data.object as { payment_intent: string }).payment_intent } } }
+    const refund = {
+      type: 'charge.refunded',
+      data: { object: { payment_intent: (event.data.object as { payment_intent: string }).payment_intent } },
+    }
     await deliver(tenantId, refund)
     const replay = await deliver(tenantId, refund)
     expect(((await replay.json()) as { status: string }).status).toBe('already_processed')
 
-    const unknown = await deliver(tenantId, { type: 'charge.dispute.created', data: { object: { payment_intent: 'pi_other' } } })
+    const unknown = await deliver(tenantId, {
+      type: 'charge.dispute.created',
+      data: { object: { payment_intent: 'pi_other' } },
+    })
     expect(((await unknown.json()) as { status: string }).status).toBe('ignored')
 
-    const events = await db
-      .select()
-      .from(licenseEvents)
-      .where(eq(licenseEvents.tenantId, tenantId))
+    const events = await db.select().from(licenseEvents).where(eq(licenseEvents.tenantId, tenantId))
     expect(events.filter((e) => e.type === 'revoked')).toHaveLength(1)
   })
 
@@ -275,5 +292,328 @@ describe('charge.refunded / charge.dispute.created revocation', () => {
     const { tenantId } = await setupStripeTenant()
     const res = await deliver(tenantId, { type: 'invoice.paid', data: { object: {} } })
     expect(((await res.json()) as { status: string }).status).toBe('ignored')
+  })
+})
+
+describe('recurring subscription webhooks', () => {
+  const nowSec = () => Math.floor(Date.now() / 1000)
+
+  it('fulfills subscription checkout with client_reference_id, syncs 2025-03-31+ item periods, renewals, and emails portal URL', async () => {
+    const { db, tenantId, sessionCookie, extension, plan } = await setupStripeTenant({
+      entitlementType: 'recurring',
+    })
+    await request('/api/v1/tenant/settings', {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ billingPortalUrl: 'https://billing.stripe.com/p/login/sub_portal' }),
+    })
+
+    const sendSpy = vi.spyOn(env.EMAIL, 'send').mockResolvedValue({ messageId: 'm1' } as never)
+
+    const subId = nextRef('sub')
+    const p1Start = nowSec()
+    const p1End = p1Start + 30 * 86400
+    const checkout = checkoutEvent(plan.id, {
+      mode: 'subscription',
+      payment_status: 'paid',
+      payment_intent: null,
+      subscription: subId,
+      client_reference_id: 'tw_user_42',
+      amount_total: 900,
+    })
+    expect((await deliver(tenantId, checkout)).status).toBe(200)
+
+    expect(sendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'buyer@example.com',
+        text: expect.stringContaining('https://billing.stripe.com/p/login/sub_portal'),
+      }),
+    )
+    sendSpy.mockRestore()
+
+    let [license] = await tenantLicenses(db, tenantId)
+    expect(license!.entitlementType).toBe('recurring')
+    expect(license!.stripeSubscriptionId).toBe(subId)
+    expect(license!.externalUserId).toBe('tw_user_42')
+    expect(license!.sourceRef).toBe(subId)
+    expect(license!.subscriptionStatus).toBe('active')
+
+    // Deliver Stripe API 2025-03-31+ subscription payload (period on items.data[0], no top-level period).
+    const subCreated = await deliver(tenantId, {
+      type: 'customer.subscription.created',
+      created: p1Start,
+      data: {
+        object: {
+          id: subId,
+          status: 'active',
+          cancel_at_period_end: false,
+          items: { data: [{ current_period_start: p1Start, current_period_end: p1End }] },
+        },
+      },
+    })
+    expect(subCreated.status).toBe(200)
+
+    ;[license] = await tenantLicenses(db, tenantId)
+    expect(license!.currentPeriodStart).toBe(new Date(p1Start * 1000).toISOString())
+    expect(license!.currentPeriodEnd).toBe(new Date(p1End * 1000).toISOString())
+
+    // Activate via public protocol and verify real expiresAt + subscription metadata.
+    const actRes = await request('/api/v1/licensing/activate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: license!.key, extensionId: extension.id, fingerprint: 'fp-sub-1' }),
+    })
+    const actBody = (await actRes.json()) as {
+      success: boolean
+      data: { tier: string; expiresAt: string; subscriptionStatus: string; cancelAtPeriodEnd: boolean }
+    }
+    expect(actBody.success).toBe(true)
+    expect(actBody.data).toEqual({
+      tier: 'pro',
+      expiresAt: new Date(p1End * 1000).toISOString(),
+      subscriptionStatus: 'active',
+      cancelAtPeriodEnd: false,
+    })
+
+    // Renewal invoice.paid using 2025-03-31+ parent.subscription_details.subscription shape.
+    const p2Start = p1End
+    const p2End = p2Start + 30 * 86400
+    const invoicePayload = {
+      type: 'invoice.paid',
+      created: p2Start,
+      data: {
+        object: {
+          id: nextRef('in'),
+          billing_reason: 'subscription_cycle',
+          amount_paid: 900,
+          parent: {
+            type: 'subscription_details',
+            subscription_details: { subscription: subId },
+          },
+          lines: {
+            data: [{ type: 'subscription', period: { start: p2Start, end: p2End } }],
+          },
+        },
+      },
+    }
+    expect((await deliver(tenantId, invoicePayload)).status).toBe(200)
+    // Duplicate invoice.paid delivery should be idempotent.
+    const replay = await deliver(tenantId, invoicePayload)
+    expect(((await replay.json()) as { status: string }).status).toBe('already_processed')
+
+    ;[license] = await tenantLicenses(db, tenantId)
+    expect(license!.currentPeriodEnd).toBe(new Date(p2End * 1000).toISOString())
+    const events = await db.select().from(licenseEvents).where(eq(licenseEvents.licenseId, license!.id))
+    expect(events.filter((e) => e.type === 'renewed')).toHaveLength(1)
+  })
+
+  it('handles out-of-order subscription & invoice events arriving before checkout.session.completed', async () => {
+    const { db, tenantId, plan } = await setupStripeTenant({ entitlementType: 'recurring' })
+    const subId = nextRef('sub')
+    const start = nowSec()
+    const trialEnd = start + 7 * 86400
+
+    // 1. customer.subscription.created arrives FIRST (trialing, legacy top-level period fields).
+    const r1 = await deliver(tenantId, {
+      type: 'customer.subscription.created',
+      created: start,
+      data: {
+        object: {
+          id: subId,
+          status: 'trialing',
+          current_period_start: start,
+          current_period_end: trialEnd,
+          cancel_at_period_end: false,
+          metadata: { extport_plan: plan.id },
+        },
+      },
+    })
+    expect(((await r1.json()) as { status: string }).status).toBe('deferred')
+
+    // 2. Initial $0 trial invoice.paid arrives SECOND (must preserve 'trialing').
+    const r2 = await deliver(tenantId, {
+      type: 'invoice.paid',
+      created: start,
+      data: {
+        object: {
+          id: nextRef('in'),
+          subscription: subId,
+          billing_reason: 'subscription_create',
+          amount_paid: 0,
+          lines: { data: [{ period: { start, end: trialEnd } }] },
+        },
+      },
+    })
+    expect(((await r2.json()) as { status: string }).status).toBe('deferred')
+
+    // 3. checkout.session.completed arrives LAST with no_payment_required + client_reference_id.
+    const r3 = await deliver(
+      tenantId,
+      checkoutEvent(plan.id, {
+        mode: 'subscription',
+        payment_status: 'no_payment_required',
+        payment_intent: null,
+        amount_total: 0,
+        subscription: subId,
+        client_reference_id: 'trial_user_1',
+      }),
+    )
+    expect(((await r3.json()) as { status: string }).status).toBe('processed')
+
+    const [license] = await tenantLicenses(db, tenantId)
+    expect(license!.subscriptionStatus).toBe('trialing')
+    expect(license!.externalUserId).toBe('trial_user_1')
+    expect(license!.currentPeriodStart).toBe(new Date(start * 1000).toISOString())
+    expect(license!.currentPeriodEnd).toBe(new Date(trialEnd * 1000).toISOString())
+    expect(await db.select().from(pendingStripeSubscriptions)).toHaveLength(0)
+
+    // Out-of-order transient 'incomplete' subscription.created arriving later must not downgrade.
+    const staleCreate = await deliver(tenantId, {
+      type: 'customer.subscription.created',
+      created: start,
+      data: { object: { id: subId, status: 'incomplete' } },
+    })
+    expect(((await staleCreate.json()) as { status: string }).status).toBe('ignored')
+    const [after] = await tenantLicenses(db, tenantId)
+    expect(after!.subscriptionStatus).toBe('trialing')
+  })
+
+  it('tracks payment_failed (past_due), cancel_at_period_end, and immediate deletion (expired)', async () => {
+    const { db, tenantId, extension, plan } = await setupStripeTenant({ entitlementType: 'recurring' })
+    const subId = nextRef('sub')
+    const start = nowSec()
+    const end = start + 30 * 86400
+
+    await deliver(
+      tenantId,
+      checkoutEvent(plan.id, {
+        mode: 'subscription',
+        payment_status: 'paid',
+        payment_intent: null,
+        subscription: subId,
+      }),
+    )
+    await deliver(tenantId, {
+      type: 'customer.subscription.updated',
+      created: start,
+      data: {
+        object: {
+          id: subId,
+          status: 'active',
+          cancel_at_period_end: false,
+          items: { data: [{ current_period_start: start, current_period_end: end }] },
+        },
+      },
+    })
+
+    const [license] = await tenantLicenses(db, tenantId)
+    await request('/api/v1/licensing/activate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: license!.key, extensionId: extension.id, fingerprint: 'fp-sub-life' }),
+    })
+
+    // Payment failure -> past_due (still entitled during Stripe retry grace period).
+    await deliver(tenantId, {
+      type: 'invoice.payment_failed',
+      created: start + 100,
+      data: {
+        object: {
+          id: nextRef('in'),
+          attempt_count: 1,
+          parent: { subscription_details: { subscription: subId } },
+        },
+      },
+    })
+    let [current] = await tenantLicenses(db, tenantId)
+    expect(current!.subscriptionStatus).toBe('past_due')
+    const checkPastDue = (await (
+      await request('/api/v1/licensing/check', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code: license!.key, extensionId: extension.id, fingerprint: 'fp-sub-life' }),
+      })
+    ).json()) as { data: { isActive: boolean; subscriptionStatus: string } }
+    expect(checkPastDue.data.isActive).toBe(true)
+    expect(checkPastDue.data.subscriptionStatus).toBe('past_due')
+
+    // Recovered payment -> active; then cancel at period end -> active + cancelAtPeriodEnd: true.
+    await deliver(tenantId, {
+      type: 'customer.subscription.updated',
+      created: start + 200,
+      data: {
+        object: {
+          id: subId,
+          status: 'active',
+          cancel_at_period_end: true,
+          items: { data: [{ current_period_start: start, current_period_end: end }] },
+        },
+      },
+    })
+    ;[current] = await tenantLicenses(db, tenantId)
+    expect(current!.subscriptionStatus).toBe('active')
+    expect(current!.cancelAtPeriodEnd).toBe(true)
+
+    // Immediate deletion (even with current_period_end still in the future) -> expired & immediately inactive.
+    await deliver(tenantId, {
+      type: 'customer.subscription.deleted',
+      created: start + 300,
+      data: {
+        object: {
+          id: subId,
+          status: 'canceled',
+          cancel_at_period_end: false,
+          ended_at: start + 300,
+          items: { data: [{ current_period_start: start, current_period_end: end }] },
+        },
+      },
+    })
+    ;[current] = await tenantLicenses(db, tenantId)
+    expect(current!.subscriptionStatus).toBe('expired')
+
+    const checkDeleted = (await (
+      await request('/api/v1/licensing/check', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code: license!.key, extensionId: extension.id, fingerprint: 'fp-sub-life' }),
+      })
+    ).json()) as { data: { isActive: boolean; subscriptionStatus: string } }
+    expect(checkDeleted.data.isActive).toBe(false)
+    expect(checkDeleted.data.subscriptionStatus).toBe('expired')
+
+    // Partial/single-invoice charge.refunded never destroys a recurring license via sourceRef lookup.
+    const refundAttempt = await deliver(tenantId, {
+      type: 'charge.refunded',
+      data: { object: { payment_intent: subId } },
+    })
+    expect(((await refundAttempt.json()) as { status: string }).status).toBe('ignored')
+  })
+
+  it('fails loudly (5xx) when checkout mode mismatches the plan entitlementType', async () => {
+    const perpetual = await setupStripeTenant({ entitlementType: 'perpetual' })
+    const recurring = await setupStripeTenant({ entitlementType: 'recurring' })
+
+    // Subscription checkout pointed at a perpetual plan must not silently issue a forever-active license.
+    const subOnPerpetual = await deliver(
+      perpetual.tenantId,
+      checkoutEvent(perpetual.plan.id, {
+        mode: 'subscription',
+        payment_intent: null,
+        subscription: nextRef('sub'),
+      }),
+    )
+    expect(subOnPerpetual.status).toBe(500)
+    expect(await tenantLicenses(perpetual.db, perpetual.tenantId)).toHaveLength(0)
+
+    // One-time payment checkout pointed at a recurring plan must also fail loudly.
+    const paymentOnRecurring = await deliver(
+      recurring.tenantId,
+      checkoutEvent(recurring.plan.id, {
+        mode: 'payment',
+        subscription: null,
+      }),
+    )
+    expect(paymentOnRecurring.status).toBe(500)
+    expect(await tenantLicenses(recurring.db, recurring.tenantId)).toHaveLength(0)
   })
 })

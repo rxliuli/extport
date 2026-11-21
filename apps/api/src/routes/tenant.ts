@@ -1,4 +1,10 @@
-import { DEFAULT_STALE_REVIEW_DAYS, isValidSupportUrl, STORES, type TenantSettings } from '@extport/shared'
+import {
+  DEFAULT_STALE_REVIEW_DAYS,
+  isValidHttpUrl,
+  isValidSupportUrl,
+  STORES,
+  type TenantSettings,
+} from '@extport/shared'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { describeRoute, resolver, validator } from 'hono-openapi'
@@ -16,12 +22,14 @@ route.use('*', requireSession, requireActiveTenant)
 const settingsResponseSchema = v.object({
   staleReviewDays: v.record(v.picklist(STORES), v.number()),
   supportUrl: v.nullable(v.string()),
+  billingPortalUrl: v.nullable(v.string()),
 })
 
 function settingsResponse(settings: TenantSettings) {
   return {
     staleReviewDays: { ...DEFAULT_STALE_REVIEW_DAYS, ...settings.staleReviewDays },
     supportUrl: settings.supportUrl ?? null,
+    billingPortalUrl: settings.billingPortalUrl ?? null,
   }
 }
 
@@ -31,7 +39,9 @@ route.get(
     summary: 'Get tenant settings',
     tags: ['Tenant'],
     security: [{ session: [] }],
-    responses: { 200: { description: 'OK', content: { 'application/json': { schema: resolver(settingsResponseSchema) } } } },
+    responses: {
+      200: { description: 'OK', content: { 'application/json': { schema: resolver(settingsResponseSchema) } } },
+    },
   }),
   (c) => c.json(settingsResponse(c.get('tenant').settings)),
 )
@@ -57,16 +67,28 @@ const patchSettingsBodySchema = v.object({
       ),
     ),
   ),
+  billingPortalUrl: v.optional(
+    v.nullable(
+      v.pipe(
+        v.string(),
+        v.trim(),
+        v.check((s) => s === '' || isValidHttpUrl(s), 'billingPortalUrl must be an http(s) URL'),
+      ),
+    ),
+  ),
 })
 
 route.patch(
   '/settings',
   describeRoute({
     summary: 'Update tenant settings',
-    description: 'Partially override the per-store stale-review thresholds (days a version can sit "in review" before it is flagged).',
+    description:
+      'Partially override tenant settings (per-store stale-review thresholds, buyer support URL, and Stripe Customer Portal link).',
     tags: ['Tenant'],
     security: [{ session: [] }],
-    responses: { 200: { description: 'OK', content: { 'application/json': { schema: resolver(settingsResponseSchema) } } } },
+    responses: {
+      200: { description: 'OK', content: { 'application/json': { schema: resolver(settingsResponseSchema) } } },
+    },
   }),
   validator('json', patchSettingsBodySchema, badRequest),
   async (c) => {
@@ -82,6 +104,10 @@ route.patch(
     if (body.supportUrl !== undefined) {
       if (body.supportUrl) next.supportUrl = body.supportUrl
       else delete next.supportUrl
+    }
+    if (body.billingPortalUrl !== undefined) {
+      if (body.billingPortalUrl) next.billingPortalUrl = body.billingPortalUrl
+      else delete next.billingPortalUrl
     }
 
     await db.update(tenants).set({ settings: next }).where(eq(tenants.id, tenant.id))

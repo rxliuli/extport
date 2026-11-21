@@ -19,6 +19,7 @@ export const ID_PREFIXES = {
   activation: 'act',
   licenseEvent: 'lev',
   paymentCredential: 'pay',
+  pendingStripeSubscription: 'psub',
   magicLink: 'mgl',
   buyerSession: 'bss',
   analyticsPing: 'apg',

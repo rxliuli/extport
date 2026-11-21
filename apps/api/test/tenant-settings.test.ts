@@ -73,8 +73,11 @@ describe('supportUrl', () => {
       body: JSON.stringify(body),
     })
   const get = async (cookie: string) =>
-    ((await (await request('/api/v1/tenant/settings', { headers: { cookie } })).json()) as { supportUrl: string | null })
-      .supportUrl
+    (
+      (await (await request('/api/v1/tenant/settings', { headers: { cookie } })).json()) as {
+        supportUrl: string | null
+      }
+    ).supportUrl
 
   it('is null by default, accepts https and mailto, clears with null or empty', async () => {
     const { sessionCookie } = await seedTenantWithUser()
@@ -101,6 +104,54 @@ describe('supportUrl', () => {
     const { sessionCookie } = await seedTenantWithUser()
     for (const bad of ['javascript:alert(1)', 'example.com', 'mailto:', 'ftp://example.com']) {
       expect((await patch(sessionCookie, { supportUrl: bad })).status).toBe(400)
+    }
+  })
+})
+
+describe('billingPortalUrl', () => {
+  const patch = (cookie: string, body: unknown) =>
+    request('/api/v1/tenant/settings', {
+      method: 'PATCH',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  const get = async (cookie: string) =>
+    (
+      (await (await request('/api/v1/tenant/settings', { headers: { cookie } })).json()) as {
+        billingPortalUrl: string | null
+      }
+    ).billingPortalUrl
+
+  it('is null by default, accepts http(s), clears with null or empty', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    expect(await get(sessionCookie)).toBeNull()
+
+    expect(
+      (await patch(sessionCookie, { billingPortalUrl: ' https://billing.stripe.com/p/login/test_abc ' })).status,
+    ).toBe(200)
+    expect(await get(sessionCookie)).toBe('https://billing.stripe.com/p/login/test_abc')
+
+    // Untouched by an unrelated patch.
+    await patch(sessionCookie, { staleReviewDays: { edge: 7 } })
+    expect(await get(sessionCookie)).toBe('https://billing.stripe.com/p/login/test_abc')
+
+    expect((await patch(sessionCookie, { billingPortalUrl: '' })).status).toBe(200)
+    expect(await get(sessionCookie)).toBeNull()
+
+    await patch(sessionCookie, { billingPortalUrl: 'https://billing.stripe.com/p/login/test_abc' })
+    expect((await patch(sessionCookie, { billingPortalUrl: null })).status).toBe(200)
+    expect(await get(sessionCookie)).toBeNull()
+  })
+
+  it('rejects non-http(s) values including mailto:', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    for (const bad of [
+      'mailto:help@example.com',
+      'javascript:alert(1)',
+      'billing.stripe.com/p/login/test',
+      'ftp://example.com',
+    ]) {
+      expect((await patch(sessionCookie, { billingPortalUrl: bad })).status).toBe(400)
     }
   })
 })

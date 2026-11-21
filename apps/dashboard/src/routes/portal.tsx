@@ -1,4 +1,4 @@
-import { ApiError, api } from '@/api'
+import { ApiError, api, isSafeHttpUrl, type EntitlementType, type SubscriptionStatus } from '@/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/extra/card'
@@ -10,7 +10,7 @@ import { PortalShell } from '@/PortalShell'
 import { formatDate } from '@/status'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Check, ChevronDown, Copy, LifeBuoy, Loader2, MailCheck } from 'lucide-react'
+import { Check, ChevronDown, Copy, CreditCard, LifeBuoy, Loader2, MailCheck } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -28,13 +28,37 @@ interface PortalDevice {
 interface PortalLicense {
   key: string
   status: 'active' | 'locked' | 'refunded'
+  entitlementType: EntitlementType
+  subscriptionStatus: SubscriptionStatus | null
+  currentPeriodStart: string | null
+  currentPeriodEnd: string | null
+  cancelAtPeriodEnd: boolean
+  externalUserId: string | null
   maxActivations: number
   createdAt: string
   productName: string
   tier: string
   /** The selling developer's help link (page or mailto:), if they set one. */
   supportUrl: string | null
+  /** The selling developer's Stripe Customer Portal link, if they set one. */
+  billingPortalUrl: string | null
   devices: PortalDevice[]
+}
+
+function isPortalLicenseEntitled(license: PortalLicense): boolean {
+  if (license.status !== 'active') return false
+  if (license.entitlementType !== 'recurring') return true
+  if (
+    license.subscriptionStatus === 'active' ||
+    license.subscriptionStatus === 'trialing' ||
+    license.subscriptionStatus === 'past_due'
+  ) {
+    return true
+  }
+  if (license.subscriptionStatus === 'canceled' && license.currentPeriodEnd) {
+    return new Date(license.currentPeriodEnd).getTime() > Date.now()
+  }
+  return false
 }
 
 export const Route = createFileRoute('/portal')({
@@ -147,8 +171,8 @@ function SignInCard() {
           <MailCheck className="mx-auto size-10 text-muted-foreground" />
           <CardTitle className="text-xl">Check your email</CardTitle>
           <CardDescription>
-            If there are purchases under <span className="font-medium text-foreground">{email}</span>, a sign-in link
-            is on its way. It's valid for 15 minutes.
+            If there are purchases under <span className="font-medium text-foreground">{email}</span>, a sign-in link is
+            on its way. It's valid for 15 minutes.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -209,8 +233,11 @@ function LicenseList({ licenses }: { licenses: PortalLicense[] }) {
     )
   }
   // The server sends newest first; codes that still work stay on top,
-  // refunded/locked ones sink to the bottom (order within each kept).
-  const ordered = [...licenses.filter((l) => l.status === 'active'), ...licenses.filter((l) => l.status !== 'active')]
+  // refunded/locked/expired ones sink to the bottom (order within each kept).
+  const ordered = [
+    ...licenses.filter((l) => isPortalLicenseEntitled(l)),
+    ...licenses.filter((l) => !isPortalLicenseEntitled(l)),
+  ]
   return (
     <div className="space-y-3">
       <ul className="divide-y rounded-xl border bg-card text-card-foreground shadow-sm">
@@ -228,11 +255,30 @@ function LicenseList({ licenses }: { licenses: PortalLicense[] }) {
   )
 }
 
+function subscriptionPeriodNote(license: PortalLicense): string | null {
+  if (license.entitlementType !== 'recurring') return null
+  const end = license.currentPeriodEnd ? formatDate(license.currentPeriodEnd) : null
+  if (license.subscriptionStatus === 'expired') {
+    if (!end || !license.currentPeriodEnd) return 'Expired'
+    return new Date(license.currentPeriodEnd).getTime() <= Date.now() ? `Ended ${end}` : `Expired`
+  }
+  if (license.subscriptionStatus === 'canceled' || license.cancelAtPeriodEnd) {
+    return end ? `Ends ${end}` : 'Cancels at period end'
+  }
+  if (license.subscriptionStatus === 'trialing') return end ? `Trial ends ${end}` : 'Trialing'
+  if (license.subscriptionStatus === 'past_due') return end ? `Payment past due (${end})` : 'Payment past due'
+  return end ? `Renews ${end}` : null
+}
+
 function LicenseRow({ license }: { license: PortalLicense }) {
   const [showDevices, setShowDevices] = useState(false)
   const active = license.devices.filter((d) => !d.releasedAt)
-  const inactive = license.status !== 'active'
+  const entitled = isPortalLicenseEntitled(license)
+  const inactive = !entitled
   const usage = `${active.length} of ${license.maxActivations} devices in use`
+  const periodNote = subscriptionPeriodNote(license)
+  const showBillingLink = license.entitlementType === 'recurring' && isSafeHttpUrl(license.billingPortalUrl)
+
   return (
     <li className="px-4 py-3 sm:px-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -240,10 +286,37 @@ function LicenseRow({ license }: { license: PortalLicense }) {
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-semibold">{license.productName}</span>
             <Badge variant="secondary">{license.tier}</Badge>
-            {inactive && <Badge variant="destructive">{license.status}</Badge>}
+            {license.entitlementType === 'recurring' && (
+              <Badge
+                variant={
+                  license.status !== 'active' ||
+                  license.subscriptionStatus === 'expired' ||
+                  license.subscriptionStatus === 'past_due'
+                    ? 'destructive'
+                    : 'outline'
+                }
+              >
+                {license.status !== 'active'
+                  ? license.status
+                  : license.cancelAtPeriodEnd && license.subscriptionStatus === 'active'
+                    ? 'canceling'
+                    : (license.subscriptionStatus?.replace('_', ' ') ?? 'subscription')}
+              </Badge>
+            )}
+            {license.entitlementType !== 'recurring' && inactive && (
+              <Badge variant="destructive">{license.status}</Badge>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-            <span>Purchased {formatDate(license.createdAt)}</span>
+            <span>
+              {license.entitlementType === 'recurring' ? 'Subscribed' : 'Purchased'} {formatDate(license.createdAt)}
+            </span>
+            {periodNote && (
+              <>
+                <span aria-hidden>·</span>
+                <span>{periodNote}</span>
+              </>
+            )}
             <span aria-hidden>·</span>
             {active.length > 0 ? (
               <button
@@ -257,6 +330,20 @@ function LicenseRow({ license }: { license: PortalLicense }) {
               </button>
             ) : (
               <span>{usage}</span>
+            )}
+            {showBillingLink && (
+              <>
+                <span aria-hidden>·</span>
+                <a
+                  href={license.billingPortalUrl!}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  <CreditCard className="size-3" />
+                  Manage subscription
+                </a>
+              </>
             )}
             {license.supportUrl && (
               <>

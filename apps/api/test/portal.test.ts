@@ -113,7 +113,7 @@ describe('magic-link sign-in', () => {
 })
 
 describe('GET /v1/portal/licenses', () => {
-  it('lists only the signed-in buyer\'s licenses, with devices', async () => {
+  it("lists only the signed-in buyer's licenses, with devices", async () => {
     const { db, extension, license } = await setupLicensed('alice@example.com')
     await setupLicensed('bob@example.com')
 
@@ -155,6 +155,88 @@ describe('portal supportUrl', () => {
     const byKey = new Map(body.licenses.map((l) => [l.key, l.supportUrl]))
     expect(byKey.get(a.license.key)).toBe('https://a.example/support')
     expect(byKey.get(b.license.key)).toBeNull()
+  })
+})
+
+describe('portal subscription fields and billingPortalUrl', () => {
+  it('returns subscription metadata and billingPortalUrl on /licenses and /purchase/:sessionId', async () => {
+    const seeded = await seedTenantWithUser()
+    const { db, sessionCookie } = seeded
+    const extension = await createExtension(sessionCookie)
+    await request(`/api/v1/extensions/${extension.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ licensingEnabled: true }),
+    })
+    await request('/api/v1/tenant/settings', {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ billingPortalUrl: 'https://billing.stripe.com/p/login/portal_xyz' }),
+    })
+    const planRes = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ extensionId: extension.id, tier: 'pro', entitlementType: 'recurring' }),
+    })
+    const { plan } = (await planRes.json()) as { plan: Plan }
+    const licRes = await request('/api/v1/licenses', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ planId: plan.id, buyerEmail: 'sub-portal@example.com', externalUserId: 'ext_99' }),
+    })
+    const { license } = (await licRes.json()) as { license: License }
+    const periodEnd = new Date(Date.now() + 14 * 86400_000).toISOString()
+    await db
+      .update(licenses)
+      .set({
+        checkoutSessionId: 'cs_sub_portal_1',
+        subscriptionStatus: 'active',
+        currentPeriodEnd: periodEnd,
+        cancelAtPeriodEnd: true,
+      })
+      .where(eq(licenses.id, license.id))
+
+    const purchaseRes = await request('/api/v1/portal/purchase/cs_sub_portal_1')
+    expect(purchaseRes.status).toBe(200)
+    const purchaseBody = (await purchaseRes.json()) as {
+      purchase: {
+        entitlementType: string
+        subscriptionStatus: string
+        currentPeriodEnd: string
+        cancelAtPeriodEnd: boolean
+        externalUserId: string
+        billingPortalUrl: string
+      }
+    }
+    expect(purchaseBody.purchase).toMatchObject({
+      entitlementType: 'recurring',
+      subscriptionStatus: 'active',
+      currentPeriodEnd: periodEnd,
+      cancelAtPeriodEnd: true,
+      externalUserId: 'ext_99',
+      billingPortalUrl: 'https://billing.stripe.com/p/login/portal_xyz',
+    })
+
+    const cookie = await buyerCookie(db, 'sub-portal@example.com')
+    const listRes = await request('/api/v1/portal/licenses', { headers: { cookie } })
+    const listBody = (await listRes.json()) as {
+      licenses: {
+        key: string
+        entitlementType: string
+        subscriptionStatus: string
+        currentPeriodEnd: string
+        cancelAtPeriodEnd: boolean
+        billingPortalUrl: string
+      }[]
+    }
+    expect(listBody.licenses[0]).toMatchObject({
+      key: license.key,
+      entitlementType: 'recurring',
+      subscriptionStatus: 'active',
+      currentPeriodEnd: periodEnd,
+      cancelAtPeriodEnd: true,
+      billingPortalUrl: 'https://billing.stripe.com/p/login/portal_xyz',
+    })
   })
 })
 
@@ -203,13 +285,17 @@ describe('tenant seat release + license detail', () => {
     expect(body.license.id).toBe(a.license.id)
     expect(body.plan.tier).toBe('pro')
 
-    expect((await request(`/api/v1/licenses/${a.license.id}`, { headers: { cookie: b.sessionCookie } })).status).toBe(404)
+    expect((await request(`/api/v1/licenses/${a.license.id}`, { headers: { cookie: b.sessionCookie } })).status).toBe(
+      404,
+    )
     expect(
-      (await request(`/api/v1/licenses/${a.license.id}/release`, {
-        method: 'POST',
-        headers: { cookie: b.sessionCookie, 'content-type': 'application/json' },
-        body: JSON.stringify({ fingerprint: 'fp-x' }),
-      })).status,
+      (
+        await request(`/api/v1/licenses/${a.license.id}/release`, {
+          method: 'POST',
+          headers: { cookie: b.sessionCookie, 'content-type': 'application/json' },
+          body: JSON.stringify({ fingerprint: 'fp-x' }),
+        })
+      ).status,
     ).toBe(404)
   })
 })

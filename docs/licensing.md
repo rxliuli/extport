@@ -105,29 +105,106 @@ POST /api/v1/licensing/check      { code, extensionId, fingerprint }
   records carry `dayjs().add(100, 'year')` values that must keep parsing.
 - Endpoints 404 unless the plan's extension has `licensingEnabled`.
 
-## Entitlements: perpetual only
+## Entitlements: perpetual & recurring subscriptions
 
-All of the author's paid extensions are one-time purchases; v1 implements
-only `perpetual`. The `entitlementType` enum keeps its other values
-(TS-level only, no DB constraint) but no code path reads them. The
-`licenses.balance` column is dropped — re-add it when a balance plan
-actually exists. Licenses have no `expiresAt` column.
+Originally v1 shipped with `perpetual` one-time purchases only. Recurring
+subscriptions (`entitlementType: 'recurring'`) are now first-class
+alongside `perpetual`, keeping the same BYO-Stripe zero-API-key principle:
+
+- **One-time (`perpetual`)** — active whenever `license.status === 'active'`;
+  emits `expiresAt: null`. Revoked only on `charge.refunded` /
+  `charge.dispute.created`.
+- **Subscription (`recurring`)** — pricing, intervals (monthly/yearly),
+  free trials, coupons, and customer self-service stay in Stripe.
+  extport tracks only `tier`, `subscriptionStatus` (`trialing` / `active` /
+  `past_due` / `canceled` / `expired`), `currentPeriodStart`,
+  `currentPeriodEnd`, and `cancelAtPeriodEnd`.
+- `plans_ext_tier_idx` is unique on `(extensionId, tier, entitlementType)`
+  so an extension can offer both a one-time `pro` plan and a recurring
+  `pro` plan (resolved identically by `@extport/sdk`'s `plans` table).
+
+### Subscription Stripe webhook lifecycle
+
+Point the tenant's Stripe webhook (`POST /api/v1/licensing/webhooks/stripe/:tenantId`)
+at:
+
+- `checkout.session.completed` (and `checkout.session.async_payment_succeeded`)
+  — fulfills both `mode: 'payment'` and `mode: 'subscription'` (accepting
+  `payment_status: 'paid'` or `'no_payment_required'` for trials/100% promos).
+  Extracts `session.subscription` (`sub_…`), `session.client_reference_id` →
+  `licenses.externalUserId`, and `customer_details.email` → `buyerEmail`.
+- `customer.subscription.created` / `customer.subscription.updated` — syncs
+  `subscriptionStatus`, `currentPeriodStart`, `currentPeriodEnd`, and
+  `cancelAtPeriodEnd`. Supports both legacy top-level period fields and
+  Stripe API 2025-03-31+ `items.data[0].current_period_start/end`.
+- `customer.subscription.deleted` — marks `subscriptionStatus = 'expired'`
+  (immediately ending entitlement even when canceled mid-period).
+- `invoice.paid` — updates period dates from `lines.data[].period` and
+  marks status `'active'` (preserving `'trialing'` on initial $0 trial
+  invoices), logging `renewed` on renewal cycles. Resolves subscription id
+  from both top-level `invoice.subscription` and Stripe API 2025-03-31+
+  `invoice.parent.subscription_details.subscription`.
+- `invoice.payment_failed` — marks `subscriptionStatus = 'past_due'`
+  (grace period remains entitled while Stripe retries).
+- `charge.refunded` / `charge.dispute.created` — revokes perpetual
+  licenses only; recurring licenses are managed through the subscription
+  lifecycle above so partial/single-invoice refunds don't destroy active
+  subscriptions.
+
+**Out-of-order resilience:** `checkout.session.completed` does not include
+period start/end timestamps, while `customer.subscription.*` and `invoice.*`
+events do not include `buyerEmail` or `client_reference_id` — and Stripe can
+deliver them in any order. Events arriving before `checkout.session.completed`
+are staged in `pending_stripe_subscriptions` keyed by `(tenantId, sub_…)`
+and merged atomically when `checkout.session.completed` creates the license.
+
+### Entitlement rules & server-side verification
+
+A license is currently entitled (`isLicenseEntitled`) when:
+
+- `license.status === 'active'`, AND:
+  - for `perpetual`: always true;
+  - for `recurring`: `subscriptionStatus` is `'active' | 'trialing' | 'past_due'`,
+    OR (`subscriptionStatus === 'canceled'` AND `currentPeriodEnd > now`).
+
+Two consumption paths exist:
+
+1. **Extension / device (`@extport/sdk`)**: `POST /api/v1/licensing/activate`
+   and `POST /api/v1/licensing/check` return real `expiresAt: currentPeriodEnd`
+   (plus `subscriptionStatus` and `cancelAtPeriodEnd` for recurring licenses).
+   On `checkActivation()`, `@extport/sdk` persists refreshed `expiresAt`/`tier`
+   values and broadcasts changes across extension contexts.
+2. **Account-based backends (`client_reference_id`)**: pass
+   `?client_reference_id=<userId>&prefilled_email=<email>` on the Stripe
+   Payment Link, then authenticate with a tenant API key to call:
+   - `GET /api/v1/licensing/entitlements?extensionId=ext_…&externalUserId=…`
+     (accepts `externalUserId`, `email`, and/or `key`; picks the best active
+     entitlement if multiple licenses match, or the most recent inactive row).
+     Returns `{ active, tier, entitlementType, licenseId, subscriptionStatus,
+     currentPeriodStart, currentPeriodEnd, cancelAtPeriodEnd, billingPortalUrl }`.
+   - `POST /api/v1/licensing/bind` `{ extensionId, key, externalUserId }`
+     to attach a user id to a license purchased while logged out.
+
+Tenants can configure their Stripe no-code Customer Portal Login Link as
+`TenantSettings.billingPortalUrl` (Settings UI / `PATCH /api/v1/tenant/settings`);
+extport surfaces it in subscription emails, the buyer portal, and
+entitlement responses.
 
 ## Schema deltas
 
 All licensing tables are empty in production, so this restructuring is
 one cheap migration with zero data concerns.
 
-| Table | Change |
-|---|---|
-| `plans` (né `products`) | + `tier` (text). One row per (extension, tier). Plans have **no name**: the extension (ext_… id) is their identity (0019 dropped the short-lived `plans.name`). Renamed products → plans (2026-07-28): "product" collides with Stripe/Paddle's Product and Edge's Partner Center Product ID, while the SDK (`plans`, `usePlan`), the buyer UI ("Current Plan"), and license-kit (`planTier`) already speak *plan*. − `stripeMetadataKey`: the metadata key is fixed (`extport_plan`), its value is the plan id. |
-| `licenses` | + `maxActivations` snapshot at issuance (plan edits must not retroactively change sold licenses). − `balance`. Unique index on `sourceRef` (webhook idempotency + refund lookup). Status: `active / locked / refunded`. |
-| `activations` | Unique index on (`licenseId`, `deviceFingerprint`); re-activation of a known fingerprint reuses the row (clears `releasedAt`). A seat is an activation with `releasedAt IS NULL`. |
-| `license_events` | Enum becomes `issued / activated / seat_released / revoked / reset`. Heartbeats are not events. |
-| `tenant_signing_keys` | Dropped. |
-| `payment_credentials` (new, slice B) | (tenantId, provider `'stripe'`, encrypted webhook secret, keyVersion) — same envelope encryption as store credentials. One Stripe account per tenant. |
-| `magic_links`, `buyer_sessions` (new, slice C) | Buyer identity is just an email (licenses already carry `buyerEmail`; no profile table until something needs one); magic links are the only buyer auth. |
-| `licenses.checkoutSessionId` (new, slice C) | Stripe Checkout Session id (cs_…), stored at fulfillment for the success page's time-boxed lookup; `sourceRef` remains the PaymentIntent for refunds. |
+| Table                                          | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plans` (né `products`)                        | + `tier` (text). One row per (extension, tier). Plans have **no name**: the extension (ext_… id) is their identity (0019 dropped the short-lived `plans.name`). Renamed products → plans (2026-07-28): "product" collides with Stripe/Paddle's Product and Edge's Partner Center Product ID, while the SDK (`plans`, `usePlan`), the buyer UI ("Current Plan"), and license-kit (`planTier`) already speak _plan_. − `stripeMetadataKey`: the metadata key is fixed (`extport_plan`), its value is the plan id. |
+| `licenses`                                     | + `maxActivations` snapshot at issuance (plan edits must not retroactively change sold licenses). − `balance`. Unique index on `sourceRef` (webhook idempotency + refund lookup). Status: `active / locked / refunded`.                                                                                                                                                                                                                                                                                         |
+| `activations`                                  | Unique index on (`licenseId`, `deviceFingerprint`); re-activation of a known fingerprint reuses the row (clears `releasedAt`). A seat is an activation with `releasedAt IS NULL`.                                                                                                                                                                                                                                                                                                                               |
+| `license_events`                               | Enum becomes `issued / activated / seat_released / revoked / reset`. Heartbeats are not events.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `tenant_signing_keys`                          | Dropped.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `payment_credentials` (new, slice B)           | (tenantId, provider `'stripe'`, encrypted webhook secret, keyVersion) — same envelope encryption as store credentials. One Stripe account per tenant.                                                                                                                                                                                                                                                                                                                                                           |
+| `magic_links`, `buyer_sessions` (new, slice C) | Buyer identity is just an email (licenses already carry `buyerEmail`; no profile table until something needs one); magic links are the only buyer auth.                                                                                                                                                                                                                                                                                                                                                         |
+| `licenses.checkoutSessionId` (new, slice C)    | Stripe Checkout Session id (cs_…), stored at fulfillment for the success page's time-boxed lookup; `sourceRef` remains the PaymentIntent for refunds.                                                                                                                                                                                                                                                                                                                                                           |
 
 ## Seat decay — lazy, no cron
 
@@ -155,7 +232,7 @@ nothing worth a persisted timestamp.
 
 ## Plans gate issuance — never validation
 
-The tenant's subscription to extport pays for *creating* things:
+The tenant's subscription to extport pays for _creating_ things:
 publishing quota, plans, issuing new licenses. It never pays for
 keeping already-issued licenses verifiable. When a tenant downgrades,
 churns to free, or walks away entirely, `activate`/`check` for every
@@ -173,7 +250,7 @@ extension stays hard-blocked while issued licenses exist.
 
 The same property is the platform-death safety net: if extport itself
 ever disappears, every activated device keeps working from cached state.
-The failure mode of this design is always "no *new* activations", never
+The failure mode of this design is always "no _new_ activations", never
 "paid features turn off".
 
 ## BYO-Stripe (slice B)
@@ -317,16 +394,16 @@ is decommissioned only after the last product flips.
 
 Import mapping, `source: 'imported'`:
 
-| license-kit | extport |
-|---|---|
-| `activation_code.code` | `licenses.key` — **verbatim** |
-| `activation_code.planTier` + `productName` | resolve/create `plans` row (extension, tier) |
-| `activation_code.maxDevices` | `licenses.maxActivations` |
-| `activation_code.status` (`active/revoked/expired`) | `active` / `refunded` / `refunded` |
-| `user.email` | `licenses.buyerEmail` (denormalized; `buyers` row in slice C) |
-| `payment.providerTransactionId` | `licenses.sourceRef` |
-| `device.fingerprint` | `activations.deviceFingerprint` |
-| `device.lastSeenAt` | `activations.lastHeartbeatAt` |
+| license-kit                                         | extport                                                       |
+| --------------------------------------------------- | ------------------------------------------------------------- |
+| `activation_code.code`                              | `licenses.key` — **verbatim**                                 |
+| `activation_code.planTier` + `productName`          | resolve/create `plans` row (extension, tier)                  |
+| `activation_code.maxDevices`                        | `licenses.maxActivations`                                     |
+| `activation_code.status` (`active/revoked/expired`) | `active` / `refunded` / `refunded`                            |
+| `user.email`                                        | `licenses.buyerEmail` (denormalized; `buyers` row in slice C) |
+| `payment.providerTransactionId`                     | `licenses.sourceRef`                                          |
+| `device.fingerprint`                                | `activations.deviceFingerprint`                               |
+| `device.lastSeenAt`                                 | `activations.lastHeartbeatAt`                                 |
 
 **Acceptance criterion (hard): a device activated under license-kit
 passes `check` against extport without re-activation. No buyer ever

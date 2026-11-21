@@ -209,7 +209,13 @@ function CredentialFieldInputs({
               <span className="text-muted-foreground">
                 {f.label} <span className="text-foreground">· keeps current value</span>
               </span>
-              <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => setUnlocked([...unlocked, f.key])}>
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto p-0"
+                onClick={() => setUnlocked([...unlocked, f.key])}
+              >
                 Change
               </Button>
             </div>
@@ -222,7 +228,12 @@ function CredentialFieldInputs({
           'data-rotates': rotating && f.rotates ? '' : undefined,
         }
         return f.textarea ? (
-          <Textarea key={f.key} rows={5} {...props} onChange={(e) => onChange({ ...fields, [f.key]: e.target.value })} />
+          <Textarea
+            key={f.key}
+            rows={5}
+            {...props}
+            onChange={(e) => onChange({ ...fields, [f.key]: e.target.value })}
+          />
         ) : (
           <Input key={f.key} {...props} onChange={(e) => onChange({ ...fields, [f.key]: e.target.value })} />
         )
@@ -453,8 +464,8 @@ function CredentialsSection() {
             >
               <p className="text-xs text-muted-foreground">
                 New {STORE_OPTION_LABEL[rotatingRow.store]} credentials — verified the same way as adding one, kept
-                under the same id so nothing referencing it needs to change. Fields you don't fill in keep their
-                current value.
+                under the same id so nothing referencing it needs to change. Fields you don't fill in keep their current
+                value.
               </p>
               <CredentialFieldInputs
                 key={rotatingRow.id}
@@ -555,6 +566,73 @@ function PaymentCredentialsSection() {
           and live mode have separate secrets — store whichever mode your sales currently run in.
         </p>
         <WebhookUrlRow />
+      </div>
+    </Section>
+  )
+}
+
+// Self-service Stripe Customer Portal link: shown on subscription purchases
+// in the buyer portal, fulfillment emails, and entitlement API responses.
+function BillingPortalSection() {
+  const queryClient = useQueryClient()
+  const { data: settings } = useQuery(tenantSettingsQuery)
+  const saved = settings?.billingPortalUrl ?? ''
+  const [value, setValue] = useState<string | null>(null)
+  const current = value ?? saved
+
+  const save = useMutation({
+    mutationFn: (billingPortalUrl: string) =>
+      api('/api/v1/tenant/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ billingPortalUrl: billingPortalUrl || null }),
+      }),
+    onSuccess: async (_data, billingPortalUrl) => {
+      await queryClient.invalidateQueries({ queryKey: tenantSettingsQuery.queryKey })
+      setValue(null)
+      toast.success(billingPortalUrl ? 'Billing portal link saved' : 'Billing portal link removed')
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  })
+
+  return (
+    <Section
+      id="billing-portal"
+      title="Customer billing portal"
+      description="Your Stripe no-code Customer Portal login link — surfaced to subscription buyers in emails, the buyer portal, and entitlement API responses."
+    >
+      <div className={`space-y-2 ${sectionBodyClass}`}>
+        <form
+          className="flex flex-col gap-2 sm:flex-row sm:items-center"
+          onSubmit={(e) => {
+            e.preventDefault()
+            save.mutate(current.trim())
+          }}
+        >
+          <Label htmlFor="billing-portal-url" className="sr-only">
+            Customer billing portal URL
+          </Label>
+          <Input
+            id="billing-portal-url"
+            name="billingPortalUrl"
+            type="url"
+            inputMode="url"
+            autoCorrect="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            placeholder="https://billing.stripe.com/p/login/..."
+            value={current}
+            onChange={(e) => setValue(e.target.value)}
+            aria-describedby="billing-portal-help"
+          />
+          <Button type="submit" disabled={save.isPending || current.trim() === saved}>
+            {save.isPending && <Loader2 className="animate-spin" />}
+            Save
+          </Button>
+        </form>
+        <p id="billing-portal-help" className="text-xs text-muted-foreground">
+          Enable the customer portal in Stripe Dashboard → Settings → Billing → Customer portal and paste its login link
+          here. Leave empty if you only sell one-time licenses.
+        </p>
       </div>
     </Section>
   )
@@ -672,6 +750,7 @@ function SettingsPage() {
       <ApiKeysSection />
       <CredentialsSection />
       <PaymentCredentialsSection />
+      <BillingPortalSection />
       <BuyerSupportSection />
     </div>
   )

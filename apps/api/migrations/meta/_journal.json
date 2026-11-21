@@ -225,6 +225,13 @@
       "when": 1795078563607,
       "tag": "0031_deployment_versions_tenant_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1795256934515,
+      "tag": "0032_subscription_billing",
+      "breakpoints": true
     }
   ]
 }

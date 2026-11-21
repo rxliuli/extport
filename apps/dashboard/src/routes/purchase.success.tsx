@@ -1,11 +1,12 @@
-import { ApiError, api } from '@/api'
+import { ApiError, api, isSafeHttpUrl, type EntitlementType, type SubscriptionStatus } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/extra/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PortalShell } from '@/PortalShell'
+import { formatDate } from '@/status'
 import { useQuery } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { Check, Copy } from 'lucide-react'
+import { Check, Copy, CreditCard } from 'lucide-react'
 import { useState } from 'react'
 
 // Payment Links redirect here with ?session_id={CHECKOUT_SESSION_ID}.
@@ -17,8 +18,12 @@ interface Purchase {
   key: string
   productName: string
   tier: string
+  entitlementType: EntitlementType
+  subscriptionStatus: SubscriptionStatus | null
+  currentPeriodEnd: string | null
   maxActivations: number
   buyerEmail: string
+  billingPortalUrl: string | null
   createdAt: string
 }
 
@@ -60,43 +65,46 @@ function PurchaseSuccessPage() {
     <PortalShell>
       <main className="flex flex-1 items-center justify-center p-6">
         <Card className="w-full max-w-md">
-        {!sessionId ? (
-          <CardHeader>
-            <CardTitle className="text-2xl tracking-tight">Missing purchase reference</CardTitle>
-            <CardDescription>
-              This page is reached from the checkout confirmation. If you just bought something, your activation code
-              is also on its way to your email.
-            </CardDescription>
-          </CardHeader>
-        ) : lookup.data?.state === 'ready' ? (
-          <ReadyCard purchase={lookup.data.purchase} />
-        ) : lookup.data?.state === 'expired' ? (
-          <CardHeader>
-            <CardTitle className="text-2xl tracking-tight">Check your email</CardTitle>
-            <CardDescription>
-              This confirmation link has expired. Your activation code was sent to your email at purchase time — you
-              can also sign in to <Link to="/portal" className="underline">your purchases</Link> with that address to
-              see it any time.
-            </CardDescription>
-          </CardHeader>
-        ) : timedOut ? (
-          <CardHeader>
-            <CardTitle className="text-2xl tracking-tight">Almost there</CardTitle>
-            <CardDescription>
-              Your payment went through, but the confirmation is taking longer than usual. Your activation code will
-              arrive by email shortly — no further action needed here.
-            </CardDescription>
-          </CardHeader>
-        ) : (
-          <CardHeader>
-            <CardTitle className="text-2xl tracking-tight">Finishing up…</CardTitle>
-            <CardDescription>Payment received — preparing your activation code.</CardDescription>
-            <div className="space-y-2 pt-4">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-4 w-2/3" />
-            </div>
-          </CardHeader>
-        )}
+          {!sessionId ? (
+            <CardHeader>
+              <CardTitle className="text-2xl tracking-tight">Missing purchase reference</CardTitle>
+              <CardDescription>
+                This page is reached from the checkout confirmation. If you just bought something, your activation code
+                is also on its way to your email.
+              </CardDescription>
+            </CardHeader>
+          ) : lookup.data?.state === 'ready' ? (
+            <ReadyCard purchase={lookup.data.purchase} />
+          ) : lookup.data?.state === 'expired' ? (
+            <CardHeader>
+              <CardTitle className="text-2xl tracking-tight">Check your email</CardTitle>
+              <CardDescription>
+                This confirmation link has expired. Your activation code was sent to your email at purchase time — you
+                can also sign in to{' '}
+                <Link to="/portal" className="underline">
+                  your purchases
+                </Link>{' '}
+                with that address to see it any time.
+              </CardDescription>
+            </CardHeader>
+          ) : timedOut ? (
+            <CardHeader>
+              <CardTitle className="text-2xl tracking-tight">Almost there</CardTitle>
+              <CardDescription>
+                Your payment went through, but the confirmation is taking longer than usual. Your activation code will
+                arrive by email shortly — no further action needed here.
+              </CardDescription>
+            </CardHeader>
+          ) : (
+            <CardHeader>
+              <CardTitle className="text-2xl tracking-tight">Finishing up…</CardTitle>
+              <CardDescription>Payment received — preparing your activation code.</CardDescription>
+              <div className="space-y-2 pt-4">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-4 w-2/3" />
+              </div>
+            </CardHeader>
+          )}
         </Card>
       </main>
     </PortalShell>
@@ -110,11 +118,13 @@ function ReadyCard({ purchase }: { purchase: Purchase }) {
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
+  const isRecurring = purchase.entitlementType === 'recurring'
+  const periodEnd = purchase.currentPeriodEnd ? formatDate(purchase.currentPeriodEnd) : null
   return (
     <>
       <CardHeader>
         <CardTitle className="text-2xl tracking-tight">
-          Thanks for purchasing {purchase.productName} ({purchase.tier})!
+          Thanks for {isRecurring ? 'subscribing to' : 'purchasing'} {purchase.productName} ({purchase.tier})!
         </CardTitle>
         <CardDescription>Your activation code:</CardDescription>
       </CardHeader>
@@ -129,9 +139,28 @@ function ReadyCard({ purchase }: { purchase: Purchase }) {
         </div>
         <p className="text-sm text-muted-foreground">
           Open the extension's settings and enter this code to activate — it covers up to {purchase.maxActivations}{' '}
-          devices. A copy was also sent to <span className="font-medium">{purchase.buyerEmail}</span>; that email is
-          your proof of purchase.
+          devices.
+          {isRecurring && periodEnd
+            ? purchase.subscriptionStatus === 'trialing'
+              ? ` Your trial runs through ${periodEnd}.`
+              : ` Your current billing period runs through ${periodEnd}.`
+            : ''}{' '}
+          A copy was also sent to <span className="font-medium">{purchase.buyerEmail}</span>; that email is your proof
+          of purchase.
         </p>
+        {isRecurring && isSafeHttpUrl(purchase.billingPortalUrl) && (
+          <div>
+            <a
+              href={purchase.billingPortalUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm font-medium underline underline-offset-4 hover:text-foreground"
+            >
+              <CreditCard className="size-4" />
+              Manage subscription
+            </a>
+          </div>
+        )}
       </CardContent>
     </>
   )
