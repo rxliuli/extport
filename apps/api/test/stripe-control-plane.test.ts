@@ -976,7 +976,7 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
     const { db, tenantId, sessionCookie, extension } = await setupControlPlaneTenant({
       apiKey: 'rk_test_portal_sub',
     })
-    mockStripeFetch((path, params) => {
+    const calls = mockStripeFetch((path, params) => {
       if (path === '/products') return { body: { id: 'prod_portal_1' } }
       if (path === '/prices') return { body: { id: 'price_portal_1' } }
       if (path === '/checkout/sessions') {
@@ -1089,5 +1089,9 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
     expect(
       ((await resumeRes.json()) as { subscription: { cancelAtPeriodEnd: boolean } }).subscription.cancelAtPeriodEnd,
     ).toBe(false)
+    // Resume clears both cancel_at_period_end and cancel_at (for Billing Portal flexible cancellations).
+    const resumeStripeCall = calls[calls.length - 1]!
+    expect(resumeStripeCall.params.get('cancel_at_period_end')).toBe('false')
+    expect(resumeStripeCall.params.get('cancel_at')).toBe('')
   })
 })

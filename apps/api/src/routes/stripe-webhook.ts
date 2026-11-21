@@ -66,6 +66,8 @@ interface StripeSubscription {
   current_period_start?: number | null
   current_period_end?: number | null
   cancel_at_period_end?: boolean | null
+  /** Scheduled cancellation timestamp — Stripe Billing Portal uses this in flexible billing mode while leaving cancel_at_period_end=false. */
+  cancel_at?: number | null
   trial_start?: number | null
   trial_end?: number | null
   ended_at?: number | null
@@ -519,8 +521,10 @@ async function handleSubscriptionChange(
   const mappedStatus = mapStripeSubscriptionStatus(sub.status, sub.ended_at)
   if (!mappedStatus) return c.json({ status: 'ignored', reason: `subscription_status=${sub.status}` })
 
-  const { currentPeriodStart, currentPeriodEnd } = extractSubscriptionPeriod(sub)
-  const cancelAtPeriodEnd = Boolean(sub.cancel_at_period_end)
+  const { currentPeriodStart, currentPeriodEnd: extractedEnd } = extractSubscriptionPeriod(sub)
+  const cancelAtIso = toIsoSeconds(sub.cancel_at)
+  const currentPeriodEnd = extractedEnd ?? cancelAtIso
+  const cancelAtPeriodEnd = Boolean(sub.cancel_at_period_end || cancelAtIso)
   const customerId = stripeId(sub.customer)
 
   const [existing] = await db
@@ -607,8 +611,10 @@ async function handleSubscriptionDeleted(
   const db = c.get('db')
   if (!sub?.id) return c.json({ status: 'ignored', reason: 'no subscription id' })
 
-  const { currentPeriodStart, currentPeriodEnd } = extractSubscriptionPeriod(sub)
-  const cancelAtPeriodEnd = Boolean(sub.cancel_at_period_end)
+  const { currentPeriodStart, currentPeriodEnd: extractedEnd } = extractSubscriptionPeriod(sub)
+  const cancelAtIso = toIsoSeconds(sub.cancel_at)
+  const currentPeriodEnd = extractedEnd ?? cancelAtIso
+  const cancelAtPeriodEnd = Boolean(sub.cancel_at_period_end || cancelAtIso)
   const customerId = stripeId(sub.customer)
 
   const [existing] = await db

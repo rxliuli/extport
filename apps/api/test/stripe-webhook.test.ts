@@ -810,4 +810,60 @@ describe('recurring subscription webhooks', () => {
     const rows3 = await tenantSubscriptions(db, tenantId)
     expect(rows3.find((s) => s.stripeSubscriptionId === sub3)?.stripeCustomerId).toBe('cus_backfill_3')
   })
+
+  it('treats Stripe Billing Portal cancel_at (with cancel_at_period_end=false) as canceling and clears on resume', async () => {
+    const { db, tenantId, plan } = await setupStripeTenant({ entitlementType: 'recurring' })
+    const subId = nextRef('sub')
+    const now = Math.floor(Date.now() / 1000)
+    const periodEnd = now + 30 * 86400
+
+    await deliver(
+      tenantId,
+      checkoutEvent(plan.id, {
+        mode: 'subscription',
+        payment_status: 'paid',
+        payment_intent: null,
+        customer: 'cus_portal_cancel',
+        subscription: subId,
+      }),
+    )
+
+    // Billing Portal in flexible billing mode cancels by setting `cancel_at` while keeping `cancel_at_period_end: false`.
+    const cancelRes = await deliver(tenantId, {
+      type: 'customer.subscription.updated',
+      created: now + 5,
+      data: {
+        object: {
+          id: subId,
+          customer: 'cus_portal_cancel',
+          status: 'active',
+          cancel_at_period_end: false,
+          cancel_at: periodEnd,
+          items: { data: [{ current_period_start: now, current_period_end: periodEnd }] },
+        },
+      },
+    })
+    expect(cancelRes.status).toBe(200)
+    const afterCancel = (await tenantSubscriptions(db, tenantId)).find((s) => s.stripeSubscriptionId === subId)
+    expect(afterCancel?.cancelAtPeriodEnd).toBe(true)
+
+    // Clearing `cancel_at: null` restores active renewing state.
+    const resumeRes = await deliver(tenantId, {
+      type: 'customer.subscription.updated',
+      created: now + 10,
+      data: {
+        object: {
+          id: subId,
+          customer: 'cus_portal_cancel',
+          status: 'active',
+          cancel_at_period_end: false,
+          cancel_at: null,
+          items: { data: [{ current_period_start: now, current_period_end: periodEnd }] },
+        },
+      },
+    })
+    expect(resumeRes.status).toBe(200)
+    const afterResume = (await tenantSubscriptions(db, tenantId)).find((s) => s.stripeSubscriptionId === subId)
+    expect(afterResume?.cancelAtPeriodEnd).toBe(false)
+  })
 })
