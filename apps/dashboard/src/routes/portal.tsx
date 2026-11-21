@@ -26,7 +26,7 @@ import { PortalShell } from '@/PortalShell'
 import { formatDate } from '@/status'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Check, ChevronDown, Copy, CreditCard, LifeBuoy, Loader2, MailCheck } from 'lucide-react'
+import { Check, ChevronDown, Copy, CreditCard, Download, FileText, LifeBuoy, Loader2, MailCheck } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -325,6 +325,100 @@ function PurchasesList({
   )
 }
 
+interface PortalInvoice {
+  id: string
+  number: string | null
+  status: string | null
+  amountPaid: number
+  currency: string
+  createdAt: string
+  invoicePdf: string | null
+  hostedInvoiceUrl: string | null
+}
+
+function formatInvoiceAmount(amountMinor: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency.toUpperCase(),
+    }).format(amountMinor / 100)
+  } catch {
+    return `$${(amountMinor / 100).toFixed(2)}`
+  }
+}
+
+function SubscriptionInvoicesDialog({ subscription }: { subscription: PortalSubscription }) {
+  const [open, setOpen] = useState(false)
+  const invoices = useQuery({
+    queryKey: ['portal-subscription-invoices', subscription.id],
+    enabled: open,
+    queryFn: () => api<{ invoices: PortalInvoice[] }>(`/api/v1/portal/subscriptions/${subscription.id}/invoices`),
+  })
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="ghost" size="sm" aria-label={`Invoices for ${subscription.productName}`}>
+          <FileText className="size-3.5" />
+          Invoices
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Invoices · {subscription.productName}</DialogTitle>
+          <DialogDescription>Download receipts and PDF invoices for this subscription.</DialogDescription>
+        </DialogHeader>
+        {invoices.isLoading ? (
+          <div className="space-y-2 py-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : invoices.isError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {invoices.error instanceof ApiError ? invoices.error.message : String(invoices.error)}
+          </p>
+        ) : !invoices.data?.invoices.length ? (
+          <p className="py-4 text-sm text-muted-foreground">No invoices found yet.</p>
+        ) : (
+          <ul className="divide-y rounded-lg border text-sm">
+            {invoices.data.invoices.map((inv) => {
+              const downloadUrl = isSafeHttpUrl(inv.invoicePdf)
+                ? inv.invoicePdf
+                : isSafeHttpUrl(inv.hostedInvoiceUrl)
+                  ? inv.hostedInvoiceUrl
+                  : null
+              return (
+                <li key={inv.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{formatDate(inv.createdAt)}</span>
+                      <span className="text-muted-foreground">{formatInvoiceAmount(inv.amountPaid, inv.currency)}</span>
+                      {inv.status && (
+                        <Badge variant="outline" className="text-xs">
+                          {inv.status}
+                        </Badge>
+                      )}
+                    </div>
+                    {inv.number && <div className="font-mono text-xs text-muted-foreground">{inv.number}</div>}
+                  </div>
+                  {downloadUrl && (
+                    <Button asChild variant="outline" size="sm">
+                      <a href={downloadUrl} target="_blank" rel="noreferrer">
+                        <Download className="size-3.5" />
+                        PDF
+                      </a>
+                    </Button>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function SubscriptionItemRow({ subscription }: { subscription: PortalSubscription }) {
   const queryClient = useQueryClient()
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false)
@@ -376,31 +470,6 @@ function SubscriptionItemRow({ subscription }: { subscription: PortalSubscriptio
       void queryClient.invalidateQueries({ queryKey: ['portal-licenses'] })
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : String(err)),
-  })
-
-  const showManageBilling = subscription.canManageBilling ?? isSafeHttpUrl(subscription.billingPortalUrl)
-  const manageBilling = useMutation({
-    mutationFn: () =>
-      api<{ url: string }>('/api/v1/portal/billing-portal', {
-        method: 'POST',
-        body: JSON.stringify({ subscriptionId: subscription.id }),
-      }),
-    onSuccess: ({ url }) => {
-      if (isSafeHttpUrl(url)) {
-        window.location.assign(url)
-      } else if (isSafeHttpUrl(subscription.billingPortalUrl)) {
-        window.location.assign(subscription.billingPortalUrl)
-      } else {
-        toast.error('Billing portal is unavailable for this subscription')
-      }
-    },
-    onError: (err) => {
-      if (isSafeHttpUrl(subscription.billingPortalUrl)) {
-        window.location.assign(subscription.billingPortalUrl)
-        return
-      }
-      toast.error(err instanceof ApiError ? err.message : String(err))
-    },
   })
 
   return (
@@ -492,23 +561,7 @@ function SubscriptionItemRow({ subscription }: { subscription: PortalSubscriptio
                 </DialogContent>
               </Dialog>
             ))}
-          {showManageBilling && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={manageBilling.isPending}
-              aria-label={`Payment and invoices for ${subscription.productName}`}
-              onClick={() => manageBilling.mutate()}
-            >
-              {manageBilling.isPending ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <CreditCard className="size-3.5" />
-              )}
-              Payment & invoices
-            </Button>
-          )}
+          {subscription.canCancel && <SubscriptionInvoicesDialog subscription={subscription} />}
         </div>
       </div>
     </li>

@@ -98,6 +98,24 @@ const server = http.createServer(async (req, res) => {
     })
   }
 
+  if (method === 'GET' && url.pathname === '/v1/invoices') {
+    return sendJson(res, 200, {
+      object: 'list',
+      data: [
+        {
+          id: 'in_e2e_1',
+          number: 'INV-E2E-0001',
+          status: 'paid',
+          amount_paid: 599,
+          currency: 'usd',
+          created: Math.floor(Date.now() / 1000),
+          invoice_pdf: 'https://pay.stripe.test/invoice/in_e2e_1/pdf',
+          hosted_invoice_url: 'https://invoice.stripe.test/i/in_e2e_1',
+        },
+      ],
+    })
+  }
+
   return sendJson(res, 404, { error: { message: `Unhandled mock Stripe route: ${method} ${url.pathname}` } })
 })
 

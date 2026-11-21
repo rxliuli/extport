@@ -26,6 +26,7 @@ import { sendMagicLinkEmail } from '../lib/licensing-email'
 import {
   createStripeBillingPortalSession,
   createStripeCheckoutSession,
+  listStripeInvoices,
   resolveStripeApiBase,
   StripeApiError,
   stripeErrorToHttp,
@@ -568,6 +569,62 @@ route.post(
     },
   }),
   (c) => setSubscriptionCancelAtPeriodEnd(c, false),
+)
+
+route.get(
+  '/subscriptions/:id/invoices',
+  describeRoute({
+    summary: 'List Stripe invoices for a buyer subscription',
+    tags: ['Buyer portal'],
+    security: [{ buyerSession: [] }],
+    responses: {
+      200: { description: 'Invoice list' },
+      400: { description: 'Missing Stripe Restricted Key or subscription reference' },
+      401: { description: 'No buyer session' },
+      404: { description: 'Subscription not found' },
+      502: { description: 'Stripe API unavailable' },
+    },
+  }),
+  async (c) => {
+    const db = c.get('db')
+    const email = await signedInEmail(c)
+    if (!email) return c.json({ error: 'unauthorized' }, 401)
+
+    const id = c.req.param('id')
+    const [row] = await db
+      .select({ subscription: subscriptions, tenant: tenants })
+      .from(subscriptions)
+      .innerJoin(tenants, eq(subscriptions.tenantId, tenants.id))
+      .where(eq(subscriptions.id, id))
+    if (!row || row.subscription.buyerEmail.toLowerCase() !== email.toLowerCase()) {
+      return c.json({ error: 'not found' }, 404)
+    }
+
+    const sub = row.subscription
+    if (!sub.stripeSubscriptionId && !sub.stripeCustomerId) {
+      return c.json({ invoices: [] })
+    }
+
+    const cred = await loadStripeCredential(c.env, db, row.tenant)
+    if (!cred?.apiKey) {
+      return c.json({ error: 'Stripe Restricted Key is not configured for this extension' }, 400)
+    }
+
+    try {
+      const invoices = await listStripeInvoices(cred.apiKey, {
+        subscriptionId: sub.stripeSubscriptionId,
+        customerId: sub.stripeCustomerId,
+        apiBase: resolveStripeApiBase(c.env),
+      })
+      return c.json({ invoices })
+    } catch (err) {
+      if (err instanceof StripeApiError) {
+        const mapped = stripeErrorToHttp(err)
+        return c.json(mapped.body, mapped.status)
+      }
+      throw err
+    }
+  },
 )
 
 route.post(

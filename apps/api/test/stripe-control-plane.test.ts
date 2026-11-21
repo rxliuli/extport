@@ -994,6 +994,25 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
           },
         }
       }
+      if (path.startsWith('/invoices')) {
+        return {
+          body: {
+            object: 'list',
+            data: [
+              {
+                id: 'in_portal_1',
+                number: 'INV-0001',
+                status: 'paid',
+                amount_paid: 499,
+                currency: 'usd',
+                created: 1795200000,
+                invoice_pdf: 'https://pay.stripe.com/invoice/in_portal_1/pdf',
+                hosted_invoice_url: 'https://invoice.stripe.com/i/in_portal_1',
+              },
+            ],
+          },
+        }
+      }
       throw new Error(`Unexpected path: ${path}`)
     })
 
@@ -1093,5 +1112,18 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
     const resumeStripeCall = calls[calls.length - 1]!
     expect(resumeStripeCall.params.get('cancel_at_period_end')).toBe('false')
     expect(resumeStripeCall.params.get('cancel_at')).toBe('')
+
+    // Native invoice list via Stripe API (no Stripe Billing Portal redirect needed).
+    const invRes = await request(`/api/v1/portal/subscriptions/${sub.id}/invoices`, {
+      headers: { cookie: buyerCookie },
+    })
+    expect(invRes.status).toBe(200)
+    const invBody = (await invRes.json()) as {
+      invoices: Array<{ id: string; number: string; amountPaid: number; invoicePdf: string }>
+    }
+    expect(invBody.invoices).toHaveLength(1)
+    expect(invBody.invoices[0]!.number).toBe('INV-0001')
+    expect(invBody.invoices[0]!.amountPaid).toBe(499)
+    expect(invBody.invoices[0]!.invoicePdf).toBe('https://pay.stripe.com/invoice/in_portal_1/pdf')
   })
 })

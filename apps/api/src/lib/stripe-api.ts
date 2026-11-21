@@ -51,17 +51,24 @@ function appendMetadata(params: URLSearchParams, prefix: string, metadata?: Reco
   }
 }
 
-async function stripePost<T>(apiKey: string, path: string, params: URLSearchParams, apiBase?: string): Promise<T> {
+async function stripeRequest<T>(
+  apiKey: string,
+  method: 'GET' | 'POST',
+  path: string,
+  params?: URLSearchParams,
+  apiBase?: string,
+): Promise<T> {
   const base = apiBase ? apiBase.replace(/\/+$/, '') : DEFAULT_STRIPE_API_BASE
+  const qs = method === 'GET' && params && [...params.keys()].length > 0 ? `?${params.toString()}` : ''
   let res: Response
   try {
-    res = await fetch(`${base}${path}`, {
-      method: 'POST',
+    res = await fetch(`${base}${path}${qs}`, {
+      method,
       headers: {
         authorization: `Bearer ${apiKey}`,
-        'content-type': 'application/x-www-form-urlencoded',
+        ...(method === 'POST' ? { 'content-type': 'application/x-www-form-urlencoded' } : {}),
       },
-      body: params.toString(),
+      ...(method === 'POST' && params ? { body: params.toString() } : {}),
     })
   } catch (err) {
     throw new StripeApiError(
@@ -90,6 +97,14 @@ async function stripePost<T>(apiKey: string, path: string, params: URLSearchPara
   }
 
   return data as T
+}
+
+async function stripePost<T>(apiKey: string, path: string, params: URLSearchParams, apiBase?: string): Promise<T> {
+  return stripeRequest<T>(apiKey, 'POST', path, params, apiBase)
+}
+
+async function stripeGet<T>(apiKey: string, path: string, params?: URLSearchParams, apiBase?: string): Promise<T> {
+  return stripeRequest<T>(apiKey, 'GET', path, params, apiBase)
 }
 
 export async function createStripeProduct(
@@ -218,4 +233,47 @@ export async function updateStripeSubscription(
     status: sub.status ?? 'active',
     cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end || sub.cancel_at),
   }
+}
+
+export interface StripeInvoiceSummary {
+  id: string
+  number: string | null
+  status: string | null
+  amountPaid: number
+  currency: string
+  createdAt: string
+  invoicePdf: string | null
+  hostedInvoiceUrl: string | null
+}
+
+export async function listStripeInvoices(
+  apiKey: string,
+  input: { subscriptionId?: string | null; customerId?: string | null; limit?: number; apiBase?: string },
+): Promise<StripeInvoiceSummary[]> {
+  const params = new URLSearchParams()
+  if (input.subscriptionId) params.set('subscription', input.subscriptionId)
+  else if (input.customerId) params.set('customer', input.customerId)
+  params.set('limit', String(input.limit ?? 24))
+  const res = await stripeGet<{
+    data?: Array<{
+      id: string
+      number?: string | null
+      status?: string | null
+      amount_paid?: number | null
+      currency?: string | null
+      created?: number | null
+      invoice_pdf?: string | null
+      hosted_invoice_url?: string | null
+    }>
+  }>(apiKey, '/invoices', params, input.apiBase)
+  return (res.data ?? []).map((inv) => ({
+    id: inv.id,
+    number: inv.number ?? null,
+    status: inv.status ?? null,
+    amountPaid: inv.amount_paid ?? 0,
+    currency: (inv.currency ?? 'usd').toLowerCase(),
+    createdAt: typeof inv.created === 'number' ? new Date(inv.created * 1000).toISOString() : new Date().toISOString(),
+    invoicePdf: inv.invoice_pdf ?? null,
+    hostedInvoiceUrl: inv.hosted_invoice_url ?? null,
+  }))
 }

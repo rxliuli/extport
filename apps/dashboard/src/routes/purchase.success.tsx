@@ -152,16 +152,6 @@ function ReadyCard({ purchase }: { purchase: Purchase }) {
               <CreditCard className="size-4" />
               View in your purchases
             </Link>
-            {isSafeHttpUrl(purchase.billingPortalUrl) && (
-              <a
-                href={purchase.billingPortalUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-sm font-medium underline underline-offset-4 hover:text-foreground"
-              >
-                Manage subscription
-              </a>
-            )}
           </div>
         </CardContent>
       </>
