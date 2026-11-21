@@ -15,7 +15,9 @@ import { useState } from 'react'
 // a lookup key). See docs/licensing.md.
 
 interface Purchase {
-  key: string
+  kind?: 'license' | 'subscription'
+  key: string | null
+  subscriptionId?: string | null
   productName: string
   tier: string
   entitlementType: EntitlementType
@@ -114,12 +116,58 @@ function PurchaseSuccessPage() {
 function ReadyCard({ purchase }: { purchase: Purchase }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
+    if (!purchase.key) return
     await navigator.clipboard.writeText(purchase.key)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
+  const isSubscription = purchase.kind === 'subscription' || (!purchase.key && purchase.entitlementType === 'recurring')
   const isRecurring = purchase.entitlementType === 'recurring'
   const periodEnd = purchase.currentPeriodEnd ? formatDate(purchase.currentPeriodEnd) : null
+
+  if (isSubscription) {
+    return (
+      <>
+        <CardHeader>
+          <CardTitle className="text-2xl tracking-tight">
+            Thanks for subscribing to {purchase.productName} ({purchase.tier})!
+          </CardTitle>
+          <CardDescription>Your subscription is now active.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Sign in to the extension with <span className="font-medium text-foreground">{purchase.buyerEmail}</span> to
+            unlock your {purchase.tier} features — no activation code needed.
+            {periodEnd
+              ? purchase.subscriptionStatus === 'trialing'
+                ? ` Your trial runs through ${periodEnd}.`
+                : ` Your current billing period runs through ${periodEnd}.`
+              : ''}
+          </p>
+          <div className="flex flex-wrap items-center gap-4">
+            <Link
+              to="/portal"
+              className="inline-flex items-center gap-1.5 text-sm font-medium underline underline-offset-4 hover:text-foreground"
+            >
+              <CreditCard className="size-4" />
+              View in your purchases
+            </Link>
+            {isSafeHttpUrl(purchase.billingPortalUrl) && (
+              <a
+                href={purchase.billingPortalUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm font-medium underline underline-offset-4 hover:text-foreground"
+              >
+                Manage subscription
+              </a>
+            )}
+          </div>
+        </CardContent>
+      </>
+    )
+  }
+
   return (
     <>
       <CardHeader>

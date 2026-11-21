@@ -3,7 +3,7 @@ import { Hono, type Context } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
-import { activations, extensions, licenses, magicLinks, paymentCredentials, plans, tenants } from '../db'
+import { activations, extensions, licenses, magicLinks, paymentCredentials, plans, subscriptions, tenants } from '../db'
 import {
   BUYER_SESSION_COOKIE,
   consumeMagicLink,
@@ -14,6 +14,7 @@ import {
 import { sendMagicLinkEmail } from '../lib/licensing-email'
 import {
   createStripeBillingPortalSession,
+  createStripeCheckoutSession,
   resolveStripeApiBase,
   StripeApiError,
   stripeErrorToHttp,
@@ -39,12 +40,84 @@ const PURCHASE_LOOKUP_WINDOW_MS = 24 * 60 * 60 * 1000
 // silent too.
 const MAGIC_LINK_THROTTLE_MS = 60 * 1000
 
+function safeHttpUrl(raw: string | undefined): string | null {
+  if (!raw) return null
+  try {
+    const parsed = new URL(raw)
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return parsed.toString()
+  } catch {
+    // ignore invalid URLs
+  }
+  return null
+}
+
+route.get(
+  '/buy/:planId',
+  describeRoute({
+    summary: 'Start a hosted Stripe Checkout Session for a plan (public redirect)',
+    description:
+      'Public checkout entrypoint for static storefronts (no tenant API key needed). Creates a Stripe Checkout Session for the plan using the tenant Restricted Key and redirects (303) to Stripe Checkout.',
+    tags: ['Buyer portal'],
+    security: [],
+    responses: {
+      303: { description: 'Redirect to Stripe Checkout' },
+      400: { description: 'Licensing disabled, missing Stripe price, or missing Restricted Key' },
+      404: { description: 'Plan not found' },
+      502: { description: 'Stripe API unavailable' },
+    },
+  }),
+  async (c) => {
+    const db = c.get('db')
+    const [row] = await db
+      .select({ plan: plans, extension: extensions, tenant: tenants })
+      .from(plans)
+      .innerJoin(extensions, eq(plans.extensionId, extensions.id))
+      .innerJoin(tenants, eq(extensions.tenantId, tenants.id))
+      .where(eq(plans.id, c.req.param('planId')))
+    if (!row) return c.json({ error: 'plan not found' }, 404)
+    if (!row.extension.licensingEnabled) {
+      return c.json({ error: 'licensing is disabled for this extension' }, 400)
+    }
+    if (!row.plan.stripePriceId) {
+      return c.json({ error: 'no Stripe price configured for this plan' }, 400)
+    }
+    const cred = await loadStripeCredential(c.env, db, row.tenant)
+    if (!cred?.apiKey) {
+      return c.json({ error: 'Stripe Restricted Key is not configured for this extension' }, 400)
+    }
+
+    const portalBase = c.env.PORTAL_URL.replace(/\/+$/, '')
+    const successUrl =
+      safeHttpUrl(c.req.query('success_url')) ?? `${portalBase}/purchase/success?session_id={CHECKOUT_SESSION_ID}`
+    const cancelUrl =
+      safeHttpUrl(c.req.query('cancel_url')) ?? safeHttpUrl(c.req.header('referer')) ?? `${portalBase}/portal`
+
+    try {
+      const session = await createStripeCheckoutSession(cred.apiKey, {
+        mode: row.plan.entitlementType === 'recurring' ? 'subscription' : 'payment',
+        priceId: row.plan.stripePriceId,
+        planId: row.plan.id,
+        successUrl,
+        cancelUrl,
+        apiBase: resolveStripeApiBase(c.env),
+      })
+      return c.redirect(session.url, 303)
+    } catch (err) {
+      if (err instanceof StripeApiError) {
+        const mapped = stripeErrorToHttp(err)
+        return c.json(mapped.body, mapped.status)
+      }
+      throw err
+    }
+  },
+)
+
 route.get(
   '/purchase/:sessionId',
   describeRoute({
     summary: 'Look up a fulfilled purchase by Stripe Checkout Session id',
     description:
-      'Polled by the checkout success page. 404 until the webhook fulfills; 410 once the 24h window has passed.',
+      'Polled by the checkout success page. Supports both one-time licenses and account-based subscriptions. 404 until the webhook fulfills; 410 once the 24h window has passed.',
     tags: ['Buyer portal'],
     security: [],
     responses: {
@@ -55,43 +128,79 @@ route.get(
   }),
   async (c) => {
     const db = c.get('db')
-    const [row] = await db
+    const sessionId = c.req.param('sessionId')
+    const [licRow] = await db
       .select({ license: licenses, plan: plans, extension: extensions, tenantSettings: tenants.settings })
       .from(licenses)
       .innerJoin(plans, eq(licenses.planId, plans.id))
       .innerJoin(extensions, eq(plans.extensionId, extensions.id))
       .innerJoin(tenants, eq(extensions.tenantId, tenants.id))
-      .where(eq(licenses.checkoutSessionId, c.req.param('sessionId')))
-    if (!row) return c.json({ error: 'not found' }, 404)
-    if (Date.now() - new Date(row.license.createdAt).getTime() > PURCHASE_LOOKUP_WINDOW_MS) {
+      .where(eq(licenses.checkoutSessionId, sessionId))
+    if (licRow) {
+      if (Date.now() - new Date(licRow.license.createdAt).getTime() > PURCHASE_LOOKUP_WINDOW_MS) {
+        return c.json({ error: 'expired' }, 410)
+      }
+      if (!licRow.license.country) {
+        const country = (c.req.raw as Request & { cf?: { country?: string } }).cf?.country
+        if (country) await db.update(licenses).set({ country }).where(eq(licenses.id, licRow.license.id))
+      }
+      return c.json({
+        purchase: {
+          kind: 'license',
+          key: licRow.license.key,
+          subscriptionId: null,
+          productName: licRow.extension.name,
+          tier: licRow.plan.tier,
+          billingInterval: licRow.plan.billingInterval,
+          entitlementType: licRow.license.entitlementType,
+          subscriptionStatus: licRow.license.subscriptionStatus,
+          currentPeriodStart: licRow.license.currentPeriodStart,
+          currentPeriodEnd: licRow.license.currentPeriodEnd,
+          cancelAtPeriodEnd: licRow.license.cancelAtPeriodEnd,
+          externalUserId: licRow.license.externalUserId,
+          maxActivations: licRow.license.maxActivations,
+          buyerEmail: licRow.license.buyerEmail,
+          supportUrl: licRow.tenantSettings.supportUrl ?? null,
+          billingPortalUrl: licRow.tenantSettings.billingPortalUrl ?? null,
+          createdAt: licRow.license.createdAt,
+        },
+      })
+    }
+
+    const [subRow] = await db
+      .select({ subscription: subscriptions, plan: plans, extension: extensions, tenantSettings: tenants.settings })
+      .from(subscriptions)
+      .innerJoin(plans, eq(subscriptions.planId, plans.id))
+      .innerJoin(extensions, eq(subscriptions.extensionId, extensions.id))
+      .innerJoin(tenants, eq(extensions.tenantId, tenants.id))
+      .where(eq(subscriptions.checkoutSessionId, sessionId))
+    if (!subRow) return c.json({ error: 'not found' }, 404)
+    if (Date.now() - new Date(subRow.subscription.createdAt).getTime() > PURCHASE_LOOKUP_WINDOW_MS) {
       return c.json({ error: 'expired' }, 410)
     }
-    // Cheapest reliable country signal available: every Payment Link's
-    // after_completion redirect lands the buyer's own browser here right
-    // after paying, regardless of payment method (card, wallet, Alipay —
-    // unlike Stripe's own billing-address collection, which both adds
-    // checkout friction and only exists for card payments). Backfill once;
-    // this endpoint is polled, so don't rewrite on every hit.
-    if (!row.license.country) {
+    if (!subRow.subscription.country) {
       const country = (c.req.raw as Request & { cf?: { country?: string } }).cf?.country
-      if (country) await db.update(licenses).set({ country }).where(eq(licenses.id, row.license.id))
+      if (country) await db.update(subscriptions).set({ country }).where(eq(subscriptions.id, subRow.subscription.id))
     }
     return c.json({
       purchase: {
-        key: row.license.key,
-        productName: row.extension.name,
-        tier: row.plan.tier,
-        entitlementType: row.license.entitlementType,
-        subscriptionStatus: row.license.subscriptionStatus,
-        currentPeriodStart: row.license.currentPeriodStart,
-        currentPeriodEnd: row.license.currentPeriodEnd,
-        cancelAtPeriodEnd: row.license.cancelAtPeriodEnd,
-        externalUserId: row.license.externalUserId,
-        maxActivations: row.license.maxActivations,
-        buyerEmail: row.license.buyerEmail,
-        supportUrl: row.tenantSettings.supportUrl ?? null,
-        billingPortalUrl: row.tenantSettings.billingPortalUrl ?? null,
-        createdAt: row.license.createdAt,
+        kind: 'subscription',
+        key: null,
+        subscriptionId: subRow.subscription.id,
+        productName: subRow.extension.name,
+        tier: subRow.plan.tier,
+        billingInterval: subRow.plan.billingInterval,
+        entitlementType: 'recurring',
+        subscriptionStatus: subRow.subscription.status,
+        currentPeriodStart: subRow.subscription.currentPeriodStart,
+        currentPeriodEnd: subRow.subscription.currentPeriodEnd,
+        cancelAtPeriodEnd: subRow.subscription.cancelAtPeriodEnd,
+        externalUserId: subRow.subscription.externalUserId,
+        maxActivations: 0,
+        buyerEmail: subRow.subscription.buyerEmail,
+        supportUrl: subRow.tenantSettings.supportUrl ?? null,
+        billingPortalUrl: subRow.tenantSettings.billingPortalUrl ?? null,
+        createdAt: subRow.subscription.createdAt,
       },
     })
   },
@@ -186,6 +295,15 @@ route.get(
       .where(sql`lower(${licenses.buyerEmail}) = lower(${email})`)
       .orderBy(desc(licenses.createdAt), desc(licenses.id))
 
+    const subRows = await db
+      .select({ subscription: subscriptions, plan: plans, extension: extensions, tenantSettings: tenants.settings })
+      .from(subscriptions)
+      .innerJoin(plans, eq(subscriptions.planId, plans.id))
+      .innerJoin(extensions, eq(subscriptions.extensionId, extensions.id))
+      .innerJoin(tenants, eq(extensions.tenantId, tenants.id))
+      .where(sql`lower(${subscriptions.buyerEmail}) = lower(${email})`)
+      .orderBy(desc(subscriptions.createdAt), desc(subscriptions.id))
+
     const licenseIds = rows.map((r) => r.license.id)
     const deviceRows = licenseIds.length
       ? await db.select().from(activations).where(inArray(activations.licenseId, licenseIds))
@@ -197,7 +315,9 @@ route.get(
       else devicesByLicense.set(device.licenseId, [device])
     }
 
-    const tenantIds = [...new Set(rows.map((r) => r.license.tenantId))]
+    const tenantIds = [
+      ...new Set([...rows.map((r) => r.license.tenantId), ...subRows.map((r) => r.subscription.tenantId)]),
+    ]
     const credRows = tenantIds.length
       ? await db
           .select({ tenantId: paymentCredentials.tenantId, apiKeyHint: paymentCredentials.apiKeyHint })
@@ -235,30 +355,45 @@ route.get(
           releasedAt: d.releasedAt,
         })),
       })),
+      subscriptions: subRows.map(({ subscription, plan, extension, tenantSettings }) => ({
+        id: subscription.id,
+        status: subscription.status,
+        billingInterval: plan.billingInterval,
+        currentPeriodStart: subscription.currentPeriodStart,
+        currentPeriodEnd: subscription.currentPeriodEnd,
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+        externalUserId: subscription.externalUserId,
+        createdAt: subscription.createdAt,
+        productName: extension.name,
+        tier: plan.tier,
+        supportUrl: tenantSettings.supportUrl ?? null,
+        billingPortalUrl: tenantSettings.billingPortalUrl ?? null,
+        canManageBilling:
+          (Boolean(subscription.stripeCustomerId) && tenantsWithApiKey.has(subscription.tenantId)) ||
+          Boolean(tenantSettings.billingPortalUrl),
+      })),
     })
   },
 )
 
-const billingPortalBodySchema = v.object({
-  key: v.pipe(
-    v.string('key is required'),
-    v.trim(),
-    v.toUpperCase(),
-    v.minLength(1, 'key is required'),
-    v.maxLength(64),
-  ),
-})
+const billingPortalBodySchema = v.pipe(
+  v.object({
+    key: v.optional(v.pipe(v.string(), v.trim(), v.toUpperCase(), v.minLength(1), v.maxLength(64))),
+    subscriptionId: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(128))),
+  }),
+  v.check((b) => Boolean(b.key || b.subscriptionId), 'provide key or subscriptionId'),
+)
 
 route.post(
   '/billing-portal',
   describeRoute({
-    summary: 'Open a one-click Stripe Billing Portal session for a buyer license',
+    summary: 'Open a one-click Stripe Billing Portal session for a buyer license or subscription',
     tags: ['Buyer portal'],
     security: [{ buyerSession: [] }],
     responses: {
       200: { description: 'Billing Portal URL' },
       401: { description: 'No buyer session' },
-      404: { description: 'License not found or no billing portal available' },
+      404: { description: 'Purchase not found or no billing portal available' },
       502: { description: 'Stripe API unavailable' },
     },
   }),
@@ -268,22 +403,42 @@ route.post(
     const email = await signedInEmail(c)
     if (!email) return c.json({ error: 'unauthorized' }, 401)
 
-    const { key } = c.req.valid('json')
-    const [row] = await db
-      .select({ license: licenses, tenant: tenants })
-      .from(licenses)
-      .innerJoin(tenants, eq(licenses.tenantId, tenants.id))
-      .where(eq(licenses.key, key))
-    if (!row || row.license.buyerEmail.toLowerCase() !== email.toLowerCase()) {
-      return c.json({ error: 'not found' }, 404)
+    const { key, subscriptionId } = c.req.valid('json')
+    let stripeCustomerId: string | null = null
+    let tenant: typeof tenants.$inferSelect | null = null
+
+    if (subscriptionId) {
+      const [row] = await db
+        .select({ subscription: subscriptions, tenant: tenants })
+        .from(subscriptions)
+        .innerJoin(tenants, eq(subscriptions.tenantId, tenants.id))
+        .where(eq(subscriptions.id, subscriptionId))
+      if (!row || row.subscription.buyerEmail.toLowerCase() !== email.toLowerCase()) {
+        return c.json({ error: 'not found' }, 404)
+      }
+      stripeCustomerId = row.subscription.stripeCustomerId
+      tenant = row.tenant
+    } else if (key) {
+      const [row] = await db
+        .select({ license: licenses, tenant: tenants })
+        .from(licenses)
+        .innerJoin(tenants, eq(licenses.tenantId, tenants.id))
+        .where(eq(licenses.key, key))
+      if (!row || row.license.buyerEmail.toLowerCase() !== email.toLowerCase()) {
+        return c.json({ error: 'not found' }, 404)
+      }
+      stripeCustomerId = row.license.stripeCustomerId
+      tenant = row.tenant
     }
 
-    if (row.license.stripeCustomerId) {
-      const cred = await loadStripeCredential(c.env, db, row.tenant)
+    if (!tenant) return c.json({ error: 'not found' }, 404)
+
+    if (stripeCustomerId) {
+      const cred = await loadStripeCredential(c.env, db, tenant)
       if (cred?.apiKey) {
         try {
           const portal = await createStripeBillingPortalSession(cred.apiKey, {
-            customerId: row.license.stripeCustomerId,
+            customerId: stripeCustomerId,
             returnUrl: `${c.env.PORTAL_URL}/portal`,
             apiBase: resolveStripeApiBase(c.env),
           })
@@ -298,10 +453,10 @@ route.post(
       }
     }
 
-    if (row.tenant.settings.billingPortalUrl) {
-      return c.json({ url: row.tenant.settings.billingPortalUrl })
+    if (tenant.settings.billingPortalUrl) {
+      return c.json({ url: tenant.settings.billingPortalUrl })
     }
-    return c.json({ error: 'no billing portal available for this license' }, 404)
+    return c.json({ error: 'no billing portal available for this purchase' }, 404)
   },
 )
 

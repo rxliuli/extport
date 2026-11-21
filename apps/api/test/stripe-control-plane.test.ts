@@ -2,6 +2,7 @@ import { newId } from '@extport/shared'
 import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { licenses, subscriptions, type License, type Plan, type Subscription } from '../src/db'
+import { BUYER_SESSION_COOKIE, consumeMagicLink, createMagicLink } from '../src/lib/buyer-session'
 import { createApiKey, createExtension, request, seedTenantWithUser } from './helpers'
 
 const realFetch = globalThis.fetch
@@ -62,6 +63,7 @@ async function seedSubscription(
     buyerEmail: string
     externalUserId?: string | null
     stripeCustomerId?: string | null
+    checkoutSessionId?: string | null
     status?: Subscription['status']
     currentPeriodStart?: string | null
     currentPeriodEnd?: string | null
@@ -82,7 +84,7 @@ async function seedSubscription(
     externalUserId: values.externalUserId ?? null,
     stripeCustomerId: values.stripeCustomerId ?? null,
     stripeSubscriptionId: `sub_seed_${subSeq}`,
-    checkoutSessionId: `cs_seed_${subSeq}`,
+    checkoutSessionId: values.checkoutSessionId ?? `cs_seed_${subSeq}`,
     status: values.status ?? 'active',
     currentPeriodStart: values.currentPeriodStart ?? null,
     currentPeriodEnd: values.currentPeriodEnd ?? null,
@@ -968,5 +970,96 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
     })
     expect(portalRes.status).toBe(200)
     expect(((await portalRes.json()) as { url: string }).url).toBe('https://billing.stripe.com/dis')
+  })
+
+  it('supports public GET /api/v1/portal/buy/:planId and subscription lookup + billing portal in buyer portal', async () => {
+    const { db, tenantId, sessionCookie, extension } = await setupControlPlaneTenant({
+      apiKey: 'rk_test_portal_sub',
+    })
+    mockStripeFetch((path) => {
+      if (path === '/products') return { body: { id: 'prod_portal_1' } }
+      if (path === '/prices') return { body: { id: 'price_portal_1' } }
+      if (path === '/checkout/sessions') {
+        return { body: { id: 'cs_portal_buy_1', url: 'https://checkout.stripe.com/c/pay/cs_portal_buy_1' } }
+      }
+      if (path === '/billing_portal/sessions') {
+        return { body: { id: 'bps_portal_sub_1', url: 'https://billing.stripe.com/p/session/bps_portal_sub_1' } }
+      }
+      throw new Error(`Unexpected path: ${path}`)
+    })
+
+    const planRes = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extension.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        billingInterval: 'month',
+        amount: 499,
+      }),
+    })
+    const { plan } = (await planRes.json()) as { plan: Plan }
+
+    // Public buy redirect creates Stripe Checkout Session and responds 303.
+    const buyRes = await request(`/api/v1/portal/buy/${plan.id}`, {
+      headers: { referer: 'https://store.rxliuli.com/extensions/twitter-filter' },
+    })
+    expect(buyRes.status).toBe(303)
+    expect(buyRes.headers.get('location')).toBe('https://checkout.stripe.com/c/pay/cs_portal_buy_1')
+
+    // Fulfilled subscription is returned by /api/v1/portal/purchase/:sessionId.
+    const sub = await seedSubscription(db, {
+      tenantId,
+      extensionId: extension.id,
+      planId: plan.id,
+      buyerEmail: 'PortalBuyer@Example.com',
+      externalUserId: 'usr_portal_1',
+      stripeCustomerId: 'cus_portal_sub_1',
+      checkoutSessionId: 'cs_portal_buy_1',
+      status: 'active',
+    })
+
+    const lookupRes = await request('/api/v1/portal/purchase/cs_portal_buy_1')
+    expect(lookupRes.status).toBe(200)
+    const lookupBody = (await lookupRes.json()) as {
+      purchase: { kind: string; key: string | null; subscriptionId: string; productName: string; tier: string }
+    }
+    expect(lookupBody.purchase.kind).toBe('subscription')
+    expect(lookupBody.purchase.key).toBeNull()
+    expect(lookupBody.purchase.subscriptionId).toBe(sub.id)
+    expect(lookupBody.purchase.productName).toBe('Control Plane Ext')
+    expect(lookupBody.purchase.tier).toBe('pro')
+
+    // Signed-in buyer sees subscription in /api/v1/portal/licenses and can open Billing Portal via subscriptionId.
+    const magic = await createMagicLink(db, 'portalbuyer@example.com')
+    const buyerSession = (await consumeMagicLink(db, magic.code))!
+    const buyerCookie = `${BUYER_SESSION_COOKIE}=${buyerSession.token}`
+
+    const listRes = await request('/api/v1/portal/licenses', { headers: { cookie: buyerCookie } })
+    expect(listRes.status).toBe(200)
+    const listBody = (await listRes.json()) as {
+      licenses: unknown[]
+      subscriptions: Array<{
+        id: string
+        productName: string
+        tier: string
+        billingInterval: string
+        canManageBilling: boolean
+      }>
+    }
+    expect(listBody.licenses).toHaveLength(0)
+    expect(listBody.subscriptions).toHaveLength(1)
+    expect(listBody.subscriptions[0]!.id).toBe(sub.id)
+    expect(listBody.subscriptions[0]!.billingInterval).toBe('month')
+    expect(listBody.subscriptions[0]!.canManageBilling).toBe(true)
+
+    const bpRes = await request('/api/v1/portal/billing-portal', {
+      method: 'POST',
+      headers: { cookie: buyerCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ subscriptionId: sub.id }),
+    })
+    expect(bpRes.status).toBe(200)
+    expect(((await bpRes.json()) as { url: string }).url).toBe('https://billing.stripe.com/p/session/bps_portal_sub_1')
   })
 })

@@ -258,6 +258,13 @@ test.describe('Billing & payment UI E2E', () => {
     await expect(page.getByText('usr_alice_e2e')).toBeVisible()
     await expect(page.getByText('$5.99', { exact: true })).toBeVisible()
 
+    // Buyer checkout-success page renders clean subscription confirmation (no activation code).
+    await page.goto(`/purchase/success?session_id=${encodeURIComponent(checkoutBody.sessionId)}`)
+    await expect(page.getByText('Thanks for subscribing to Sub Pro Ext (pro)!')).toBeVisible()
+    await expect(page.getByText('Your subscription is now active.')).toBeVisible()
+    await expect(page.getByText('Your activation code:')).toHaveCount(0)
+    await page.goto(`/extensions/${extensionId}/licensing`)
+
     // Duplicate checkout for an already-subscribed user redirects to Billing Portal.
     const dupCheckoutRes = await page.request.post('/api/v1/subscriptions/checkout', {
       data: {

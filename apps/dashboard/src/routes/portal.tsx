@@ -1,4 +1,11 @@
-import { ApiError, api, isSafeHttpUrl, type EntitlementType, type SubscriptionStatus } from '@/api'
+import {
+  ApiError,
+  api,
+  isSafeHttpUrl,
+  type BillingInterval,
+  type EntitlementType,
+  type SubscriptionStatus,
+} from '@/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/extra/card'
@@ -47,6 +54,30 @@ interface PortalLicense {
   devices: PortalDevice[]
 }
 
+interface PortalSubscription {
+  id: string
+  status: SubscriptionStatus
+  billingInterval?: BillingInterval
+  currentPeriodStart: string | null
+  currentPeriodEnd: string | null
+  cancelAtPeriodEnd: boolean
+  externalUserId: string | null
+  createdAt: string
+  productName: string
+  tier: string
+  supportUrl: string | null
+  billingPortalUrl: string | null
+  canManageBilling?: boolean
+}
+
+function isPortalSubscriptionEntitled(sub: PortalSubscription): boolean {
+  if (sub.status === 'active' || sub.status === 'trialing' || sub.status === 'past_due') return true
+  if (sub.status === 'canceled' && sub.currentPeriodEnd) {
+    return new Date(sub.currentPeriodEnd).getTime() > Date.now()
+  }
+  return false
+}
+
 function isPortalLicenseEntitled(license: PortalLicense): boolean {
   if (license.status !== 'active') return false
   if (license.entitlementType !== 'recurring') return true
@@ -79,7 +110,9 @@ function PortalPage() {
     queryKey: ['portal-licenses'],
     queryFn: async () => {
       try {
-        return await api<{ email: string; licenses: PortalLicense[] }>('/api/v1/portal/licenses')
+        return await api<{ email: string; licenses: PortalLicense[]; subscriptions?: PortalSubscription[] }>(
+          '/api/v1/portal/licenses',
+        )
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) return null
         throw err
@@ -149,9 +182,9 @@ function PortalPage() {
         </>
       }
     >
-      <main className="mx-auto w-full max-w-3xl flex-1 space-y-4 px-4 py-8 sm:px-6">
+      <main className="mx-auto w-full max-w-3xl flex-1 space-y-6 px-4 py-8 sm:px-6">
         <h1 className="text-2xl font-bold tracking-tight">Your purchases</h1>
-        <LicenseList licenses={licenses.data.licenses} />
+        <PurchasesList licenses={licenses.data.licenses} subscriptions={licenses.data.subscriptions ?? []} />
       </main>
     </PortalShell>
   )
@@ -223,8 +256,14 @@ function SignInCard() {
   )
 }
 
-function LicenseList({ licenses }: { licenses: PortalLicense[] }) {
-  if (licenses.length === 0) {
+function PurchasesList({
+  licenses,
+  subscriptions,
+}: {
+  licenses: PortalLicense[]
+  subscriptions: PortalSubscription[]
+}) {
+  if (licenses.length === 0 && subscriptions.length === 0) {
     return (
       <Card>
         <CardHeader>
@@ -234,26 +273,155 @@ function LicenseList({ licenses }: { licenses: PortalLicense[] }) {
       </Card>
     )
   }
-  // The server sends newest first; codes that still work stay on top,
-  // refunded/locked/expired ones sink to the bottom (order within each kept).
-  const ordered = [
+
+  const orderedSubs = [
+    ...subscriptions.filter((s) => isPortalSubscriptionEntitled(s)),
+    ...subscriptions.filter((s) => !isPortalSubscriptionEntitled(s)),
+  ]
+  const orderedLicenses = [
     ...licenses.filter((l) => isPortalLicenseEntitled(l)),
     ...licenses.filter((l) => !isPortalLicenseEntitled(l)),
   ]
+
   return (
-    <div className="space-y-3">
-      <ul className="divide-y rounded-xl border bg-card text-card-foreground shadow-sm">
-        {ordered.map((license) => (
-          <LicenseRow key={license.key} license={license} />
-        ))}
-      </ul>
-      <p className="text-xs text-muted-foreground">
-        Idle devices free their seat automatically after 30 days. Need a seat released sooner?{' '}
-        {licenses.some((l) => l.supportUrl)
-          ? 'Use Get help on that purchase to reach its developer.'
-          : 'Contact the developer of the extension.'}
-      </p>
+    <div className="space-y-6">
+      {orderedSubs.length > 0 && (
+        <section className="space-y-2.5">
+          {orderedLicenses.length > 0 && <h2 className="text-sm font-medium text-muted-foreground">Subscriptions</h2>}
+          <ul className="divide-y rounded-xl border bg-card text-card-foreground shadow-sm">
+            {orderedSubs.map((sub) => (
+              <SubscriptionItemRow key={sub.id} subscription={sub} />
+            ))}
+          </ul>
+        </section>
+      )}
+      {orderedLicenses.length > 0 && (
+        <section className="space-y-2.5">
+          {orderedSubs.length > 0 && <h2 className="text-sm font-medium text-muted-foreground">Licenses</h2>}
+          <ul className="divide-y rounded-xl border bg-card text-card-foreground shadow-sm">
+            {orderedLicenses.map((license) => (
+              <LicenseRow key={license.key} license={license} />
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground">
+            Idle devices free their seat automatically after 30 days. Need a seat released sooner?{' '}
+            {licenses.some((l) => l.supportUrl)
+              ? 'Use Get help on that purchase to reach its developer.'
+              : 'Contact the developer of the extension.'}
+          </p>
+        </section>
+      )}
     </div>
+  )
+}
+
+function SubscriptionItemRow({ subscription }: { subscription: PortalSubscription }) {
+  const entitled = isPortalSubscriptionEntitled(subscription)
+  const inactive = !entitled
+  const end = subscription.currentPeriodEnd ? formatDate(subscription.currentPeriodEnd) : null
+  let periodNote: string | null = null
+  if (subscription.status === 'expired') {
+    periodNote =
+      end && subscription.currentPeriodEnd && new Date(subscription.currentPeriodEnd).getTime() <= Date.now()
+        ? `Ended ${end}`
+        : 'Expired'
+  } else if (subscription.status === 'canceled' || subscription.cancelAtPeriodEnd) {
+    periodNote = end ? `Ends ${end}` : 'Cancels at period end'
+  } else if (subscription.status === 'trialing') {
+    periodNote = end ? `Trial ends ${end}` : 'Trialing'
+  } else if (subscription.status === 'past_due') {
+    periodNote = end ? `Payment past due (${end})` : 'Payment past due'
+  } else if (end) {
+    periodNote = `Renews ${end}`
+  }
+
+  const showManageBilling = subscription.canManageBilling ?? isSafeHttpUrl(subscription.billingPortalUrl)
+  const manageBilling = useMutation({
+    mutationFn: () =>
+      api<{ url: string }>('/api/v1/portal/billing-portal', {
+        method: 'POST',
+        body: JSON.stringify({ subscriptionId: subscription.id }),
+      }),
+    onSuccess: ({ url }) => {
+      if (isSafeHttpUrl(url)) {
+        window.location.assign(url)
+      } else if (isSafeHttpUrl(subscription.billingPortalUrl)) {
+        window.location.assign(subscription.billingPortalUrl)
+      } else {
+        toast.error('Billing portal is unavailable for this subscription')
+      }
+    },
+    onError: (err) => {
+      if (isSafeHttpUrl(subscription.billingPortalUrl)) {
+        window.location.assign(subscription.billingPortalUrl)
+        return
+      }
+      toast.error(err instanceof ApiError ? err.message : String(err))
+    },
+  })
+
+  return (
+    <li className="px-4 py-3 sm:px-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className={cn('min-w-0 space-y-1', inactive && 'opacity-60')}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold">{subscription.productName}</span>
+            <Badge variant="secondary">{subscription.tier}</Badge>
+            {subscription.billingInterval === 'month' && <Badge variant="outline">Monthly</Badge>}
+            {subscription.billingInterval === 'year' && <Badge variant="outline">Yearly</Badge>}
+            <Badge
+              variant={
+                subscription.status === 'expired' || subscription.status === 'past_due' ? 'destructive' : 'outline'
+              }
+            >
+              {subscription.cancelAtPeriodEnd && subscription.status === 'active'
+                ? 'canceling'
+                : subscription.status.replace('_', ' ')}
+            </Badge>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+            <span>Subscribed {formatDate(subscription.createdAt)}</span>
+            {periodNote && (
+              <>
+                <span aria-hidden>·</span>
+                <span>{periodNote}</span>
+              </>
+            )}
+            {subscription.supportUrl && (
+              <>
+                <span aria-hidden>·</span>
+                <a
+                  href={subscription.supportUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  <LifeBuoy className="size-3" />
+                  Get help
+                </a>
+              </>
+            )}
+          </div>
+        </div>
+        {showManageBilling && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={manageBilling.isPending}
+            aria-label={`Manage subscription for ${subscription.productName}`}
+            onClick={() => manageBilling.mutate()}
+          >
+            {manageBilling.isPending ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <CreditCard className="size-3.5" />
+            )}
+            Manage subscription
+          </Button>
+        )}
+      </div>
+    </li>
   )
 }
 

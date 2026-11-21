@@ -4,6 +4,7 @@ KEK_V1=""
 GITHUB_CLIENT_SECRET=""
 # Local override — production value in wrangler.jsonc points at dash.extport.dev.
 DASHBOARD_URL=http://localhost:5173
+PORTAL_URL=http://localhost:5173
 
 # GET /api/auth/dev-login — mints a session directly, skipping the GitHub
 # OAuth round trip (which needs a matching registered callback URL). Optional;
