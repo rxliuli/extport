@@ -88,6 +88,17 @@ const server = http.createServer(async (req, res) => {
     })
   }
 
+  if (method === 'GET' && url.pathname.startsWith('/v1/subscriptions/')) {
+    const id = decodeURIComponent(url.pathname.slice('/v1/subscriptions/'.length))
+    return sendJson(res, 200, {
+      id,
+      object: 'subscription',
+      status: 'active',
+      cancel_at_period_end: true,
+      cancel_at: null,
+    })
+  }
+
   if (method === 'POST' && url.pathname.startsWith('/v1/subscriptions/')) {
     const id = decodeURIComponent(url.pathname.slice('/v1/subscriptions/'.length))
     return sendJson(res, 200, {
@@ -95,6 +106,7 @@ const server = http.createServer(async (req, res) => {
       object: 'subscription',
       status: 'active',
       cancel_at_period_end: params.cancel_at_period_end === 'true',
+      cancel_at: null,
     })
   }
 

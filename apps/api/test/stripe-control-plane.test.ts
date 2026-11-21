@@ -986,11 +986,33 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
         return { body: { id: 'bps_portal_sub_1', url: 'https://billing.stripe.com/p/session/bps_portal_sub_1' } }
       }
       if (path.startsWith('/subscriptions/')) {
+        if (params.has('cancel_at_period_end') && params.has('cancel_at')) {
+          return {
+            status: 400,
+            body: {
+              error: {
+                message: 'Received both cancel_at_period_end and cancel_at parameters. Please pass in only one.',
+              },
+            },
+          }
+        }
+        if (!params.has('cancel_at_period_end') && !params.has('cancel_at')) {
+          // GET /v1/subscriptions/:id — simulate Billing Portal flexible cancellation (`cancel_at` set).
+          return {
+            body: {
+              id: path.split('/').pop(),
+              status: 'active',
+              cancel_at_period_end: false,
+              cancel_at: 1797880691,
+            },
+          }
+        }
         return {
           body: {
             id: path.split('/').pop(),
             status: 'active',
             cancel_at_period_end: params.get('cancel_at_period_end') === 'true',
+            cancel_at: null,
           },
         }
       }
@@ -1108,9 +1130,9 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
     expect(
       ((await resumeRes.json()) as { subscription: { cancelAtPeriodEnd: boolean } }).subscription.cancelAtPeriodEnd,
     ).toBe(false)
-    // Resume clears both cancel_at_period_end and cancel_at (for Billing Portal flexible cancellations).
+    // Resume clears ONLY `cancel_at` when Stripe used flexible `cancel_at` (never both params together).
     const resumeStripeCall = calls[calls.length - 1]!
-    expect(resumeStripeCall.params.get('cancel_at_period_end')).toBe('false')
+    expect(resumeStripeCall.params.has('cancel_at_period_end')).toBe(false)
     expect(resumeStripeCall.params.get('cancel_at')).toBe('')
 
     // Native invoice list via Stripe API (no Stripe Billing Portal redirect needed).

@@ -215,19 +215,34 @@ export async function updateStripeSubscription(
   apiKey: string,
   input: { subscriptionId: string; cancelAtPeriodEnd: boolean; apiBase?: string },
 ): Promise<{ id: string; status: string; cancelAtPeriodEnd: boolean }> {
+  const path = `/subscriptions/${encodeURIComponent(input.subscriptionId)}`
   const params = new URLSearchParams()
-  params.set('cancel_at_period_end', input.cancelAtPeriodEnd ? 'true' : 'false')
-  // Stripe Billing Portal in flexible billing mode cancels via `cancel_at`
-  // (leaving `cancel_at_period_end: false`), so resuming must clear `cancel_at` too.
-  if (!input.cancelAtPeriodEnd) {
-    params.set('cancel_at', '')
+
+  if (input.cancelAtPeriodEnd) {
+    params.set('cancel_at_period_end', 'true')
+  } else {
+    // Stripe rejects passing both `cancel_at_period_end` and `cancel_at` in one request.
+    // Inspect the subscription first so we clear whichever field Stripe actually set
+    // (Billing Portal / Dashboard flexible cancellations set `cancel_at`; API cancels set `cancel_at_period_end`).
+    const current = await stripeGet<{
+      id: string
+      status?: string
+      cancel_at_period_end?: boolean
+      cancel_at?: number | null
+    }>(apiKey, path, undefined, input.apiBase)
+    if (current.cancel_at != null && !current.cancel_at_period_end) {
+      params.set('cancel_at', '')
+    } else {
+      params.set('cancel_at_period_end', 'false')
+    }
   }
+
   const sub = await stripePost<{
     id: string
     status?: string
     cancel_at_period_end?: boolean
     cancel_at?: number | null
-  }>(apiKey, `/subscriptions/${encodeURIComponent(input.subscriptionId)}`, params, input.apiBase)
+  }>(apiKey, path, params, input.apiBase)
   return {
     id: sub.id,
     status: sub.status ?? 'active',
