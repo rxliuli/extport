@@ -5,6 +5,7 @@
   "description": "Browser extension publishing & licensing platform",
   "scripts": {
     "test": "pnpm -r --if-present test",
+    "test:e2e": "pnpm --filter @extport/dashboard test:e2e",
     "typecheck": "pnpm -r --if-present typecheck",
     "build": "pnpm -r --if-present build",
     "format": "oxfmt",

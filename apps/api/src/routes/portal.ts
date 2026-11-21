@@ -12,7 +12,12 @@ import {
   resolveBuyerSession,
 } from '../lib/buyer-session'
 import { sendMagicLinkEmail } from '../lib/licensing-email'
-import { createStripeBillingPortalSession, StripeApiError, stripeErrorToHttp } from '../lib/stripe-api'
+import {
+  createStripeBillingPortalSession,
+  resolveStripeApiBase,
+  StripeApiError,
+  stripeErrorToHttp,
+} from '../lib/stripe-api'
 import { loadStripeCredential } from '../lib/stripe-credentials'
 import { badRequest } from '../lib/validation'
 import type { AppEnv } from '../middleware/auth'
@@ -280,6 +285,7 @@ route.post(
           const portal = await createStripeBillingPortalSession(cred.apiKey, {
             customerId: row.license.stripeCustomerId,
             returnUrl: `${c.env.PORTAL_URL}/portal`,
+            apiBase: resolveStripeApiBase(c.env),
           })
           return c.json({ url: portal.url })
         } catch (err) {

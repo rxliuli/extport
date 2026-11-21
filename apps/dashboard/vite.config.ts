@@ -20,7 +20,7 @@ export default defineConfig({
     proxy: {
       // Same-origin cookies in dev: proxy API routes to `wrangler dev`.
       // One rule on purpose — everything the Worker serves lives under /api.
-      '/api': 'http://localhost:8787',
+      '/api': process.env.API_PROXY_TARGET ?? 'http://localhost:8787',
     },
   },
 })

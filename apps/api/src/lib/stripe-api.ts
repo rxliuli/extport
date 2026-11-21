@@ -1,7 +1,21 @@
 // Minimal zero-SDK Stripe REST client built on native fetch + URLSearchParams.
 // Matches extport's zero-heavy-SDK philosophy (see lib/stripe.ts).
 
-const STRIPE_API_BASE = 'https://api.stripe.com/v1'
+const DEFAULT_STRIPE_API_BASE = 'https://api.stripe.com/v1'
+
+/**
+ * Resolves an optional Stripe API base URL override from Worker bindings
+ * (used by local Playwright E2E tests against an in-process mock Stripe server).
+ */
+export function resolveStripeApiBase(env: unknown): string | undefined {
+  if (typeof env === 'object' && env !== null && 'STRIPE_API_BASE' in env) {
+    const value = (env as { STRIPE_API_BASE?: unknown }).STRIPE_API_BASE
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim().replace(/\/+$/, '')
+    }
+  }
+  return undefined
+}
 
 export class StripeApiError extends Error {
   constructor(
@@ -37,10 +51,11 @@ function appendMetadata(params: URLSearchParams, prefix: string, metadata?: Reco
   }
 }
 
-async function stripePost<T>(apiKey: string, path: string, params: URLSearchParams): Promise<T> {
+async function stripePost<T>(apiKey: string, path: string, params: URLSearchParams, apiBase?: string): Promise<T> {
+  const base = apiBase ? apiBase.replace(/\/+$/, '') : DEFAULT_STRIPE_API_BASE
   let res: Response
   try {
-    res = await fetch(`${STRIPE_API_BASE}${path}`, {
+    res = await fetch(`${base}${path}`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${apiKey}`,
@@ -79,12 +94,12 @@ async function stripePost<T>(apiKey: string, path: string, params: URLSearchPara
 
 export async function createStripeProduct(
   apiKey: string,
-  input: { name: string; metadata?: Record<string, string> },
+  input: { name: string; metadata?: Record<string, string>; apiBase?: string },
 ): Promise<{ id: string }> {
   const params = new URLSearchParams()
   params.set('name', input.name)
   appendMetadata(params, 'metadata', input.metadata)
-  const product = await stripePost<{ id: string }>(apiKey, '/products', params)
+  const product = await stripePost<{ id: string }>(apiKey, '/products', params, input.apiBase)
   return { id: product.id }
 }
 
@@ -97,6 +112,7 @@ export async function createStripePrice(
     interval?: 'month' | 'year'
     nickname?: string
     metadata?: Record<string, string>
+    apiBase?: string
   },
 ): Promise<{ id: string }> {
   const params = new URLSearchParams()
@@ -106,14 +122,14 @@ export async function createStripePrice(
   if (input.interval) params.set('recurring[interval]', input.interval)
   if (input.nickname) params.set('nickname', input.nickname)
   appendMetadata(params, 'metadata', input.metadata)
-  const price = await stripePost<{ id: string }>(apiKey, '/prices', params)
+  const price = await stripePost<{ id: string }>(apiKey, '/prices', params, input.apiBase)
   return { id: price.id }
 }
 
-export async function archiveStripePrice(apiKey: string, priceId: string): Promise<void> {
+export async function archiveStripePrice(apiKey: string, priceId: string, apiBase?: string): Promise<void> {
   const params = new URLSearchParams()
   params.set('active', 'false')
-  await stripePost<{ id: string }>(apiKey, `/prices/${encodeURIComponent(priceId)}`, params)
+  await stripePost<{ id: string }>(apiKey, `/prices/${encodeURIComponent(priceId)}`, params, apiBase)
 }
 
 export async function createStripeCheckoutSession(
@@ -127,6 +143,7 @@ export async function createStripeCheckoutSession(
     externalUserId?: string | null
     successUrl: string
     cancelUrl: string
+    apiBase?: string
   },
 ): Promise<{ id: string; url: string }> {
   const params = new URLSearchParams()
@@ -148,7 +165,12 @@ export async function createStripeCheckoutSession(
     params.set('subscription_data[metadata][extport_plan]', input.planId)
   }
 
-  const session = await stripePost<{ id: string; url?: string | null }>(apiKey, '/checkout/sessions', params)
+  const session = await stripePost<{ id: string; url?: string | null }>(
+    apiKey,
+    '/checkout/sessions',
+    params,
+    input.apiBase,
+  )
   if (!session.url) {
     throw new StripeApiError(502, 'missing_url', 'Stripe Checkout Session returned no URL')
   }
@@ -157,12 +179,17 @@ export async function createStripeCheckoutSession(
 
 export async function createStripeBillingPortalSession(
   apiKey: string,
-  input: { customerId: string; returnUrl: string },
+  input: { customerId: string; returnUrl: string; apiBase?: string },
 ): Promise<{ id: string; url: string }> {
   const params = new URLSearchParams()
   params.set('customer', input.customerId)
   params.set('return_url', input.returnUrl)
-  const session = await stripePost<{ id: string; url?: string | null }>(apiKey, '/billing_portal/sessions', params)
+  const session = await stripePost<{ id: string; url?: string | null }>(
+    apiKey,
+    '/billing_portal/sessions',
+    params,
+    input.apiBase,
+  )
   if (!session.url) {
     throw new StripeApiError(502, 'missing_url', 'Stripe Billing Portal Session returned no URL')
   }

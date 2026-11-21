@@ -8,6 +8,7 @@ import {
   archiveStripePrice,
   createStripePrice,
   createStripeProduct,
+  resolveStripeApiBase,
   StripeApiError,
   stripeErrorToHttp,
 } from '../lib/stripe-api'
@@ -230,6 +231,7 @@ route.post(
             const product = await createStripeProduct(apiKey, {
               name: extension.name,
               metadata: { extport_extension: extension.id },
+              apiBase: resolveStripeApiBase(c.env),
             })
             stripeProductId = product.id
           }
@@ -241,6 +243,7 @@ route.post(
             currency,
             nickname: `${body.tier} (one-time)`,
             metadata: { extport_plan: id },
+            apiBase: resolveStripeApiBase(c.env),
           })
           stripePriceId = price.id
         }
@@ -252,6 +255,7 @@ route.post(
             interval: 'month',
             nickname: `${body.tier} (monthly)`,
             metadata: { extport_plan: id },
+            apiBase: resolveStripeApiBase(c.env),
           })
           stripeMonthlyPriceId = price.id
         }
@@ -263,6 +267,7 @@ route.post(
             interval: 'year',
             nickname: `${body.tier} (yearly)`,
             metadata: { extport_plan: id },
+            apiBase: resolveStripeApiBase(c.env),
           })
           stripeYearlyPriceId = price.id
         }
@@ -389,6 +394,7 @@ route.patch(
       const product = await createStripeProduct(apiKey, {
         name: row.extensionName,
         metadata: { extport_extension: existing.extensionId },
+        apiBase: resolveStripeApiBase(c.env),
       })
       nextStripeProductId = product.id
       return product.id
@@ -417,7 +423,7 @@ route.patch(
             const apiKey = await getApiKey()
             if (apiKey) {
               try {
-                await archiveStripePrice(apiKey, opts.existingPriceId)
+                await archiveStripePrice(apiKey, opts.existingPriceId, resolveStripeApiBase(c.env))
               } catch {
                 // Best-effort archive — ignore if already archived or missing.
               }
@@ -455,10 +461,11 @@ route.patch(
         interval: opts.interval,
         nickname: opts.nickname,
         metadata: { extport_plan: existing.id },
+        apiBase: resolveStripeApiBase(c.env),
       })
       if (opts.existingPriceId && opts.existingPriceId !== created.id) {
         try {
-          await archiveStripePrice(apiKey, opts.existingPriceId)
+          await archiveStripePrice(apiKey, opts.existingPriceId, resolveStripeApiBase(c.env))
         } catch {
           // Best-effort archive — ignore if already archived in Stripe.
         }

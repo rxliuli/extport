@@ -36,3 +36,24 @@ jobs:
       - run: mkdir -p apps/dashboard/dist
       - run: pnpm -r typecheck
       - run: pnpm -r test
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Create throwaway .dev.vars for E2E
+        run: |
+          {
+            echo "KEK_V1=$(openssl rand -base64 32)"
+            echo "GITHUB_CLIENT_SECRET=ci-placeholder"
+            echo "DASHBOARD_URL=http://localhost:5174"
+          } > apps/api/.dev.vars
+      - run: mkdir -p apps/dashboard/dist
+      - run: pnpm --filter @extport/dashboard exec playwright install --with-deps chromium
+      - run: pnpm test:e2e

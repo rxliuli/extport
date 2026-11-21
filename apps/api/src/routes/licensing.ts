@@ -6,7 +6,7 @@ import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
 import { activations, extensions, licenseEvents, licenses, plans, type Activation, type Db, type License } from '../db'
 import { formatEntitlementResponse, isLicenseEntitled, pickBestLicense } from '../lib/entitlement'
-import { createStripeCheckoutSession, StripeApiError, stripeErrorToHttp } from '../lib/stripe-api'
+import { createStripeCheckoutSession, resolveStripeApiBase, StripeApiError, stripeErrorToHttp } from '../lib/stripe-api'
 import { loadStripeCredential } from '../lib/stripe-credentials'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
@@ -495,6 +495,7 @@ licensingTenantRoutes.post(
         externalUserId,
         successUrl: body.successUrl,
         cancelUrl: body.cancelUrl,
+        apiBase: resolveStripeApiBase(c.env),
       })
       return c.json({ action: 'checkout', url: session.url, sessionId: session.id })
     } catch (err) {

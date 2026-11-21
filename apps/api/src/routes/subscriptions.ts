@@ -8,6 +8,7 @@ import { formatSubscriptionEntitlement, isSubscriptionEntitled, pickBestSubscrip
 import {
   createStripeBillingPortalSession,
   createStripeCheckoutSession,
+  resolveStripeApiBase,
   StripeApiError,
   stripeErrorToHttp,
 } from '../lib/stripe-api'
@@ -290,6 +291,7 @@ route.post(
             const portal = await createStripeBillingPortalSession(cred.apiKey, {
               customerId: portalCustomerId,
               returnUrl: body.cancelUrl,
+              apiBase: resolveStripeApiBase(c.env),
             })
             return c.json({ action: 'portal', url: portal.url, reason: 'already_subscribed' })
           }
@@ -306,6 +308,7 @@ route.post(
         externalUserId,
         successUrl: body.successUrl,
         cancelUrl: body.cancelUrl,
+        apiBase: resolveStripeApiBase(c.env),
       })
       return c.json({ action: 'checkout', url: session.url, sessionId: session.id })
     } catch (err) {
@@ -390,6 +393,7 @@ route.post(
       const portal = await createStripeBillingPortalSession(cred.apiKey, {
         customerId: best.subscription.stripeCustomerId,
         returnUrl: body.returnUrl,
+        apiBase: resolveStripeApiBase(c.env),
       })
       return c.json({ url: portal.url })
     } catch (err) {
