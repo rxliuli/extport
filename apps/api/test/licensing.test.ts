@@ -46,6 +46,8 @@ async function setupLicensedProduct(opts: { maxActivations?: number; licensingEn
     body: JSON.stringify({
       extensionId: extension.id,
       tier: 'pro',
+      amount: 1999,
+      stripePriceId: 'price_test_pro',
       ...(opts.maxActivations !== undefined ? { maxActivations: opts.maxActivations } : {}),
     }),
   })
@@ -80,14 +82,21 @@ describe('plans & manual license issuance', () => {
     const freeTier = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ extensionId: extension.id, tier: 'free' }),
+      body: JSON.stringify({ extensionId: extension.id, tier: 'free', amount: 1999, stripePriceId: 'price_free' }),
     })
     expect(freeTier.status).toBe(400)
+
+    const missingAmount = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ extensionId: extension.id, tier: 'starter', stripePriceId: 'price_starter' }),
+    })
+    expect(missingAmount.status).toBe(400)
 
     const dupe = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ extensionId: extension.id, tier: 'pro' }),
+      body: JSON.stringify({ extensionId: extension.id, tier: 'pro', amount: 1999, stripePriceId: 'price_dupe' }),
     })
     expect(dupe.status).toBe(409)
 
@@ -95,7 +104,7 @@ describe('plans & manual license issuance', () => {
     const basic = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ extensionId: extension.id, tier: 'basic' }),
+      body: JSON.stringify({ extensionId: extension.id, tier: 'basic', amount: 999, stripePriceId: 'price_basic' }),
     })
     expect(basic.status).toBe(201)
 
@@ -103,7 +112,13 @@ describe('plans & manual license issuance', () => {
     const mixedRecurring = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ extensionId: extension.id, tier: 'pro', entitlementType: 'recurring' }),
+      body: JSON.stringify({
+        extensionId: extension.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        amount: 499,
+        stripePriceId: 'price_mix',
+      }),
     })
     expect(mixedRecurring.status).toBe(400)
 
@@ -127,7 +142,7 @@ describe('plans & manual license issuance', () => {
     const recurringPro = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ extensionId: subExt.id, tier: 'pro' }),
+      body: JSON.stringify({ extensionId: subExt.id, tier: 'pro', amount: 499, stripePriceId: 'price_rec_pro' }),
     })
     expect(recurringPro.status).toBe(201)
     expect(((await recurringPro.json()) as { plan: Plan }).plan.entitlementType).toBe('recurring')
@@ -135,14 +150,26 @@ describe('plans & manual license issuance', () => {
     const dupeRecurring = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ extensionId: subExt.id, tier: 'pro', entitlementType: 'recurring' }),
+      body: JSON.stringify({
+        extensionId: subExt.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        amount: 499,
+        stripePriceId: 'price_rec_dupe',
+      }),
     })
     expect(dupeRecurring.status).toBe(409)
 
     const perpetualOnSub = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ extensionId: subExt.id, tier: 'basic', entitlementType: 'perpetual' }),
+      body: JSON.stringify({
+        extensionId: subExt.id,
+        tier: 'basic',
+        entitlementType: 'perpetual',
+        amount: 999,
+        stripePriceId: 'price_perp_sub',
+      }),
     })
     expect(perpetualOnSub.status).toBe(400)
   })
@@ -158,7 +185,7 @@ describe('plans & manual license issuance', () => {
     const crossProduct = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: b.sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ extensionId: a.extension.id, tier: 'pro' }),
+      body: JSON.stringify({ extensionId: a.extension.id, tier: 'pro', amount: 1999, stripePriceId: 'price_cross' }),
     })
     expect(crossProduct.status).toBe(404)
 
@@ -807,7 +834,13 @@ describe('recurring licensing & server-side entitlement API', () => {
     const planRes = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ extensionId: extension.id, tier: 'pro', entitlementType: 'recurring' }),
+      body: JSON.stringify({
+        extensionId: extension.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        amount: 499,
+        stripePriceId: 'price_legacy_rec',
+      }),
     })
     const { plan } = (await planRes.json()) as { plan: Plan }
     const licRes = await request('/api/v1/licenses', {
@@ -876,7 +909,13 @@ describe('recurring licensing & server-side entitlement API', () => {
     const recPlanRes = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ extensionId: extension.id, tier: 'pro', entitlementType: 'recurring' }),
+      body: JSON.stringify({
+        extensionId: extension.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        amount: 499,
+        stripePriceId: 'price_legacy_ent',
+      }),
     })
     const { plan: recPlan } = (await recPlanRes.json()) as { plan: Plan }
 

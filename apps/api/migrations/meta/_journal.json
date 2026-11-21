@@ -246,6 +246,13 @@
       "when": 1795284375430,
       "tag": "0034_plan_billing_interval",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1795294045618,
+      "tag": "0035_plan_pricing_not_null",
+      "breakpoints": true
     }
   ]
 }

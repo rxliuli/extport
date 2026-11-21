@@ -154,8 +154,8 @@ export interface Plan {
   entitlementType: EntitlementType
   billingInterval: BillingInterval
   maxActivations: number
-  currency: string | null
-  amount: number | null
+  currency: string
+  amount: number
   stripeProductId: string | null
   stripePriceId: string | null
   /** ISO date string (Date -> JSON) */

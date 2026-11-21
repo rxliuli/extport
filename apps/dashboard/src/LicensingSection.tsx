@@ -56,9 +56,8 @@ export function formatAmount(amountTotal: number | null, currency: string | null
   )
 }
 
-function formatMinorToInput(amount: number | null, currency: string | null): string {
-  if (amount === null) return ''
-  const decimals = currencyDecimals(currency ?? 'usd')
+function formatMinorToInput(amount: number, currency: string): string {
+  const decimals = currencyDecimals(currency)
   return (amount / 10 ** decimals).toFixed(decimals)
 }
 
@@ -103,8 +102,7 @@ function formatBillingInterval(interval: BillingInterval): string {
 }
 
 function formatPlanPricing(plan: Plan): string {
-  if (plan.amount === null) return '—'
-  const formatted = formatAmount(plan.amount, plan.currency ?? 'usd')
+  const formatted = formatAmount(plan.amount, plan.currency)
   if (plan.billingInterval === 'month') return `${formatted}/mo`
   if (plan.billingInterval === 'year') return `${formatted}/yr`
   return formatted
@@ -407,6 +405,7 @@ function PlanPricingFields({
             min="0.50"
             max="999999.99"
             step="0.01"
+            required={!pricingDisabled}
             disabled={pricingDisabled}
             placeholder={pricePlaceholder}
             value={amount}
@@ -659,21 +658,27 @@ function PlanEditDialog({
     e.preventDefault()
     setFormError(null)
 
-    const normCurrency = (plan.currency ?? 'usd').toLowerCase()
+    const normCurrency = plan.currency.toLowerCase()
 
     const payload: Record<string, unknown> = {}
     if (plan.entitlementType === 'perpetual') {
       payload.maxActivations = Number.parseInt(maxActivations, 10) || plan.maxActivations
     }
 
-    const parsed = parsePriceInput(amount, normCurrency)
-    if (!parsed.ok) {
-      setFormError(parsed.error)
-      return
-    }
-    if (parsed.value !== plan.amount) {
-      payload.amount = parsed.value
-      payload.currency = normCurrency
+    if (hasStripeApiKey) {
+      const parsed = parsePriceInput(amount, normCurrency)
+      if (!parsed.ok) {
+        setFormError(parsed.error)
+        return
+      }
+      if (parsed.value === null) {
+        setFormError('Enter a price to sync with Stripe')
+        return
+      }
+      if (parsed.value !== plan.amount) {
+        payload.amount = parsed.value
+        payload.currency = normCurrency
+      }
     }
 
     if (Object.keys(payload).length === 0) {

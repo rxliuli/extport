@@ -259,10 +259,9 @@ describe('plans auto-sync with Stripe', () => {
     expect(text).not.toContain(secretKey)
   })
 
-  it('preserves manually-linked stripePriceId when patching maxActivations, and archives/clears when amount is explicitly nulled', async () => {
+  it('preserves manually-linked stripePriceId when patching maxActivations, and rejects nulling amount', async () => {
     const { sessionCookie, extension } = await setupControlPlaneTenant({ apiKey: 'rk_test_preserve_price' })
     const calls = mockStripeFetch((path) => {
-      if (path === '/prices/price_manual_keep') return { body: { id: 'price_manual_keep', active: false } }
       throw new Error(`Unexpected path: ${path}`)
     })
 
@@ -273,6 +272,7 @@ describe('plans auto-sync with Stripe', () => {
         extensionId: extension.id,
         tier: 'pro',
         entitlementType: 'perpetual',
+        amount: 1999,
         stripeProductId: 'prod_manual_keep',
         stripePriceId: 'price_manual_keep',
       }),
@@ -296,12 +296,8 @@ describe('plans auto-sync with Stripe', () => {
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({ amount: null }),
     })
-    expect(clearRes.status).toBe(200)
-    const { plan: afterClear } = (await clearRes.json()) as { plan: Plan }
-    expect(afterClear.amount).toBeNull()
-    expect(afterClear.stripePriceId).toBeNull()
-    expect(calls).toHaveLength(1)
-    expect(calls[0]!.url).toBe('https://api.stripe.com/v1/prices/price_manual_keep')
+    expect(clearRes.status).toBe(400)
+    expect(calls).toHaveLength(0)
   })
 })
 
@@ -645,7 +641,13 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
     const planRes = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: a.sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ extensionId: a.extension.id, tier: 'pro', entitlementType: 'recurring' }),
+      body: JSON.stringify({
+        extensionId: a.extension.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        amount: 499,
+        stripePriceId: 'price_portal_sub_a',
+      }),
     })
     const { plan } = (await planRes.json()) as { plan: Plan }
 
@@ -734,7 +736,13 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
     const planRes = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ extensionId: extension.id, tier: 'pro', entitlementType: 'recurring' }),
+      body: JSON.stringify({
+        extensionId: extension.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        amount: 499,
+        stripePriceId: 'price_list_sub',
+      }),
     })
     const { plan } = (await planRes.json()) as { plan: Plan }
 

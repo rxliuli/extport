@@ -380,10 +380,13 @@ export const plans = sqliteTable(
     maxActivations: integer('max_activations')
       .notNull()
       .$defaultFn(() => 3),
-    // Optional managed-pricing metadata when syncing plans to Stripe via a
-    // tenant's Restricted Key (null for Payment-Link-only plans).
-    currency: text('currency'),
-    amount: integer('amount'),
+    // Pricing metadata (always populated; Stripe IDs are populated when synced
+    // via a tenant's Restricted Key or linked manually).
+    currency: text('currency')
+      .notNull()
+      .default('usd')
+      .$defaultFn(() => 'usd'),
+    amount: integer('amount').notNull(),
     stripeProductId: text('stripe_product_id'),
     stripePriceId: text('stripe_price_id'),
     ...timestamps,

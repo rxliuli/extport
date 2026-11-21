@@ -82,7 +82,7 @@ const createPlanBodySchema = v.object({
     ),
   ),
   currency: v.optional(currencyField),
-  amount: v.optional(amountField),
+  amount: amountField,
   stripeProductId: v.optional(stripeIdField),
   stripePriceId: v.optional(stripeIdField),
 })
@@ -189,9 +189,8 @@ route.post(
     }
 
     const id = newId('plan')
-    const hasAmount = body.amount !== undefined
-    const effectiveCurrency = hasAmount ? (body.currency ?? 'usd') : (body.currency ?? null)
-    const needsStripeSync = hasAmount && !body.stripePriceId
+    const effectiveCurrency = body.currency ?? 'usd'
+    const needsStripeSync = !body.stripePriceId
 
     let stripeProductId = body.stripeProductId ?? null
     let stripePriceId = body.stripePriceId ?? null
@@ -202,13 +201,12 @@ route.post(
         return c.json(
           {
             error:
-              'Configure your Stripe Restricted Key in Settings first to set managed pricing (or omit amount to use manual Payment Links)',
+              'Configure your Stripe Restricted Key in Settings first to sync pricing with Stripe (or pass stripePriceId manually)',
           },
           400,
         )
       }
       const apiKey = cred.apiKey
-      const currency = effectiveCurrency ?? 'usd'
       try {
         if (!stripeProductId) {
           // 1 Extension = 1 Stripe Product: reuse any Stripe Product already
@@ -233,8 +231,8 @@ route.post(
         }
         const price = await createStripePrice(apiKey, {
           productId: stripeProductId,
-          unitAmount: body.amount!,
-          currency,
+          unitAmount: body.amount,
+          currency: effectiveCurrency,
           interval: billingInterval === 'one_time' ? undefined : billingInterval,
           nickname: priceNickname(body.tier, billingInterval),
           metadata: { extport_plan: id },
@@ -260,7 +258,7 @@ route.post(
       // Subscriptions are account-based and do not use device activation seats.
       maxActivations: entitlementType === 'recurring' ? 0 : (body.maxActivations ?? 3),
       currency: effectiveCurrency,
-      amount: body.amount ?? null,
+      amount: body.amount,
       stripeProductId,
       stripePriceId,
     })
@@ -286,7 +284,7 @@ const patchPlanBodySchema = v.pipe(
       ),
     ),
     currency: v.optional(currencyField),
-    amount: v.optional(v.nullable(amountField)),
+    amount: v.optional(amountField),
     stripeProductId: v.optional(v.nullable(stripeIdField)),
     stripePriceId: v.optional(v.nullable(stripeIdField)),
   }),
@@ -360,33 +358,19 @@ route.patch(
       return product.id
     }
 
-    const currencyChanged = body.currency !== undefined && body.currency !== (existing.currency ?? 'usd')
-    const nextCurrency = body.currency ?? existing.currency ?? 'usd'
-    const nextAmount = body.amount !== undefined ? body.amount : existing.amount
+    const currencyChanged = body.currency !== undefined && body.currency !== existing.currency
+    const nextCurrency = body.currency ?? existing.currency
+    const nextAmount = body.amount ?? existing.amount
     let nextPriceId = existing.stripePriceId
 
     try {
       if (body.stripePriceId !== undefined) {
         nextPriceId = body.stripePriceId
-      } else if (nextAmount === null) {
-        if (body.amount === null) {
-          if (existing.stripePriceId) {
-            const apiKey = await getApiKey()
-            if (apiKey) {
-              try {
-                await archiveStripePrice(apiKey, existing.stripePriceId, resolveStripeApiBase(c.env))
-              } catch {
-                // Best-effort archive — ignore if already archived or missing.
-              }
-            }
-          }
-          nextPriceId = null
-        }
       } else {
         const shouldSync =
           (body.amount !== undefined &&
             (body.amount !== existing.amount || currencyChanged || !existing.stripePriceId)) ||
-          (currencyChanged && existing.amount !== null)
+          currencyChanged
         if (shouldSync) {
           const apiKey = await getApiKey()
           if (!apiKey) {
@@ -420,18 +404,11 @@ route.patch(
         }
       }
 
-      const storedCurrency =
-        body.currency !== undefined
-          ? body.currency
-          : nextAmount !== null
-            ? (existing.currency ?? 'usd')
-            : existing.currency
-
       await db
         .update(plans)
         .set({
           maxActivations: body.maxActivations ?? existing.maxActivations,
-          currency: storedCurrency,
+          currency: nextCurrency,
           amount: nextAmount,
           stripeProductId: nextStripeProductId,
           stripePriceId: nextPriceId,

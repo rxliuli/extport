@@ -81,6 +81,8 @@ async function setupStripeTenant(opts: { entitlementType?: 'perpetual' | 'recurr
     body: JSON.stringify({
       extensionId: extension.id,
       tier: 'pro',
+      amount: 1999,
+      stripePriceId: 'price_webhook_pro',
       ...(opts.entitlementType ? { entitlementType: opts.entitlementType } : {}),
     }),
   })

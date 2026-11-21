@@ -22,7 +22,7 @@ async function setupLicensed(buyerEmail = 'buyer@example.com') {
   const planRes = await request('/api/v1/plans', {
     method: 'POST',
     headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ extensionId: extension.id, tier: 'pro' }),
+    body: JSON.stringify({ extensionId: extension.id, tier: 'pro', amount: 1999, stripePriceId: 'price_portal_pro' }),
   })
   const { plan } = (await planRes.json()) as { plan: Plan }
   const licenseRes = await request('/api/v1/licenses', {
@@ -191,7 +191,13 @@ describe('portal subscription fields and billingPortalUrl', () => {
     const planRes = await request('/api/v1/plans', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ extensionId: extension.id, tier: 'pro', entitlementType: 'recurring' }),
+      body: JSON.stringify({
+        extensionId: extension.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        amount: 499,
+        stripePriceId: 'price_portal_sub',
+      }),
     })
     const { plan } = (await planRes.json()) as { plan: Plan }
     const licRes = await request('/api/v1/licenses', {
