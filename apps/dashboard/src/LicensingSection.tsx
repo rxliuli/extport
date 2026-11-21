@@ -356,15 +356,16 @@ function PlanPricingFields({
 }) {
   const pricingDisabled = !hasStripeApiKey
   const priceLabel =
-    billingInterval === 'month' ? 'Monthly price' : billingInterval === 'year' ? 'Yearly price' : 'One-time price'
+    billingInterval === 'month'
+      ? 'Monthly price (USD)'
+      : billingInterval === 'year'
+        ? 'Yearly price (USD)'
+        : 'One-time price (USD)'
   const pricePlaceholder = billingInterval === 'month' ? '4.99' : billingInterval === 'year' ? '49.99' : '19.99'
   const priceSuffix = billingInterval === 'month' ? '/mo' : billingInterval === 'year' ? '/yr' : null
 
   return (
-    <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-muted-foreground">Pricing (USD)</span>
-      </div>
+    <>
       {onBillingIntervalChange && billingInterval !== 'one_time' && (
         <div className="space-y-1.5">
           <Label>Billing interval</Label>
@@ -376,14 +377,14 @@ function PlanPricingFields({
           >
             <Label
               htmlFor={`${idPrefix}-interval-month`}
-              className="flex cursor-pointer items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-normal has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-accent/50"
+              className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm font-normal has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-accent/50"
             >
               <RadioGroupItem id={`${idPrefix}-interval-month`} value="month" />
               Monthly
             </Label>
             <Label
               htmlFor={`${idPrefix}-interval-year`}
-              className="flex cursor-pointer items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-normal has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-accent/50"
+              className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm font-normal has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-accent/50"
             >
               <RadioGroupItem id={`${idPrefix}-interval-year`} value="year" />
               Yearly
@@ -393,7 +394,7 @@ function PlanPricingFields({
       )}
       <div className="space-y-1.5">
         <Label htmlFor={`${idPrefix}-amount`}>{priceLabel}</Label>
-        <InputGroup className="bg-background" data-disabled={pricingDisabled || undefined}>
+        <InputGroup data-disabled={pricingDisabled || undefined}>
           <InputGroupAddon align="inline-start">
             <InputGroupText>$</InputGroupText>
           </InputGroupAddon>
@@ -417,19 +418,19 @@ function PlanPricingFields({
             </InputGroupAddon>
           )}
         </InputGroup>
+        {!hasStripeApiKey ? (
+          <p className="text-xs text-muted-foreground">
+            Connect your Stripe Restricted Key in{' '}
+            <Link to="/settings" hash="payment-credentials" className="underline underline-offset-4">
+              Settings
+            </Link>{' '}
+            to create and sync plans with Stripe.
+          </p>
+        ) : (
+          helperText && <p className="text-xs text-muted-foreground">{helperText}</p>
+        )}
       </div>
-      {!hasStripeApiKey ? (
-        <p className="text-xs text-muted-foreground">
-          Connect your Stripe Restricted Key in{' '}
-          <Link to="/settings" hash="payment-credentials" className="underline underline-offset-4">
-            Settings
-          </Link>{' '}
-          to create and sync plans with Stripe.
-        </p>
-      ) : (
-        helperText && <p className="text-xs text-muted-foreground">{helperText}</p>
-      )}
-    </div>
+    </>
   )
 }
 

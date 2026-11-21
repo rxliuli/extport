@@ -121,9 +121,8 @@ test.describe('Billing & payment UI E2E', () => {
     // Return to Licensing -> pricing inputs are now enabled and USD-only (no currency dropdown).
     await page.goto(`/extensions/${extensionId}/licensing`)
     await page.getByRole('button', { name: 'Add a plan' }).click()
-    await expect(dialog.getByText('Pricing (USD)')).toBeVisible()
+    await expect(dialog.getByLabel('Monthly price (USD)')).toBeEnabled()
     await expect(dialog.getByLabel('Currency')).toHaveCount(0)
-    await expect(dialog.getByLabel('Monthly price')).toBeEnabled()
   })
 
   test('subscription lifecycle: USD plans reuse one Stripe Product, checkout, webhook fulfillment, duplicate guard, and disable pause', async ({
@@ -187,9 +186,8 @@ test.describe('Billing & payment UI E2E', () => {
     // Edit "pro" monthly price -> creates new Stripe Price and archives old price_e2e_2.
     await page.getByRole('button', { name: 'Edit pro monthly plan' }).click()
     const editDialog = page.getByRole('dialog', { name: 'Edit pro (monthly)' })
-    await expect(editDialog.getByText('Pricing (USD)')).toBeVisible()
     await expect(editDialog.getByLabel('Currency')).toHaveCount(0)
-    await editDialog.getByLabel('Monthly price').fill('5.99')
+    await editDialog.getByLabel('Monthly price (USD)').fill('5.99')
     await editDialog.getByRole('button', { name: 'Save' }).click()
     await expect(editDialog).toBeHidden()
     await expect(page.getByText('$5.99/mo')).toBeVisible()
@@ -344,8 +342,7 @@ test.describe('Billing & payment UI E2E', () => {
     // Create one-time plan ("pro", $19.99, 3 devices).
     await page.getByRole('button', { name: 'Add a plan' }).click()
     const createDialog = page.getByRole('dialog', { name: 'Add a plan' })
-    await expect(createDialog.getByText('Pricing (USD)')).toBeVisible()
-    await createDialog.getByLabel('Price').fill('19.99')
+    await createDialog.getByLabel('One-time price (USD)').fill('19.99')
     await createDialog.getByRole('button', { name: 'Create plan' }).click()
     await expect(createDialog).toBeHidden()
 
