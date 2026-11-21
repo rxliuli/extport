@@ -160,7 +160,7 @@ describe('plans auto-sync with Stripe', () => {
     let priceSeq = 0
     const calls = mockStripeFetch((path, params) => {
       if (path === '/products') {
-        expect(params.get('name')).toBe('Control Plane Ext (pro)')
+        expect(params.get('name')).toBe('Control Plane Ext')
         return { body: { id: 'prod_auto_1' } }
       }
       if (path === '/prices') {
@@ -197,7 +197,8 @@ describe('plans auto-sync with Stripe', () => {
     expect(plan.stripeProductId).toBe('prod_auto_1')
     expect(plan.stripeMonthlyPriceId).toBe('price_auto_1')
     expect(plan.stripeYearlyPriceId).toBe('price_auto_2')
-    expect(calls[0]!.params.get('metadata[extport_plan]')).toBe(plan.id)
+    expect(calls[0]!.params.get('metadata[extport_extension]')).toBe(plan.extensionId)
+    expect(calls[1]!.params.get('metadata[extport_plan]')).toBe(plan.id)
     expect(calls[1]!.params.get('currency')).toBe('eur')
     expect(calls[1]!.params.get('recurring[interval]')).toBe('month')
     expect(calls[2]!.params.get('recurring[interval]')).toBe('year')
@@ -807,5 +808,129 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
       headers: { cookie: sessionCookie },
     })
     expect(delBlocked.status).toBe(409)
+  })
+
+  it('reuses one Stripe Product across multiple plans of the same extension', async () => {
+    const { sessionCookie, extension } = await setupControlPlaneTenant({ apiKey: 'rk_test_reuse_prod_123456' })
+    let priceCount = 0
+    const calls = mockStripeFetch((path) => {
+      if (path === '/products') return { body: { id: 'prod_shared_ext' } }
+      if (path === '/prices') {
+        priceCount += 1
+        return { body: { id: `price_shared_${priceCount}` } }
+      }
+      throw new Error(`Unexpected path: ${path}`)
+    })
+
+    const basicRes = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extension.id,
+        tier: 'basic',
+        entitlementType: 'recurring',
+        monthlyAmount: 499,
+      }),
+    })
+    expect(basicRes.status).toBe(201)
+    const { plan: basicPlan } = (await basicRes.json()) as { plan: Plan }
+    expect(basicPlan.stripeProductId).toBe('prod_shared_ext')
+
+    const proRes = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extension.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        monthlyAmount: 999,
+      }),
+    })
+    expect(proRes.status).toBe(201)
+    const { plan: proPlan } = (await proRes.json()) as { plan: Plan }
+    expect(proPlan.stripeProductId).toBe('prod_shared_ext')
+
+    // Only ONE Stripe Product created for the extension, with two Prices attached to it.
+    expect(calls.filter((c) => c.url.endsWith('/products'))).toHaveLength(1)
+    expect(calls.filter((c) => c.url.endsWith('/prices'))).toHaveLength(2)
+    expect(
+      calls.filter((c) => c.url.endsWith('/prices')).every((c) => c.params.get('product') === 'prod_shared_ext'),
+    ).toBe(true)
+  })
+
+  it('blocks new checkouts when licensing is disabled while keeping entitlements and billing portal active', async () => {
+    const { db, tenantId, sessionCookie, apiKey, extension } = await setupControlPlaneTenant({
+      apiKey: 'rk_test_disabled_123456',
+    })
+    mockStripeFetch((path) => {
+      if (path === '/products') return { body: { id: 'prod_dis_1' } }
+      if (path === '/prices') return { body: { id: 'price_dis_mo' } }
+      if (path === '/billing_portal/sessions') return { body: { id: 'bps_dis', url: 'https://billing.stripe.com/dis' } }
+      throw new Error(`Unexpected path: ${path}`)
+    })
+
+    const planRes = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extension.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        monthlyAmount: 499,
+      }),
+    })
+    const { plan } = (await planRes.json()) as { plan: Plan }
+
+    await seedSubscription(db, {
+      tenantId,
+      extensionId: extension.id,
+      planId: plan.id,
+      buyerEmail: 'sub@example.com',
+      externalUserId: 'usr_sub',
+      stripeCustomerId: 'cus_sub_1',
+      status: 'active',
+    })
+
+    // Disable licensing on the extension.
+    await request(`/api/v1/extensions/${extension.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ licensingEnabled: false }),
+    })
+
+    // New checkouts are blocked (400).
+    const checkoutRes = await request('/api/v1/subscriptions/checkout', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extension.id,
+        tier: 'pro',
+        interval: 'monthly',
+        externalUserId: 'usr_new',
+        successUrl: 'https://app.example.com/ok',
+        cancelUrl: 'https://app.example.com/cancel',
+      }),
+    })
+    expect(checkoutRes.status).toBe(400)
+
+    // Existing subscribers keep entitlements and Billing Portal access.
+    const entRes = await request(
+      `/api/v1/subscriptions/entitlements?extensionId=${extension.id}&externalUserId=usr_sub`,
+      { headers: { authorization: `Bearer ${apiKey}` } },
+    )
+    expect(entRes.status).toBe(200)
+    expect(((await entRes.json()) as { active: boolean }).active).toBe(true)
+
+    const portalRes = await request('/api/v1/subscriptions/portal', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extension.id,
+        externalUserId: 'usr_sub',
+        returnUrl: 'https://app.example.com/account',
+      }),
+    })
+    expect(portalRes.status).toBe(200)
+    expect(((await portalRes.json()) as { url: string }).url).toBe('https://billing.stripe.com/dis')
   })
 })

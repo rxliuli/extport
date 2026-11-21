@@ -201,10 +201,13 @@ route.post(
     const body = c.req.valid('json')
 
     const [extension] = await db
-      .select({ id: extensions.id })
+      .select({ id: extensions.id, licensingEnabled: extensions.licensingEnabled })
       .from(extensions)
       .where(and(eq(extensions.id, body.extensionId), eq(extensions.tenantId, tenant.id)))
     if (!extension) return c.json({ error: 'extension not found' }, 404)
+    if (!extension.licensingEnabled) {
+      return c.json({ error: 'licensing is disabled for this extension' }, 400)
+    }
 
     const tier = body.tier || 'pro'
     const [plan] = await db

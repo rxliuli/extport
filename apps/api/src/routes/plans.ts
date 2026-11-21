@@ -1,5 +1,5 @@
 import { newId } from '@extport/shared'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNotNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
@@ -215,11 +215,24 @@ route.post(
       const currency = effectiveCurrency ?? 'usd'
       try {
         if (!stripeProductId) {
-          const product = await createStripeProduct(apiKey, {
-            name: `${extension.name} (${body.tier})`,
-            metadata: { extport_extension: extension.id, extport_plan: id, extport_tier: body.tier },
-          })
-          stripeProductId = product.id
+          // 1 Extension = 1 Stripe Product: reuse any Stripe Product already
+          // created for this extension before creating a new one.
+          const [existingProduct] = await db
+            .select({ stripeProductId: plans.stripeProductId })
+            .from(plans)
+            .where(
+              and(eq(plans.tenantId, tenant.id), eq(plans.extensionId, extension.id), isNotNull(plans.stripeProductId)),
+            )
+            .limit(1)
+          if (existingProduct?.stripeProductId) {
+            stripeProductId = existingProduct.stripeProductId
+          } else {
+            const product = await createStripeProduct(apiKey, {
+              name: extension.name,
+              metadata: { extport_extension: extension.id },
+            })
+            stripeProductId = product.id
+          }
         }
         if (needsOneTimeSync) {
           const price = await createStripePrice(apiKey, {
@@ -358,13 +371,24 @@ route.patch(
     let nextStripeProductId = body.stripeProductId !== undefined ? body.stripeProductId : existing.stripeProductId
     const ensureStripeProduct = async (apiKey: string): Promise<string> => {
       if (nextStripeProductId) return nextStripeProductId
+      const [existingProduct] = await db
+        .select({ stripeProductId: plans.stripeProductId })
+        .from(plans)
+        .where(
+          and(
+            eq(plans.tenantId, tenant.id),
+            eq(plans.extensionId, existing.extensionId),
+            isNotNull(plans.stripeProductId),
+          ),
+        )
+        .limit(1)
+      if (existingProduct?.stripeProductId) {
+        nextStripeProductId = existingProduct.stripeProductId
+        return nextStripeProductId
+      }
       const product = await createStripeProduct(apiKey, {
-        name: `${row.extensionName} (${existing.tier})`,
-        metadata: {
-          extport_extension: existing.extensionId,
-          extport_plan: existing.id,
-          extport_tier: existing.tier,
-        },
+        name: row.extensionName,
+        metadata: { extport_extension: existing.extensionId },
       })
       nextStripeProductId = product.id
       return product.id

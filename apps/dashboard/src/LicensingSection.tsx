@@ -35,33 +35,6 @@ function errorMessage(err: unknown): string {
   return err instanceof ApiError ? err.message : String(err)
 }
 
-const CURRENCY_OPTIONS = [
-  { code: 'USD', label: 'USD ($)' },
-  { code: 'EUR', label: 'EUR (€)' },
-  { code: 'GBP', label: 'GBP (£)' },
-  { code: 'JPY', label: 'JPY (¥)' },
-  { code: 'CAD', label: 'CAD ($)' },
-  { code: 'AUD', label: 'AUD ($)' },
-  { code: 'SGD', label: 'SGD ($)' },
-  { code: 'HKD', label: 'HKD ($)' },
-  { code: 'CNY', label: 'CNY (¥)' },
-] as const
-
-function currencySymbol(currency: string): string {
-  try {
-    const part = new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency.toUpperCase(),
-      currencyDisplay: 'narrowSymbol',
-    })
-      .formatToParts(0)
-      .find((p) => p.type === 'currency')
-    return part?.value ?? currency.toUpperCase()
-  } catch {
-    return currency.toUpperCase()
-  }
-}
-
 function currencyDecimals(currency: string): number {
   try {
     return (
@@ -213,7 +186,7 @@ export function LicenseStatusCell({ license }: { license: LicenseRow }) {
 
 export function LicensingSection({ extension }: { extension: Extension }) {
   const queryClient = useQueryClient()
-  const { data: plans = [] } = useQuery({ ...plansQuery(extension.id), enabled: extension.licensingEnabled })
+  const { data: plans = [] } = useQuery(plansQuery(extension.id))
   const [selectedMode, setSelectedMode] = useState<BillingMode>(extension.billingMode ?? 'license')
 
   const updateExtension = useMutation({
@@ -226,65 +199,93 @@ export function LicensingSection({ extension }: { extension: Extension }) {
     onError: (err) => toast.error(errorMessage(err)),
   })
 
+  const billingMode: BillingMode =
+    extension.billingMode ??
+    (plans.some((p) => p.entitlementType === 'recurring') && !plans.some((p) => p.entitlementType === 'perpetual')
+      ? 'subscription'
+      : 'license')
+
   if (!extension.licensingEnabled) {
+    const modeLocked = plans.length > 0
     return (
       <Section
         title="Licensing is off"
         description={
-          <>
-            Choose how this extension is monetized. Each extension uses either one-time activation codes or
-            account-based subscriptions — never both — keeping plans, checkout, and verification simple.
-          </>
+          modeLocked ? (
+            billingMode === 'subscription' ? (
+              <>
+                New subscription checkouts are paused. Existing subscribers keep access for their paid period and can
+                still manage billing.
+              </>
+            ) : (
+              <>
+                New checkouts and new device activations are paused. Already-activated devices keep their entitlement
+                from local state.
+              </>
+            )
+          ) : (
+            <>
+              Choose how this extension is monetized. Each extension uses either one-time activation codes or
+              account-based subscriptions — never both — keeping plans, checkout, and verification simple.
+            </>
+          )
         }
       >
         <div className={`space-y-4 ${sectionBodyClass}`}>
-          <RadioGroup
-            aria-label="Billing mode"
-            value={selectedMode}
-            onValueChange={(value: string) => setSelectedMode(value as BillingMode)}
-            className="grid max-w-2xl gap-3 sm:grid-cols-2"
-          >
-            <Label
-              htmlFor="ext-billing-license"
-              className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3.5 font-normal transition-colors hover:bg-accent/40 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-accent/50"
+          {!modeLocked && (
+            <RadioGroup
+              aria-label="Billing mode"
+              value={selectedMode}
+              onValueChange={(value: string) => setSelectedMode(value as BillingMode)}
+              className="grid max-w-2xl gap-3 sm:grid-cols-2"
             >
-              <RadioGroupItem id="ext-billing-license" value="license" className="mt-0.5" />
-              <span className="space-y-1">
-                <span className="block text-sm font-medium">One-time License</span>
-                <span className="block text-xs text-muted-foreground">
-                  Perpetual activation codes with device seat limits, verified by @extport/sdk.
+              <Label
+                htmlFor="ext-billing-license"
+                className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3.5 font-normal transition-colors hover:bg-accent/40 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-accent/50"
+              >
+                <RadioGroupItem id="ext-billing-license" value="license" className="mt-0.5" />
+                <span className="space-y-1">
+                  <span className="block text-sm font-medium">One-time License</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Perpetual activation codes with device seat limits, verified by @extport/sdk.
+                  </span>
                 </span>
-              </span>
-            </Label>
-            <Label
-              htmlFor="ext-billing-subscription"
-              className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3.5 font-normal transition-colors hover:bg-accent/40 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-accent/50"
-            >
-              <RadioGroupItem id="ext-billing-subscription" value="subscription" className="mt-0.5" />
-              <span className="space-y-1">
-                <span className="block text-sm font-medium">Subscription</span>
-                <span className="block text-xs text-muted-foreground">
-                  Monthly or yearly recurring plans tied to user accounts, verified server-side via API.
+              </Label>
+              <Label
+                htmlFor="ext-billing-subscription"
+                className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3.5 font-normal transition-colors hover:bg-accent/40 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-accent/50"
+              >
+                <RadioGroupItem id="ext-billing-subscription" value="subscription" className="mt-0.5" />
+                <span className="space-y-1">
+                  <span className="block text-sm font-medium">Subscription</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Monthly or yearly recurring plans tied to user accounts, verified server-side via API.
+                  </span>
                 </span>
-              </span>
-            </Label>
-          </RadioGroup>
+              </Label>
+            </RadioGroup>
+          )}
           <Button
-            onClick={() => updateExtension.mutate({ licensingEnabled: true, billingMode: selectedMode })}
+            onClick={() =>
+              updateExtension.mutate(
+                modeLocked ? { licensingEnabled: true } : { licensingEnabled: true, billingMode: selectedMode },
+              )
+            }
             disabled={updateExtension.isPending}
           >
-            {selectedMode === 'subscription' ? 'Enable subscriptions' : 'Enable one-time licenses'}
+            {modeLocked
+              ? billingMode === 'subscription'
+                ? 'Re-enable subscriptions'
+                : 'Re-enable one-time licenses'
+              : selectedMode === 'subscription'
+                ? 'Enable subscriptions'
+                : 'Enable one-time licenses'}
           </Button>
         </div>
       </Section>
     )
   }
 
-  const billingMode: BillingMode =
-    extension.billingMode ??
-    (plans.some((p) => p.entitlementType === 'recurring') && !plans.some((p) => p.entitlementType === 'perpetual')
-      ? 'subscription'
-      : 'license')
   const otherMode: BillingMode = billingMode === 'subscription' ? 'license' : 'subscription'
 
   return (
@@ -297,11 +298,14 @@ export function LicensingSection({ extension }: { extension: Extension }) {
       )}
       <p className="text-sm text-muted-foreground">
         {billingMode === 'subscription' ? (
-          <>Billing mode: Subscriptions.</>
+          <>
+            Billing mode: Subscriptions — disabling stops new checkouts while existing subscribers keep access for their
+            paid period and can still manage billing.
+          </>
         ) : (
           <>
-            Billing mode: One-time licenses — switching licensing off stops new activations while already-activated
-            devices keep their entitlement from local state.
+            Billing mode: One-time licenses — disabling stops new checkouts and new device activations while
+            already-activated devices keep their entitlement from local state.
           </>
         )}{' '}
         {plans.length === 0 && (
@@ -333,8 +337,6 @@ export function LicensingSection({ extension }: { extension: Extension }) {
 function PlanPricingFields({
   idPrefix,
   entitlementType,
-  currency,
-  onCurrencyChange,
   amount,
   onAmountChange,
   monthlyAmount,
@@ -346,8 +348,6 @@ function PlanPricingFields({
 }: {
   idPrefix: string
   entitlementType: EntitlementType
-  currency: string
-  onCurrencyChange: (value: string) => void
   amount: string
   onAmountChange: (value: string) => void
   monthlyAmount: string
@@ -357,38 +357,12 @@ function PlanPricingFields({
   hasStripeApiKey: boolean
   helperText?: string
 }) {
-  const decimals = currencyDecimals(currency)
-  const step = decimals === 0 ? '1' : (1 / 10 ** decimals).toFixed(decimals)
-  const min = (50 / 10 ** decimals).toFixed(decimals)
-  const max = (99_999_999 / 10 ** decimals).toFixed(decimals)
-  const symbol = currencySymbol(currency)
-  const options = CURRENCY_OPTIONS.some((c) => c.code === currency)
-    ? CURRENCY_OPTIONS
-    : [...CURRENCY_OPTIONS, { code: currency, label: `${currency} (${symbol})` }]
-
   const pricingDisabled = !hasStripeApiKey
 
   return (
     <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-muted-foreground">Pricing</span>
-        <Select value={currency} onValueChange={onCurrencyChange} disabled={pricingDisabled}>
-          <SelectTrigger
-            id={`${idPrefix}-currency`}
-            size="sm"
-            className="w-[110px] bg-background"
-            aria-label="Currency"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {options.map((opt) => (
-              <SelectItem key={opt.code} value={opt.code}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <span className="text-xs font-medium text-muted-foreground">Pricing (USD)</span>
       </div>
       <div className={entitlementType === 'recurring' ? 'grid gap-3 sm:grid-cols-2' : 'space-y-1'}>
         {entitlementType === 'perpetual' ? (
@@ -396,18 +370,18 @@ function PlanPricingFields({
             <Label htmlFor={`${idPrefix}-amount`}>One-time price</Label>
             <InputGroup className="bg-background" data-disabled={pricingDisabled || undefined}>
               <InputGroupAddon align="inline-start">
-                <InputGroupText>{symbol}</InputGroupText>
+                <InputGroupText>$</InputGroupText>
               </InputGroupAddon>
               <InputGroupInput
                 id={`${idPrefix}-amount`}
                 name="amount"
                 type="number"
                 inputMode="decimal"
-                min={min}
-                max={max}
-                step={step}
+                min="0.50"
+                max="999999.99"
+                step="0.01"
                 disabled={pricingDisabled}
-                placeholder={decimals === 0 ? '2000' : '19.99'}
+                placeholder="19.99"
                 value={amount}
                 onChange={(e) => onAmountChange(e.target.value)}
               />
@@ -419,18 +393,18 @@ function PlanPricingFields({
               <Label htmlFor={`${idPrefix}-monthly-amount`}>Monthly price</Label>
               <InputGroup className="bg-background" data-disabled={pricingDisabled || undefined}>
                 <InputGroupAddon align="inline-start">
-                  <InputGroupText>{symbol}</InputGroupText>
+                  <InputGroupText>$</InputGroupText>
                 </InputGroupAddon>
                 <InputGroupInput
                   id={`${idPrefix}-monthly-amount`}
                   name="monthlyAmount"
                   type="number"
                   inputMode="decimal"
-                  min={min}
-                  max={max}
-                  step={step}
+                  min="0.50"
+                  max="999999.99"
+                  step="0.01"
                   disabled={pricingDisabled}
-                  placeholder={decimals === 0 ? '500' : '4.99'}
+                  placeholder="4.99"
                   value={monthlyAmount}
                   onChange={(e) => onMonthlyAmountChange(e.target.value)}
                 />
@@ -443,18 +417,18 @@ function PlanPricingFields({
               <Label htmlFor={`${idPrefix}-yearly-amount`}>Yearly price</Label>
               <InputGroup className="bg-background" data-disabled={pricingDisabled || undefined}>
                 <InputGroupAddon align="inline-start">
-                  <InputGroupText>{symbol}</InputGroupText>
+                  <InputGroupText>$</InputGroupText>
                 </InputGroupAddon>
                 <InputGroupInput
                   id={`${idPrefix}-yearly-amount`}
                   name="yearlyAmount"
                   type="number"
                   inputMode="decimal"
-                  min={min}
-                  max={max}
-                  step={step}
+                  min="0.50"
+                  max="999999.99"
+                  step="0.01"
                   disabled={pricingDisabled}
-                  placeholder={decimals === 0 ? '5000' : '49.99'}
+                  placeholder="49.99"
                   value={yearlyAmount}
                   onChange={(e) => onYearlyAmountChange(e.target.value)}
                 />
@@ -493,7 +467,6 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
   // Prefills are suggestions the tenant confirms — never auto-created rows.
   const [tier, setTier] = useState('pro')
   const [maxActivations, setMaxActivations] = useState('3')
-  const [currency, setCurrency] = useState('USD')
   const [amount, setAmount] = useState('')
   const [monthlyAmount, setMonthlyAmount] = useState('')
   const [yearlyAmount, setYearlyAmount] = useState('')
@@ -510,7 +483,6 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
       setAmount('')
       setMonthlyAmount('')
       setYearlyAmount('')
-      setCurrency('USD')
       setFormError(null)
       void queryClient.invalidateQueries({ queryKey: ['extensions', extension.id, 'plans'] })
     },
@@ -522,11 +494,7 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
     setFormError(null)
     if (!tier.trim()) return
 
-    const normCurrency = (currency.trim() || 'USD').toLowerCase()
-    if (!/^[a-z]{3}$/.test(normCurrency)) {
-      setFormError('Currency must be a 3-letter ISO code (e.g. USD)')
-      return
-    }
+    const normCurrency = 'usd'
 
     const payload: Record<string, unknown> = {
       extensionId: extension.id,
@@ -629,8 +597,6 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
                 <PlanPricingFields
                   idPrefix="plan-create"
                   entitlementType={entitlementType}
-                  currency={currency}
-                  onCurrencyChange={setCurrency}
                   amount={amount}
                   onAmountChange={setAmount}
                   monthlyAmount={monthlyAmount}
@@ -715,7 +681,6 @@ function PlanEditDialog({
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [maxActivations, setMaxActivations] = useState(String(plan.maxActivations))
-  const [currency, setCurrency] = useState((plan.currency ?? 'usd').toUpperCase())
   const [amount, setAmount] = useState(formatMinorToInput(plan.amount, plan.currency))
   const [monthlyAmount, setMonthlyAmount] = useState(formatMinorToInput(plan.monthlyAmount, plan.currency))
   const [yearlyAmount, setYearlyAmount] = useState(formatMinorToInput(plan.yearlyAmount, plan.currency))
@@ -723,7 +688,6 @@ function PlanEditDialog({
 
   const syncFromPlan = () => {
     setMaxActivations(String(plan.maxActivations))
-    setCurrency((plan.currency ?? 'usd').toUpperCase())
     setAmount(formatMinorToInput(plan.amount, plan.currency))
     setMonthlyAmount(formatMinorToInput(plan.monthlyAmount, plan.currency))
     setYearlyAmount(formatMinorToInput(plan.yearlyAmount, plan.currency))
@@ -748,11 +712,7 @@ function PlanEditDialog({
     e.preventDefault()
     setFormError(null)
 
-    const normCurrency = (currency.trim() || 'USD').toLowerCase()
-    if (!/^[a-z]{3}$/.test(normCurrency)) {
-      setFormError('Currency must be a 3-letter ISO code (e.g. USD)')
-      return
-    }
+    const normCurrency = (plan.currency ?? 'usd').toLowerCase()
 
     const payload: Record<string, unknown> = {}
     if (plan.entitlementType === 'perpetual') {
@@ -849,8 +809,6 @@ function PlanEditDialog({
           <PlanPricingFields
             idPrefix={`edit-${plan.id}`}
             entitlementType={plan.entitlementType}
-            currency={currency}
-            onCurrencyChange={setCurrency}
             amount={amount}
             onAmountChange={setAmount}
             monthlyAmount={monthlyAmount}
