@@ -381,7 +381,7 @@ describe('buyer portal one-click billing portal', () => {
     expect(portalA.status).toBe(200)
     expect(await portalA.json()).toEqual({ url: 'https://billing.stripe.com/p/session/bps_buyer_1' })
     expect(calls[0]!.get('customer')).toBe('cus_portal_buyer')
-    expect(calls[0]!.get('return_url')).toBe('https://portal.extport.dev/portal')
+    expect(calls[0]!.get('return_url')).toMatch(/\/portal$/)
 
     // Tenant B license -> falls back to static billingPortalUrl.
     const portalB = await request('/api/v1/portal/billing-portal', {

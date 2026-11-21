@@ -195,3 +195,22 @@ export async function createStripeBillingPortalSession(
   }
   return { id: session.id, url: session.url }
 }
+
+export async function updateStripeSubscription(
+  apiKey: string,
+  input: { subscriptionId: string; cancelAtPeriodEnd: boolean; apiBase?: string },
+): Promise<{ id: string; status: string; cancelAtPeriodEnd: boolean }> {
+  const params = new URLSearchParams()
+  params.set('cancel_at_period_end', input.cancelAtPeriodEnd ? 'true' : 'false')
+  const sub = await stripePost<{ id: string; status?: string; cancel_at_period_end?: boolean }>(
+    apiKey,
+    `/subscriptions/${encodeURIComponent(input.subscriptionId)}`,
+    params,
+    input.apiBase,
+  )
+  return {
+    id: sub.id,
+    status: sub.status ?? 'active',
+    cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end),
+  }
+}

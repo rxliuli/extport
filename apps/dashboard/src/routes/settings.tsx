@@ -603,7 +603,7 @@ function PaymentCredentialsSection() {
           <p id="stripe-restricted-key-help" className="text-xs text-muted-foreground">
             Create a Restricted Key in Stripe (Developers → API keys → Create restricted key) with Write permission for:{' '}
             <strong>Products</strong>, <strong>Prices</strong>, <strong>Customers</strong>,{' '}
-            <strong>Checkout Sessions</strong>, and <strong>Customer Portal</strong>.
+            <strong>Checkout Sessions</strong>, <strong>Subscriptions</strong>, and <strong>Customer Portal</strong>.
           </p>
         </div>
 

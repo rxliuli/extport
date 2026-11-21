@@ -9,6 +9,15 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/extra/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -68,6 +77,7 @@ interface PortalSubscription {
   supportUrl: string | null
   billingPortalUrl: string | null
   canManageBilling?: boolean
+  canCancel?: boolean
 }
 
 function isPortalSubscriptionEntitled(sub: PortalSubscription): boolean {
@@ -316,6 +326,8 @@ function PurchasesList({
 }
 
 function SubscriptionItemRow({ subscription }: { subscription: PortalSubscription }) {
+  const queryClient = useQueryClient()
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false)
   const entitled = isPortalSubscriptionEntitled(subscription)
   const inactive = !entitled
   const end = subscription.currentPeriodEnd ? formatDate(subscription.currentPeriodEnd) : null
@@ -334,6 +346,37 @@ function SubscriptionItemRow({ subscription }: { subscription: PortalSubscriptio
   } else if (end) {
     periodNote = `Renews ${end}`
   }
+
+  const canModify =
+    Boolean(subscription.canCancel) &&
+    (subscription.status === 'active' || subscription.status === 'trialing' || subscription.status === 'past_due')
+
+  const cancelSub = useMutation({
+    mutationFn: () =>
+      api(`/api/v1/portal/subscriptions/${subscription.id}/cancel`, {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      setConfirmCancelOpen(false)
+      toast.success(
+        end ? `Subscription will end on ${end}` : 'Subscription will cancel at the end of the billing period',
+      )
+      void queryClient.invalidateQueries({ queryKey: ['portal-licenses'] })
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : String(err)),
+  })
+
+  const resumeSub = useMutation({
+    mutationFn: () =>
+      api(`/api/v1/portal/subscriptions/${subscription.id}/resume`, {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      toast.success('Subscription resumed')
+      void queryClient.invalidateQueries({ queryKey: ['portal-licenses'] })
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : String(err)),
+  })
 
   const showManageBilling = subscription.canManageBilling ?? isSafeHttpUrl(subscription.billingPortalUrl)
   const manageBilling = useMutation({
@@ -362,7 +405,7 @@ function SubscriptionItemRow({ subscription }: { subscription: PortalSubscriptio
 
   return (
     <li className="px-4 py-3 sm:px-5">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className={cn('min-w-0 space-y-1', inactive && 'opacity-60')}>
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-semibold">{subscription.productName}</span>
@@ -403,23 +446,70 @@ function SubscriptionItemRow({ subscription }: { subscription: PortalSubscriptio
             )}
           </div>
         </div>
-        {showManageBilling && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={manageBilling.isPending}
-            aria-label={`Manage subscription for ${subscription.productName}`}
-            onClick={() => manageBilling.mutate()}
-          >
-            {manageBilling.isPending ? (
-              <Loader2 className="size-3.5 animate-spin" />
+        <div className="flex flex-wrap items-center gap-2">
+          {canModify &&
+            (subscription.cancelAtPeriodEnd ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={resumeSub.isPending}
+                onClick={() => resumeSub.mutate()}
+              >
+                {resumeSub.isPending && <Loader2 className="size-3.5 animate-spin" />}
+                Resume
+              </Button>
             ) : (
-              <CreditCard className="size-3.5" />
-            )}
-            Manage subscription
-          </Button>
-        )}
+              <Dialog open={confirmCancelOpen} onOpenChange={setConfirmCancelOpen}>
+                <DialogTrigger asChild>
+                  <Button type="button" variant="outline" size="sm">
+                    Cancel
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Cancel {subscription.productName} subscription?</DialogTitle>
+                    <DialogDescription>
+                      {end
+                        ? `You'll keep access to ${subscription.tier} features through ${end}. You can resume your subscription anytime before then.`
+                        : `You'll keep access to ${subscription.tier} features until the end of your current billing period. You can resume anytime before then.`}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button type="button" variant="ghost" onClick={() => setConfirmCancelOpen(false)}>
+                      Keep subscription
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      disabled={cancelSub.isPending}
+                      onClick={() => cancelSub.mutate()}
+                    >
+                      {cancelSub.isPending && <Loader2 className="size-3.5 animate-spin" />}
+                      Cancel at period end
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            ))}
+          {showManageBilling && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={manageBilling.isPending}
+              aria-label={`Payment and invoices for ${subscription.productName}`}
+              onClick={() => manageBilling.mutate()}
+            >
+              {manageBilling.isPending ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <CreditCard className="size-3.5" />
+              )}
+              Payment & invoices
+            </Button>
+          )}
+        </div>
       </div>
     </li>
   )

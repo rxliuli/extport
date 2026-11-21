@@ -86,6 +86,7 @@ Store a **Stripe Restricted Key** (`rk_…`) in [**Settings → Stripe**](https:
 - **Prices**
 - **Customers**
 - **Checkout Sessions**
+- **Subscriptions**
 - **Customer Portal**
 
 With a Restricted Key configured:

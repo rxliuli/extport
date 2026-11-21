@@ -976,7 +976,7 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
     const { db, tenantId, sessionCookie, extension } = await setupControlPlaneTenant({
       apiKey: 'rk_test_portal_sub',
     })
-    mockStripeFetch((path) => {
+    mockStripeFetch((path, params) => {
       if (path === '/products') return { body: { id: 'prod_portal_1' } }
       if (path === '/prices') return { body: { id: 'price_portal_1' } }
       if (path === '/checkout/sessions') {
@@ -984,6 +984,15 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
       }
       if (path === '/billing_portal/sessions') {
         return { body: { id: 'bps_portal_sub_1', url: 'https://billing.stripe.com/p/session/bps_portal_sub_1' } }
+      }
+      if (path.startsWith('/subscriptions/')) {
+        return {
+          body: {
+            id: path.split('/').pop(),
+            status: 'active',
+            cancel_at_period_end: params.get('cancel_at_period_end') === 'true',
+          },
+        }
       }
       throw new Error(`Unexpected path: ${path}`)
     })
@@ -1061,5 +1070,24 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
     })
     expect(bpRes.status).toBe(200)
     expect(((await bpRes.json()) as { url: string }).url).toBe('https://billing.stripe.com/p/session/bps_portal_sub_1')
+
+    // Native Cancel at period end and Resume directly in Buyer Portal.
+    const cancelRes = await request(`/api/v1/portal/subscriptions/${sub.id}/cancel`, {
+      method: 'POST',
+      headers: { cookie: buyerCookie },
+    })
+    expect(cancelRes.status).toBe(200)
+    expect(
+      ((await cancelRes.json()) as { subscription: { cancelAtPeriodEnd: boolean } }).subscription.cancelAtPeriodEnd,
+    ).toBe(true)
+
+    const resumeRes = await request(`/api/v1/portal/subscriptions/${sub.id}/resume`, {
+      method: 'POST',
+      headers: { cookie: buyerCookie },
+    })
+    expect(resumeRes.status).toBe(200)
+    expect(
+      ((await resumeRes.json()) as { subscription: { cancelAtPeriodEnd: boolean } }).subscription.cancelAtPeriodEnd,
+    ).toBe(false)
   })
 })

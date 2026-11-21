@@ -145,7 +145,7 @@ A subscription is currently entitled (`isSubscriptionEntitled`) when `status` is
 
 ## Lightweight Stripe control plane (Restricted Key)
 
-Store a **Stripe Restricted Key** (`rk_…`) alongside `webhookSecret` in `payment_credentials` (Settings → Stripe). Minimal required Stripe Restricted Key permissions: **Products**, **Prices**, **Customers**, **Checkout Sessions**, and **Customer Portal** (Write).
+Store a **Stripe Restricted Key** (`rk_…`) alongside `webhookSecret` in `payment_credentials` (Settings → Stripe). Minimal required Stripe Restricted Key permissions: **Products**, **Prices**, **Customers**, **Checkout Sessions**, **Subscriptions**, and **Customer Portal** (Write).
 
 - **Credential merging (`POST /api/v1/payment-credentials`)**: `encryptedPayload` holds `{ webhookSecret?, apiKey? }`, `hint` holds `webhookSecret` last 4 (`''` if unset), and `apiKeyHint` holds `apiKey` last 4. Updating either secret preserves the other.
 - **Plan → Stripe Product / Price sync (`POST /api/v1/plans`, `PATCH /api/v1/plans/:id`)**: Each plan row maps 1:1 to a Stripe Price with `billingInterval` (`'one_time'` for `perpetual`, `'month' | 'year'` for `recurring`), optional `currency`, `amount`, and `stripeProductId` / `stripePriceId`. When `amount` is supplied without a manual `stripePriceId`, extport reuses any existing Stripe Product on the same extension (or creates one named `${extension.name}`, metadata `extport_extension`) and creates the Price under it. On price updates, extport creates a new Stripe Price and best-effort archives the previous Price.

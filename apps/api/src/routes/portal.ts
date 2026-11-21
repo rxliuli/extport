@@ -1,9 +1,20 @@
+import { newId } from '@extport/shared'
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
-import { activations, extensions, licenses, magicLinks, paymentCredentials, plans, subscriptions, tenants } from '../db'
+import {
+  activations,
+  extensions,
+  licenses,
+  magicLinks,
+  paymentCredentials,
+  plans,
+  subscriptionEvents,
+  subscriptions,
+  tenants,
+} from '../db'
 import {
   BUYER_SESSION_COOKIE,
   consumeMagicLink,
@@ -18,6 +29,7 @@ import {
   resolveStripeApiBase,
   StripeApiError,
   stripeErrorToHttp,
+  updateStripeSubscription,
 } from '../lib/stripe-api'
 import { loadStripeCredential } from '../lib/stripe-credentials'
 import { badRequest } from '../lib/validation'
@@ -371,6 +383,7 @@ route.get(
         canManageBilling:
           (Boolean(subscription.stripeCustomerId) && tenantsWithApiKey.has(subscription.tenantId)) ||
           Boolean(tenantSettings.billingPortalUrl),
+        canCancel: Boolean(subscription.stripeSubscriptionId) && tenantsWithApiKey.has(subscription.tenantId),
       })),
     })
   },
@@ -458,6 +471,103 @@ route.post(
     }
     return c.json({ error: 'no billing portal available for this purchase' }, 404)
   },
+)
+
+async function setSubscriptionCancelAtPeriodEnd(c: Context<AppEnv>, cancelAtPeriodEnd: boolean) {
+  const db = c.get('db')
+  const email = await signedInEmail(c)
+  if (!email) return c.json({ error: 'unauthorized' }, 401)
+
+  const id = c.req.param('id')
+  if (!id) return c.json({ error: 'not found' }, 404)
+  const [row] = await db
+    .select({ subscription: subscriptions, tenant: tenants })
+    .from(subscriptions)
+    .innerJoin(tenants, eq(subscriptions.tenantId, tenants.id))
+    .where(eq(subscriptions.id, id))
+  if (!row || row.subscription.buyerEmail.toLowerCase() !== email.toLowerCase()) {
+    return c.json({ error: 'not found' }, 404)
+  }
+
+  const sub = row.subscription
+  if (sub.status !== 'active' && sub.status !== 'trialing' && sub.status !== 'past_due') {
+    return c.json({ error: `cannot modify a ${sub.status} subscription` }, 400)
+  }
+  if (!sub.stripeSubscriptionId) {
+    return c.json({ error: 'subscription cannot be managed via Stripe' }, 400)
+  }
+
+  const cred = await loadStripeCredential(c.env, db, row.tenant)
+  if (!cred?.apiKey) {
+    return c.json({ error: 'Stripe Restricted Key is not configured for this extension' }, 400)
+  }
+
+  try {
+    const updated = await updateStripeSubscription(cred.apiKey, {
+      subscriptionId: sub.stripeSubscriptionId,
+      cancelAtPeriodEnd,
+      apiBase: resolveStripeApiBase(c.env),
+    })
+    await db
+      .update(subscriptions)
+      .set({ cancelAtPeriodEnd: updated.cancelAtPeriodEnd, updatedAt: new Date().toISOString() })
+      .where(eq(subscriptions.id, sub.id))
+    await db.insert(subscriptionEvents).values({
+      id: newId('subscriptionEvent'),
+      tenantId: sub.tenantId,
+      subscriptionId: sub.id,
+      type: updated.cancelAtPeriodEnd ? 'canceled' : 'updated',
+      payload: { source: 'buyer_portal', cancelAtPeriodEnd: updated.cancelAtPeriodEnd },
+    })
+    return c.json({
+      subscription: {
+        id: sub.id,
+        status: sub.status,
+        cancelAtPeriodEnd: updated.cancelAtPeriodEnd,
+        currentPeriodEnd: sub.currentPeriodEnd,
+      },
+    })
+  } catch (err) {
+    if (err instanceof StripeApiError) {
+      const mapped = stripeErrorToHttp(err)
+      return c.json(mapped.body, mapped.status)
+    }
+    throw err
+  }
+}
+
+route.post(
+  '/subscriptions/:id/cancel',
+  describeRoute({
+    summary: 'Cancel a subscription at the end of the current billing period',
+    tags: ['Buyer portal'],
+    security: [{ buyerSession: [] }],
+    responses: {
+      200: { description: 'Scheduled for cancellation at period end' },
+      400: { description: 'Subscription cannot be canceled or missing Restricted Key' },
+      401: { description: 'No buyer session' },
+      404: { description: 'Subscription not found' },
+      502: { description: 'Stripe API unavailable' },
+    },
+  }),
+  (c) => setSubscriptionCancelAtPeriodEnd(c, true),
+)
+
+route.post(
+  '/subscriptions/:id/resume',
+  describeRoute({
+    summary: 'Resume a subscription scheduled for cancellation at period end',
+    tags: ['Buyer portal'],
+    security: [{ buyerSession: [] }],
+    responses: {
+      200: { description: 'Subscription resumed' },
+      400: { description: 'Subscription cannot be resumed or missing Restricted Key' },
+      401: { description: 'No buyer session' },
+      404: { description: 'Subscription not found' },
+      502: { description: 'Stripe API unavailable' },
+    },
+  }),
+  (c) => setSubscriptionCancelAtPeriodEnd(c, false),
 )
 
 route.post(

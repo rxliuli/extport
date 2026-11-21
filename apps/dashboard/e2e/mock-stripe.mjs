@@ -88,6 +88,16 @@ const server = http.createServer(async (req, res) => {
     })
   }
 
+  if (method === 'POST' && url.pathname.startsWith('/v1/subscriptions/')) {
+    const id = decodeURIComponent(url.pathname.slice('/v1/subscriptions/'.length))
+    return sendJson(res, 200, {
+      id,
+      object: 'subscription',
+      status: 'active',
+      cancel_at_period_end: params.cancel_at_period_end === 'true',
+    })
+  }
+
   return sendJson(res, 404, { error: { message: `Unhandled mock Stripe route: ${method} ${url.pathname}` } })
 })
 
