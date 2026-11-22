@@ -56,6 +56,8 @@ interface StripeCheckoutSession {
 interface StripeSubscriptionItem {
   current_period_start?: number | null
   current_period_end?: number | null
+  price?: StripeRef
+  plan?: StripeRef
 }
 
 interface StripeSubscription {
@@ -68,6 +70,7 @@ interface StripeSubscription {
   cancel_at_period_end?: boolean | null
   /** Scheduled cancellation timestamp — Stripe Billing Portal uses this in flexible billing mode while leaving cancel_at_period_end=false. */
   cancel_at?: number | null
+  schedule?: StripeRef
   trial_start?: number | null
   trial_end?: number | null
   ended_at?: number | null
@@ -575,12 +578,45 @@ async function handleSubscriptionChange(
   const nextCancelAtPeriodEnd = isOutOfOrderCreate ? existing.cancelAtPeriodEnd : cancelAtPeriodEnd
   const nextCustomerId = existing.stripeCustomerId ?? customerId
 
+  const firstItem = sub.items?.data?.[0]
+  const currentPriceId = stripeId(firstItem?.price) ?? stripeId(firstItem?.plan)
+  let nextPlanId = existing.planId
+  if (!isOutOfOrderCreate && currentPriceId) {
+    const [matchedPlan] = await db
+      .select({ id: plans.id })
+      .from(plans)
+      .where(
+        and(
+          eq(plans.tenantId, tenant.id),
+          eq(plans.extensionId, existing.extensionId),
+          eq(plans.stripePriceId, currentPriceId),
+        ),
+      )
+    if (matchedPlan) nextPlanId = matchedPlan.id
+  }
+
+  const incomingScheduleId = stripeId(sub.schedule)
+  const scheduleExplicitlyCleared = Object.prototype.hasOwnProperty.call(sub, 'schedule') && sub.schedule === null
+  const planSwitched = nextPlanId !== existing.planId
+  const clearPending =
+    (planSwitched && (nextPlanId === existing.pendingPlanId || !incomingScheduleId)) ||
+    (eventType === 'customer.subscription.updated' && scheduleExplicitlyCleared) ||
+    (nextCancelAtPeriodEnd && !incomingScheduleId)
+
+  const nextPendingPlanId = clearPending ? null : existing.pendingPlanId
+  const nextPendingEffectiveAt = clearPending ? null : existing.pendingEffectiveAt
+  const nextStripeScheduleId = clearPending ? null : (incomingScheduleId ?? existing.stripeScheduleId)
+
   if (
     nextStatus === existing.status &&
     nextStart === existing.currentPeriodStart &&
     nextEnd === existing.currentPeriodEnd &&
     nextCancelAtPeriodEnd === existing.cancelAtPeriodEnd &&
-    nextCustomerId === existing.stripeCustomerId
+    nextCustomerId === existing.stripeCustomerId &&
+    nextPlanId === existing.planId &&
+    nextPendingPlanId === existing.pendingPlanId &&
+    nextPendingEffectiveAt === existing.pendingEffectiveAt &&
+    nextStripeScheduleId === existing.stripeScheduleId
   ) {
     return c.json({ status: 'already_processed' })
   }
@@ -589,14 +625,19 @@ async function handleSubscriptionChange(
     .update(subscriptions)
     .set({
       stripeCustomerId: nextCustomerId,
+      planId: nextPlanId,
       status: nextStatus,
       currentPeriodStart: nextStart,
       currentPeriodEnd: nextEnd,
       cancelAtPeriodEnd: nextCancelAtPeriodEnd,
+      pendingPlanId: nextPendingPlanId,
+      pendingEffectiveAt: nextPendingEffectiveAt,
+      stripeScheduleId: nextStripeScheduleId,
     })
     .where(eq(subscriptions.id, existing.id))
 
-  const statusOrCancelChanged = nextStatus !== existing.status || nextCancelAtPeriodEnd !== existing.cancelAtPeriodEnd
+  const statusOrCancelChanged =
+    nextStatus !== existing.status || nextCancelAtPeriodEnd !== existing.cancelAtPeriodEnd || planSwitched
   if (eventType === 'customer.subscription.updated' || statusOrCancelChanged) {
     const logType =
       nextStatus === 'canceled' && existing.status !== 'canceled'
@@ -616,6 +657,7 @@ async function handleSubscriptionChange(
         cancelAtPeriodEnd: nextCancelAtPeriodEnd,
         currentPeriodStart: nextStart,
         currentPeriodEnd: nextEnd,
+        ...(planSwitched ? { fromPlanId: existing.planId, toPlanId: nextPlanId } : {}),
       },
     })
   }
@@ -666,6 +708,9 @@ async function handleSubscriptionDeleted(
       currentPeriodStart: currentPeriodStart ?? existing.currentPeriodStart,
       currentPeriodEnd: currentPeriodEnd ?? existing.currentPeriodEnd,
       cancelAtPeriodEnd,
+      pendingPlanId: null,
+      pendingEffectiveAt: null,
+      stripeScheduleId: null,
     })
     .where(eq(subscriptions.id, existing.id))
 

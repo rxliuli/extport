@@ -27,7 +27,9 @@ import {
   createStripeBillingPortalSession,
   createStripeCheckoutSession,
   listStripeInvoices,
+  releaseStripeSubscriptionSchedule,
   resolveStripeApiBase,
+  scheduleStripeSubscriptionPlanChange,
   StripeApiError,
   stripeErrorToHttp,
   updateStripeSubscription,
@@ -336,7 +338,6 @@ route.get(
       ? await db
           .select({
             tenantId: paymentCredentials.tenantId,
-            apiKeyHint: paymentCredentials.apiKeyHint,
             stripeAccountId: paymentCredentials.stripeAccountId,
           })
           .from(paymentCredentials)
@@ -344,9 +345,27 @@ route.get(
       : []
     const tenantsWithApiKey = new Set(
       credRows
-        .filter((r) => Boolean(r.apiKeyHint || (r.stripeAccountId && c.env.STRIPE_SECRET_KEY?.trim())))
+        .filter((r) => Boolean(r.stripeAccountId && c.env.STRIPE_SECRET_KEY?.trim()))
         .map((r) => r.tenantId),
     )
+
+    const subExtensionIds = [...new Set(subRows.map((r) => r.subscription.extensionId))]
+    const extensionRecurringPlans = subExtensionIds.length
+      ? await db
+          .select()
+          .from(plans)
+          .where(and(inArray(plans.extensionId, subExtensionIds), eq(plans.entitlementType, 'recurring')))
+      : []
+    const planById = new Map<string, typeof plans.$inferSelect>()
+    for (const r of subRows) planById.set(r.plan.id, r.plan)
+    for (const p of extensionRecurringPlans) planById.set(p.id, p)
+    const recurringPlansByExtension = new Map<string, (typeof plans.$inferSelect)[]>()
+    for (const p of extensionRecurringPlans) {
+      if (!p.stripePriceId) continue
+      const list = recurringPlansByExtension.get(p.extensionId)
+      if (list) list.push(p)
+      else recurringPlansByExtension.set(p.extensionId, [p])
+    }
 
     return c.json({
       email,
@@ -377,24 +396,58 @@ route.get(
           releasedAt: d.releasedAt,
         })),
       })),
-      subscriptions: subRows.map(({ subscription, plan, extension, tenantSettings }) => ({
-        id: subscription.id,
-        status: subscription.status,
-        billingInterval: plan.billingInterval,
-        currentPeriodStart: subscription.currentPeriodStart,
-        currentPeriodEnd: subscription.currentPeriodEnd,
-        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-        externalUserId: subscription.externalUserId,
-        createdAt: subscription.createdAt,
-        productName: extension.name,
-        tier: plan.tier,
-        supportUrl: tenantSettings.supportUrl ?? null,
-        billingPortalUrl: tenantSettings.billingPortalUrl ?? null,
-        canManageBilling:
-          (Boolean(subscription.stripeCustomerId) && tenantsWithApiKey.has(subscription.tenantId)) ||
-          Boolean(tenantSettings.billingPortalUrl),
-        canCancel: Boolean(subscription.stripeSubscriptionId) && tenantsWithApiKey.has(subscription.tenantId),
-      })),
+      subscriptions: subRows.map(({ subscription, plan, extension, tenantSettings }) => {
+        const currency = plan.currency.toLowerCase()
+        const availablePlans = (recurringPlansByExtension.get(subscription.extensionId) ?? [])
+          .filter((p) => p.currency.toLowerCase() === currency)
+          .sort((a, b) => a.amount - b.amount || a.billingInterval.localeCompare(b.billingInterval))
+          .map((p) => ({
+            id: p.id,
+            tier: p.tier,
+            billingInterval: p.billingInterval,
+            amount: p.amount,
+            currency: p.currency,
+          }))
+        const pendingPlanRow = subscription.pendingPlanId ? (planById.get(subscription.pendingPlanId) ?? null) : null
+        const pendingPlan = pendingPlanRow
+          ? {
+              id: pendingPlanRow.id,
+              tier: pendingPlanRow.tier,
+              billingInterval: pendingPlanRow.billingInterval,
+              amount: pendingPlanRow.amount,
+              currency: pendingPlanRow.currency,
+              effectiveAt: subscription.pendingEffectiveAt,
+            }
+          : null
+        const hasStripeAccess = Boolean(subscription.stripeSubscriptionId) && tenantsWithApiKey.has(subscription.tenantId)
+        return {
+          id: subscription.id,
+          planId: subscription.planId,
+          status: subscription.status,
+          billingInterval: plan.billingInterval,
+          amount: plan.amount,
+          currency: plan.currency,
+          currentPeriodStart: subscription.currentPeriodStart,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+          pendingPlan,
+          availablePlans,
+          externalUserId: subscription.externalUserId,
+          createdAt: subscription.createdAt,
+          productName: extension.name,
+          tier: plan.tier,
+          supportUrl: tenantSettings.supportUrl ?? null,
+          billingPortalUrl: tenantSettings.billingPortalUrl ?? null,
+          canManageBilling:
+            (Boolean(subscription.stripeCustomerId) && tenantsWithApiKey.has(subscription.tenantId)) ||
+            Boolean(tenantSettings.billingPortalUrl),
+          canCancel: hasStripeAccess,
+          canChangePlan:
+            hasStripeAccess &&
+            (subscription.status === 'active' || subscription.status === 'trialing') &&
+            availablePlans.some((p) => p.id !== subscription.planId),
+        }
+      }),
     })
   },
 )
@@ -515,14 +568,26 @@ async function setSubscriptionCancelAtPeriodEnd(c: Context<AppEnv>, cancelAtPeri
   }
 
   try {
+    const apiBase = resolveStripeApiBase(c.env)
+    // Canceling a subscription supersedes any pending scheduled plan change.
+    if (cancelAtPeriodEnd && sub.stripeScheduleId) {
+      await releaseStripeSubscriptionSchedule(stripeAuth, {
+        scheduleId: sub.stripeScheduleId,
+        apiBase,
+      })
+    }
     const updated = await updateStripeSubscription(stripeAuth, {
       subscriptionId: sub.stripeSubscriptionId,
       cancelAtPeriodEnd,
-      apiBase: resolveStripeApiBase(c.env),
+      apiBase,
     })
     await db
       .update(subscriptions)
-      .set({ cancelAtPeriodEnd: updated.cancelAtPeriodEnd, updatedAt: new Date().toISOString() })
+      .set({
+        cancelAtPeriodEnd: updated.cancelAtPeriodEnd,
+        ...(cancelAtPeriodEnd ? { pendingPlanId: null, pendingEffectiveAt: null, stripeScheduleId: null } : {}),
+        updatedAt: new Date().toISOString(),
+      })
       .where(eq(subscriptions.id, sub.id))
     await db.insert(subscriptionEvents).values({
       id: newId('subscriptionEvent'),
@@ -537,6 +602,7 @@ async function setSubscriptionCancelAtPeriodEnd(c: Context<AppEnv>, cancelAtPeri
         status: sub.status,
         cancelAtPeriodEnd: updated.cancelAtPeriodEnd,
         currentPeriodEnd: sub.currentPeriodEnd,
+        ...(cancelAtPeriodEnd ? { pendingPlan: null } : {}),
       },
     })
   } catch (err) {
@@ -547,6 +613,246 @@ async function setSubscriptionCancelAtPeriodEnd(c: Context<AppEnv>, cancelAtPeri
     throw err
   }
 }
+
+const changePlanBodySchema = v.object({
+  planId: v.pipe(v.string('planId is required'), v.trim(), v.minLength(1, 'planId is required')),
+})
+
+route.post(
+  '/subscriptions/:id/change-plan',
+  describeRoute({
+    summary: 'Schedule an end-of-period subscription plan change via Stripe Subscription Schedules',
+    tags: ['Buyer portal'],
+    security: [{ buyerSession: [] }],
+    responses: {
+      200: { description: 'Plan change scheduled (or reverted to current plan)' },
+      400: { description: 'Invalid target plan, subscription state, or Stripe not connected' },
+      401: { description: 'No buyer session' },
+      404: { description: 'Subscription or target plan not found' },
+      502: { description: 'Stripe API unavailable' },
+    },
+  }),
+  validator('json', changePlanBodySchema, badRequest),
+  async (c) => {
+    const db = c.get('db')
+    const email = await signedInEmail(c)
+    if (!email) return c.json({ error: 'unauthorized' }, 401)
+
+    const id = c.req.param('id')
+    const [row] = await db
+      .select({ subscription: subscriptions, currentPlan: plans, tenant: tenants })
+      .from(subscriptions)
+      .innerJoin(plans, eq(subscriptions.planId, plans.id))
+      .innerJoin(tenants, eq(subscriptions.tenantId, tenants.id))
+      .where(eq(subscriptions.id, id))
+    if (!row || row.subscription.buyerEmail.toLowerCase() !== email.toLowerCase()) {
+      return c.json({ error: 'not found' }, 404)
+    }
+
+    const { subscription: sub, currentPlan, tenant } = row
+    if (sub.status !== 'active' && sub.status !== 'trialing') {
+      return c.json({ error: `cannot change plan for a ${sub.status} subscription` }, 400)
+    }
+    if (!sub.stripeSubscriptionId) {
+      return c.json({ error: 'subscription cannot be managed via Stripe' }, 400)
+    }
+
+    const cred = await loadStripeCredential(c.env, db, tenant)
+    const stripeAuth = resolveStripeAuth(c.env, cred)
+    if (!stripeAuth) {
+      return c.json({ error: 'Stripe is not connected for this extension' }, 400)
+    }
+
+    const { planId: targetPlanId } = c.req.valid('json')
+    const [targetPlan] = await db
+      .select()
+      .from(plans)
+      .where(and(eq(plans.id, targetPlanId), eq(plans.extensionId, sub.extensionId)))
+    if (!targetPlan) return c.json({ error: 'target plan not found' }, 404)
+    if (targetPlan.entitlementType !== 'recurring') {
+      return c.json({ error: 'target plan must be a recurring subscription plan' }, 400)
+    }
+    if (!targetPlan.stripePriceId) {
+      return c.json({ error: 'target plan has no Stripe price configured' }, 400)
+    }
+    if (targetPlan.currency.toLowerCase() !== currentPlan.currency.toLowerCase()) {
+      return c.json({ error: 'cannot switch between plans with different currencies' }, 400)
+    }
+
+    const apiBase = resolveStripeApiBase(c.env)
+
+    // Switching back to the current plan cancels any pending scheduled change.
+    if (targetPlan.id === sub.planId) {
+      if (!sub.pendingPlanId && !sub.stripeScheduleId) {
+        return c.json({ error: 'subscription is already on this plan' }, 400)
+      }
+      try {
+        if (sub.stripeScheduleId) {
+          await releaseStripeSubscriptionSchedule(stripeAuth, { scheduleId: sub.stripeScheduleId, apiBase })
+        }
+        await db
+          .update(subscriptions)
+          .set({
+            pendingPlanId: null,
+            pendingEffectiveAt: null,
+            stripeScheduleId: null,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(subscriptions.id, sub.id))
+        await db.insert(subscriptionEvents).values({
+          id: newId('subscriptionEvent'),
+          tenantId: sub.tenantId,
+          subscriptionId: sub.id,
+          type: 'updated',
+          payload: { source: 'buyer_portal', action: 'plan_change_canceled' },
+        })
+        return c.json({
+          subscription: {
+            id: sub.id,
+            planId: sub.planId,
+            cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+            pendingPlan: null,
+          },
+        })
+      } catch (err) {
+        if (err instanceof StripeApiError) {
+          const mapped = stripeErrorToHttp(err)
+          return c.json(mapped.body, mapped.status)
+        }
+        throw err
+      }
+    }
+
+    try {
+      const scheduled = await scheduleStripeSubscriptionPlanChange(stripeAuth, {
+        subscriptionId: sub.stripeSubscriptionId,
+        targetPriceId: targetPlan.stripePriceId,
+        targetPlanId: targetPlan.id,
+        existingScheduleId: sub.stripeScheduleId,
+        apiBase,
+      })
+      await db
+        .update(subscriptions)
+        .set({
+          pendingPlanId: targetPlan.id,
+          pendingEffectiveAt: scheduled.effectiveAt,
+          stripeScheduleId: scheduled.scheduleId,
+          cancelAtPeriodEnd: false,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(subscriptions.id, sub.id))
+      await db.insert(subscriptionEvents).values({
+        id: newId('subscriptionEvent'),
+        tenantId: sub.tenantId,
+        subscriptionId: sub.id,
+        type: 'updated',
+        payload: {
+          source: 'buyer_portal',
+          action: 'plan_change_scheduled',
+          fromPlanId: sub.planId,
+          toPlanId: targetPlan.id,
+          effectiveAt: scheduled.effectiveAt,
+          stripeScheduleId: scheduled.scheduleId,
+        },
+      })
+      return c.json({
+        subscription: {
+          id: sub.id,
+          planId: sub.planId,
+          cancelAtPeriodEnd: false,
+          pendingPlan: {
+            id: targetPlan.id,
+            tier: targetPlan.tier,
+            billingInterval: targetPlan.billingInterval,
+            amount: targetPlan.amount,
+            currency: targetPlan.currency,
+            effectiveAt: scheduled.effectiveAt,
+          },
+        },
+      })
+    } catch (err) {
+      if (err instanceof StripeApiError) {
+        const mapped = stripeErrorToHttp(err)
+        return c.json(mapped.body, mapped.status)
+      }
+      throw err
+    }
+  },
+)
+
+route.delete(
+  '/subscriptions/:id/scheduled-change',
+  describeRoute({
+    summary: 'Cancel a pending end-of-period subscription plan change',
+    tags: ['Buyer portal'],
+    security: [{ buyerSession: [] }],
+    responses: {
+      200: { description: 'Scheduled plan change canceled' },
+      400: { description: 'Stripe not connected' },
+      401: { description: 'No buyer session' },
+      404: { description: 'Subscription not found' },
+      502: { description: 'Stripe API unavailable' },
+    },
+  }),
+  async (c) => {
+    const db = c.get('db')
+    const email = await signedInEmail(c)
+    if (!email) return c.json({ error: 'unauthorized' }, 401)
+
+    const id = c.req.param('id')
+    const [row] = await db
+      .select({ subscription: subscriptions, tenant: tenants })
+      .from(subscriptions)
+      .innerJoin(tenants, eq(subscriptions.tenantId, tenants.id))
+      .where(eq(subscriptions.id, id))
+    if (!row || row.subscription.buyerEmail.toLowerCase() !== email.toLowerCase()) {
+      return c.json({ error: 'not found' }, 404)
+    }
+
+    const sub = row.subscription
+    if (!sub.pendingPlanId && !sub.stripeScheduleId) {
+      return c.json({ subscription: { id: sub.id, planId: sub.planId, pendingPlan: null } })
+    }
+
+    const cred = await loadStripeCredential(c.env, db, row.tenant)
+    const stripeAuth = resolveStripeAuth(c.env, cred)
+    if (!stripeAuth) {
+      return c.json({ error: 'Stripe is not connected for this extension' }, 400)
+    }
+
+    try {
+      if (sub.stripeScheduleId) {
+        await releaseStripeSubscriptionSchedule(stripeAuth, {
+          scheduleId: sub.stripeScheduleId,
+          apiBase: resolveStripeApiBase(c.env),
+        })
+      }
+      await db
+        .update(subscriptions)
+        .set({
+          pendingPlanId: null,
+          pendingEffectiveAt: null,
+          stripeScheduleId: null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(subscriptions.id, sub.id))
+      await db.insert(subscriptionEvents).values({
+        id: newId('subscriptionEvent'),
+        tenantId: sub.tenantId,
+        subscriptionId: sub.id,
+        type: 'updated',
+        payload: { source: 'buyer_portal', action: 'plan_change_canceled' },
+      })
+      return c.json({ subscription: { id: sub.id, planId: sub.planId, pendingPlan: null } })
+    } catch (err) {
+      if (err instanceof StripeApiError) {
+        const mapped = stripeErrorToHttp(err)
+        return c.json(mapped.body, mapped.status)
+      }
+      throw err
+    }
+  },
+)
 
 route.post(
   '/subscriptions/:id/cancel',
@@ -638,6 +944,24 @@ route.get(
     }
   },
 )
+
+route.get('/dev-login', async (c) => {
+  if (!c.env.DEV_LOGIN_ENABLED) return c.notFound()
+  const email = c.req.query('email')?.trim()
+  if (!email) return c.json({ error: 'email query parameter is required' }, 400)
+  const db = c.get('db')
+  const link = await createMagicLink(db, email)
+  const session = await consumeMagicLink(db, link.code)
+  if (!session) return c.json({ error: 'failed to create buyer session' }, 500)
+  setCookie(c, BUYER_SESSION_COOKIE, session.token, {
+    httpOnly: true,
+    secure: new URL(c.req.url).protocol === 'https:',
+    sameSite: 'Lax',
+    path: '/',
+    expires: new Date(session.expiresAt),
+  })
+  return c.redirect('/portal', 302)
+})
 
 route.post(
   '/logout',

@@ -332,6 +332,68 @@ test.describe('Billing & payment UI E2E', () => {
     await page.getByRole('button', { name: 'Re-enable subscriptions' }).click()
     await expect(page.getByText('$5.99/mo')).toBeVisible()
     await expect(page.getByText('alice@example.com')).toBeVisible()
+
+    // Buyer Portal: sign in as alice@example.com and test end-of-period Monthly -> Yearly plan switching.
+    await page.goto('/api/v1/portal/dev-login?email=alice%40example.com')
+    await expect(page.getByRole('heading', { name: 'Your purchases', level: 1 })).toBeVisible()
+    await expect(page.getByText('Sub Pro Ext')).toBeVisible()
+
+    // Open Change plan dialog and schedule switch from Monthly to Yearly.
+    await page.getByRole('button', { name: 'Change plan for Sub Pro Ext' }).click()
+    const changePlanDialog = page.getByRole('dialog', { name: /Change plan/i })
+    await expect(changePlanDialog).toBeVisible()
+    await changePlanDialog.getByRole('radio', { name: /Yearly/i }).click()
+    await changePlanDialog.getByRole('button', { name: 'Schedule change' }).click()
+    await expect(changePlanDialog).toBeHidden()
+
+    // Pending scheduled switch appears inline with Cancel change action.
+    await expect(page.getByText(/Scheduled:\s*pro\s*\(Yearly\)/i)).toBeVisible()
+    await page.getByRole('button', { name: 'Cancel change' }).click()
+    await expect(page.getByText(/Scheduled:\s*pro\s*\(Yearly\)/i)).toHaveCount(0)
+
+    // Schedule Yearly again, then verify Stripe webhook switches the active plan to Yearly.
+    await page.getByRole('button', { name: 'Change plan for Sub Pro Ext' }).click()
+    await changePlanDialog.getByRole('radio', { name: /Yearly/i }).click()
+    await changePlanDialog.getByRole('button', { name: 'Schedule change' }).click()
+    await expect(page.getByText(/Scheduled:\s*pro\s*\(Yearly\)/i)).toBeVisible()
+
+    const stripeCallsAfterSwitch = await getStripeRequests()
+    const yearlyPriceCreate = stripeCallsAfterSwitch.find(
+      (r) => r.method === 'POST' && r.path === '/v1/prices' && r.params['recurring[interval]'] === 'year',
+    )
+    expect(yearlyPriceCreate).toBeTruthy()
+    const scheduleUpdate = stripeCallsAfterSwitch.find(
+      (r) => r.method === 'POST' && r.path.startsWith('/v1/subscription_schedules/') && !r.path.endsWith('/release'),
+    )
+    expect(scheduleUpdate?.params.end_behavior).toBe('release')
+    expect(scheduleUpdate?.params.proration_behavior).toBe('none')
+    const yearlyPriceId = scheduleUpdate!.params['phases[1][items][0][price]']!
+
+    await postStripeWebhook(page, stripeAccountId, {
+      id: 'evt_e2e_sub_switched_yearly_1',
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: 'sub_alice_e2e',
+          customer: 'cus_alice_e2e',
+          status: 'active',
+          cancel_at_period_end: false,
+          schedule: null,
+          items: {
+            data: [
+              {
+                current_period_start: periodEndSec,
+                current_period_end: periodEndSec + 365 * 24 * 60 * 60,
+                price: { id: yearlyPriceId },
+              },
+            ],
+          },
+        },
+      },
+    })
+    await page.reload()
+    await expect(page.getByText('Yearly', { exact: true })).toBeVisible()
+    await expect(page.getByText(/Scheduled:\s*pro/i)).toHaveCount(0)
   })
 
   test('one-time license lifecycle: plan creation, webhook fulfillment, manual issuance, and disable guard', async ({

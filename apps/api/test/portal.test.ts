@@ -1,8 +1,23 @@
 import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
-import { activations, licenseEvents, licenses, magicLinks, type License, type Plan } from '../src/db'
+import {
+  activations,
+  licenseEvents,
+  licenses,
+  magicLinks,
+  subscriptionEvents,
+  subscriptions,
+  type License,
+  type Plan,
+} from '../src/db'
 import { createMagicLink } from '../src/lib/buyer-session'
-import { connectStripeAccount, createExtension, request, seedTenantWithUser } from './helpers'
+import {
+  connectStripeAccount,
+  createExtension,
+  request,
+  seedTenantWithUser,
+  TEST_CONNECT_WEBHOOK_SECRET,
+} from './helpers'
 
 const realFetch = globalThis.fetch
 
@@ -418,5 +433,411 @@ describe('buyer portal one-click billing portal', () => {
         })
       ).status,
     ).toBe(404)
+  })
+})
+
+async function signConnectWebhook(payload: string, secret: string): Promise<string> {
+  const ts = Math.floor(Date.now() / 1000)
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+  const sigBuf = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${ts}.${payload}`))
+  const sigHex = [...new Uint8Array(sigBuf)].map((b) => b.toString(16).padStart(2, '0')).join('')
+  return `t=${ts},v1=${sigHex}`
+}
+
+describe('buyer portal end-of-period subscription plan switching', () => {
+  let switchSeq = 0
+
+  async function setupSubscriptionPlans(buyerEmail = 'switcher@example.com') {
+    const seq = ++switchSeq
+    const seeded = await seedTenantWithUser()
+    const { db, tenantId, sessionCookie } = seeded
+    const stripeAccountId = await connectStripeAccount(db, tenantId)
+    const extension = await createExtension(sessionCookie)
+    await request(`/api/v1/extensions/${extension.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ licensingEnabled: true, billingMode: 'subscription' }),
+    })
+
+    const createPlan = async (body: Record<string, unknown>) => {
+      const res = await request('/api/v1/plans', {
+        method: 'POST',
+        headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ extensionId: extension.id, entitlementType: 'recurring', ...body }),
+      })
+      const text = await res.text()
+      expect(res.status, text).toBe(201)
+      return (JSON.parse(text) as { plan: Plan }).plan
+    }
+
+    const monthlyPlan = await createPlan({
+      tier: 'pro',
+      billingInterval: 'month',
+      amount: 499,
+      currency: 'usd',
+      stripePriceId: `price_pro_monthly_${seq}`,
+    })
+    const yearlyPlan = await createPlan({
+      tier: 'pro',
+      billingInterval: 'year',
+      amount: 4999,
+      currency: 'usd',
+      stripePriceId: `price_pro_yearly_${seq}`,
+    })
+    const maxPlan = await createPlan({
+      tier: 'max',
+      billingInterval: 'month',
+      amount: 1499,
+      currency: 'usd',
+      stripePriceId: `price_max_monthly_${seq}`,
+    })
+    const eurPlan = await createPlan({
+      tier: 'eur_only',
+      billingInterval: 'month',
+      amount: 500,
+      currency: 'eur',
+      stripePriceId: `price_eur_monthly_${seq}`,
+    })
+
+    const nowSec = Math.floor(Date.now() / 1000)
+    const endSec = nowSec + 30 * 24 * 60 * 60
+    const subId = `sub_portal_switch_${seq}`
+    const stripeSubId = `sub_stripe_switcher_${seq}`
+    await db.insert(subscriptions).values({
+      id: subId,
+      tenantId,
+      extensionId: extension.id,
+      planId: monthlyPlan.id,
+      buyerEmail,
+      stripeCustomerId: `cus_switcher_${seq}`,
+      stripeSubscriptionId: stripeSubId,
+      status: 'active',
+      currentPeriodStart: new Date(nowSec * 1000).toISOString(),
+      currentPeriodEnd: new Date(endSec * 1000).toISOString(),
+      cancelAtPeriodEnd: false,
+      amountTotal: 499,
+      currency: 'usd',
+    })
+
+    const cookie = await buyerCookie(db, buyerEmail)
+    return {
+      ...seeded,
+      stripeAccountId,
+      extension,
+      monthlyPlan,
+      yearlyPlan,
+      maxPlan,
+      eurPlan,
+      subId,
+      stripeSubId,
+      cookie,
+      nowSec,
+      endSec,
+    }
+  }
+
+  it('lists same-currency recurring plans, schedules and updates via Subscription Schedules, and cancels cleanly', async () => {
+    const ctx = await setupSubscriptionPlans()
+
+    // GET /licenses exposes availablePlans (same currency only) and canChangePlan=true.
+    const initialList = await request('/api/v1/portal/licenses', { headers: { cookie: ctx.cookie } })
+    expect(initialList.status).toBe(200)
+    const initialBody = (await initialList.json()) as {
+      subscriptions: Array<{
+        id: string
+        planId: string
+        canChangePlan: boolean
+        pendingPlan: { id: string; tier: string; billingInterval: string; effectiveAt: string | null } | null
+        availablePlans: Array<{ id: string; tier: string; billingInterval: string; amount: number; currency: string }>
+      }>
+    }
+    expect(initialBody.subscriptions).toHaveLength(1)
+    expect(initialBody.subscriptions[0]!.canChangePlan).toBe(true)
+    expect(initialBody.subscriptions[0]!.pendingPlan).toBeNull()
+    expect(initialBody.subscriptions[0]!.availablePlans.map((p) => p.id)).toEqual([
+      ctx.monthlyPlan.id,
+      ctx.maxPlan.id,
+      ctx.yearlyPlan.id,
+    ])
+
+    // Validation guards: same plan without pending change -> 400; different currency -> 400.
+    expect(
+      (
+        await request(`/api/v1/portal/subscriptions/${ctx.subId}/change-plan`, {
+          method: 'POST',
+          headers: { cookie: ctx.cookie, 'content-type': 'application/json' },
+          body: JSON.stringify({ planId: ctx.monthlyPlan.id }),
+        })
+      ).status,
+    ).toBe(400)
+    expect(
+      (
+        await request(`/api/v1/portal/subscriptions/${ctx.subId}/change-plan`, {
+          method: 'POST',
+          headers: { cookie: ctx.cookie, 'content-type': 'application/json' },
+          body: JSON.stringify({ planId: ctx.eurPlan.id }),
+        })
+      ).status,
+    ).toBe(400)
+
+    // Mock Stripe Subscription Schedules API.
+    const stripeCalls: Array<{ method: string; url: string; params: Record<string, string> }> = []
+    let activeScheduleId: string | null = null
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = init?.method ?? 'GET'
+      const params = Object.fromEntries(new URLSearchParams(String(init?.body ?? '')).entries())
+      stripeCalls.push({ method, url, params })
+
+      if (method === 'GET' && url.endsWith(`/subscriptions/${ctx.stripeSubId}`)) {
+        return new Response(
+          JSON.stringify({
+            id: ctx.stripeSubId,
+            status: 'active',
+            cancel_at_period_end: false,
+            current_period_start: ctx.nowSec,
+            current_period_end: ctx.endSec,
+            schedule: activeScheduleId,
+            items: { data: [{ price: { id: ctx.monthlyPlan.stripePriceId } }] },
+          }),
+          { status: 200 },
+        )
+      }
+      if (method === 'POST' && url.endsWith('/subscription_schedules')) {
+        activeScheduleId = 'sub_sched_test_1'
+        return new Response(
+          JSON.stringify({
+            id: activeScheduleId,
+            status: 'active',
+            phases: [
+              {
+                start_date: ctx.nowSec,
+                end_date: ctx.endSec,
+                items: [{ price: ctx.monthlyPlan.stripePriceId, quantity: 1 }],
+              },
+            ],
+          }),
+          { status: 200 },
+        )
+      }
+      if (method === 'GET' && url.endsWith('/subscription_schedules/sub_sched_test_1')) {
+        return new Response(
+          JSON.stringify({
+            id: 'sub_sched_test_1',
+            status: activeScheduleId ? 'active' : 'released',
+            phases: [
+              {
+                start_date: ctx.nowSec,
+                end_date: ctx.endSec,
+                items: [{ price: ctx.monthlyPlan.stripePriceId, quantity: 1 }],
+              },
+            ],
+          }),
+          { status: 200 },
+        )
+      }
+      if (method === 'POST' && url.endsWith('/subscription_schedules/sub_sched_test_1/release')) {
+        activeScheduleId = null
+        return new Response(JSON.stringify({ id: 'sub_sched_test_1', status: 'released' }), { status: 200 })
+      }
+      if (method === 'POST' && url.endsWith('/subscription_schedules/sub_sched_test_1')) {
+        return new Response(JSON.stringify({ id: 'sub_sched_test_1', status: 'active' }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ error: { message: `unexpected ${method} ${url}` } }), { status: 404 })
+    }) as typeof fetch
+
+    // 1. Schedule Monthly -> Yearly.
+    const scheduleRes = await request(`/api/v1/portal/subscriptions/${ctx.subId}/change-plan`, {
+      method: 'POST',
+      headers: { cookie: ctx.cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ planId: ctx.yearlyPlan.id }),
+    })
+    const scheduleText = await scheduleRes.text()
+    expect(scheduleRes.status, scheduleText).toBe(200)
+    const scheduleBody = JSON.parse(scheduleText) as {
+      subscription: { pendingPlan: { id: string; billingInterval: string; effectiveAt: string } }
+    }
+    expect(scheduleBody.subscription.pendingPlan.id).toBe(ctx.yearlyPlan.id)
+    expect(scheduleBody.subscription.pendingPlan.billingInterval).toBe('year')
+    expect(scheduleBody.subscription.pendingPlan.effectiveAt).toBe(new Date(ctx.endSec * 1000).toISOString())
+
+    const createSchedCalls = stripeCalls.filter((c) => c.method === 'POST' && c.url.endsWith('/subscription_schedules'))
+    expect(createSchedCalls).toHaveLength(1)
+    expect(createSchedCalls[0]!.params.from_subscription).toBe(ctx.stripeSubId)
+
+    const updateSchedCall = stripeCalls.find(
+      (c) => c.method === 'POST' && c.url.endsWith('/subscription_schedules/sub_sched_test_1'),
+    )
+    expect(updateSchedCall?.params.end_behavior).toBe('release')
+    expect(updateSchedCall?.params.proration_behavior).toBe('none')
+    expect(updateSchedCall?.params['phases[0][items][0][price]']).toBe(ctx.monthlyPlan.stripePriceId)
+    expect(updateSchedCall?.params['phases[1][items][0][price]']).toBe(ctx.yearlyPlan.stripePriceId)
+
+    // 2. Re-schedule to Max Monthly -> reuses existing schedule (no second from_subscription call).
+    const switchAgainRes = await request(`/api/v1/portal/subscriptions/${ctx.subId}/change-plan`, {
+      method: 'POST',
+      headers: { cookie: ctx.cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ planId: ctx.maxPlan.id }),
+    })
+    expect(switchAgainRes.status).toBe(200)
+    expect(stripeCalls.filter((c) => c.method === 'POST' && c.url.endsWith('/subscription_schedules'))).toHaveLength(1)
+
+    // 3. Cancel the scheduled change via DELETE /scheduled-change -> releases schedule and clears pendingPlan.
+    const cancelChangeRes = await request(`/api/v1/portal/subscriptions/${ctx.subId}/scheduled-change`, {
+      method: 'DELETE',
+      headers: { cookie: ctx.cookie },
+    })
+    expect(cancelChangeRes.status).toBe(200)
+    expect(stripeCalls.some((c) => c.url.endsWith('/subscription_schedules/sub_sched_test_1/release'))).toBe(true)
+
+    const [afterCancel] = await ctx.db.select().from(subscriptions).where(eq(subscriptions.id, ctx.subId))
+    expect(afterCancel!.pendingPlanId).toBeNull()
+    expect(afterCancel!.stripeScheduleId).toBeNull()
+
+    const events = await ctx.db.select().from(subscriptionEvents).where(eq(subscriptionEvents.subscriptionId, ctx.subId))
+    expect(events.map((e) => e.payload['action'])).toEqual([
+      'plan_change_scheduled',
+      'plan_change_scheduled',
+      'plan_change_canceled',
+    ])
+  })
+
+  it('handles mutual exclusion with cancel_at_period_end and syncs planId via Stripe webhook', async () => {
+    const ctx = await setupSubscriptionPlans('mutex@example.com')
+    let cancelAtPeriodEnd = true
+    let activeScheduleId: string | null = null
+    await ctx.db.update(subscriptions).set({ cancelAtPeriodEnd: true }).where(eq(subscriptions.id, ctx.subId))
+
+    const stripeCalls: Array<{ method: string; url: string; params: Record<string, string> }> = []
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = init?.method ?? 'GET'
+      const params = Object.fromEntries(new URLSearchParams(String(init?.body ?? '')).entries())
+      stripeCalls.push({ method, url, params })
+
+      if (method === 'GET' && url.endsWith(`/subscriptions/${ctx.stripeSubId}`)) {
+        return new Response(
+          JSON.stringify({
+            id: ctx.stripeSubId,
+            status: 'active',
+            cancel_at_period_end: cancelAtPeriodEnd,
+            current_period_start: ctx.nowSec,
+            current_period_end: ctx.endSec,
+            schedule: activeScheduleId,
+            items: { data: [{ price: { id: ctx.monthlyPlan.stripePriceId } }] },
+          }),
+          { status: 200 },
+        )
+      }
+      if (method === 'POST' && url.endsWith(`/subscriptions/${ctx.stripeSubId}`)) {
+        cancelAtPeriodEnd = params.cancel_at_period_end === 'true'
+        return new Response(
+          JSON.stringify({ id: ctx.stripeSubId, status: 'active', cancel_at_period_end: cancelAtPeriodEnd }),
+          { status: 200 },
+        )
+      }
+      if (method === 'POST' && url.endsWith('/subscription_schedules')) {
+        activeScheduleId = 'sub_sched_mutex_1'
+        return new Response(
+          JSON.stringify({
+            id: activeScheduleId,
+            status: 'active',
+            phases: [
+              {
+                start_date: ctx.nowSec,
+                end_date: ctx.endSec,
+                items: [{ price: ctx.monthlyPlan.stripePriceId, quantity: 1 }],
+              },
+            ],
+          }),
+          { status: 200 },
+        )
+      }
+      if (method === 'POST' && url.endsWith('/subscription_schedules/sub_sched_mutex_1/release')) {
+        activeScheduleId = null
+        return new Response(JSON.stringify({ id: 'sub_sched_mutex_1', status: 'released' }), { status: 200 })
+      }
+      if (method === 'POST' && url.endsWith('/subscription_schedules/sub_sched_mutex_1')) {
+        return new Response(JSON.stringify({ id: 'sub_sched_mutex_1', status: 'active' }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ error: { message: `unexpected ${method} ${url}` } }), { status: 404 })
+    }) as typeof fetch
+
+    // 1. Scheduling a plan change while cancelAtPeriodEnd=true automatically resumes the subscription.
+    const scheduleRes = await request(`/api/v1/portal/subscriptions/${ctx.subId}/change-plan`, {
+      method: 'POST',
+      headers: { cookie: ctx.cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ planId: ctx.yearlyPlan.id }),
+    })
+    expect(scheduleRes.status).toBe(200)
+    expect(cancelAtPeriodEnd).toBe(false)
+    const [afterSchedule] = await ctx.db.select().from(subscriptions).where(eq(subscriptions.id, ctx.subId))
+    expect(afterSchedule!.cancelAtPeriodEnd).toBe(false)
+    expect(afterSchedule!.pendingPlanId).toBe(ctx.yearlyPlan.id)
+
+    // 2. Canceling the subscription while a schedule is pending releases the schedule and clears pendingPlanId.
+    const cancelRes = await request(`/api/v1/portal/subscriptions/${ctx.subId}/cancel`, {
+      method: 'POST',
+      headers: { cookie: ctx.cookie },
+    })
+    expect(cancelRes.status).toBe(200)
+    expect(activeScheduleId).toBeNull()
+    expect(cancelAtPeriodEnd).toBe(true)
+    const [afterCancel] = await ctx.db.select().from(subscriptions).where(eq(subscriptions.id, ctx.subId))
+    expect(afterCancel!.cancelAtPeriodEnd).toBe(true)
+    expect(afterCancel!.pendingPlanId).toBeNull()
+    expect(afterCancel!.stripeScheduleId).toBeNull()
+
+    // 3. Re-schedule to Yearly, then simulate Stripe webhook when the new period begins on Yearly price.
+    const reScheduleRes = await request(`/api/v1/portal/subscriptions/${ctx.subId}/change-plan`, {
+      method: 'POST',
+      headers: { cookie: ctx.cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ planId: ctx.yearlyPlan.id }),
+    })
+    expect(reScheduleRes.status).toBe(200)
+
+    const nextStart = ctx.endSec
+    const nextEnd = nextStart + 365 * 24 * 60 * 60
+    const webhookPayload = JSON.stringify({
+      id: 'evt_sub_plan_switched_1',
+      type: 'customer.subscription.updated',
+      account: ctx.stripeAccountId,
+      data: {
+        object: {
+          id: ctx.stripeSubId,
+          customer: 'cus_switcher_2',
+          status: 'active',
+          cancel_at_period_end: false,
+          schedule: null,
+          items: {
+            data: [
+              {
+                current_period_start: nextStart,
+                current_period_end: nextEnd,
+                price: { id: ctx.yearlyPlan.stripePriceId },
+              },
+            ],
+          },
+        },
+      },
+    })
+    const sig = await signConnectWebhook(webhookPayload, TEST_CONNECT_WEBHOOK_SECRET)
+    const whRes = await request('/api/v1/licensing/webhooks/stripe/connect', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'stripe-signature': sig },
+      body: webhookPayload,
+    })
+    expect(whRes.status, await whRes.text()).toBe(200)
+
+    const [afterWebhook] = await ctx.db.select().from(subscriptions).where(eq(subscriptions.id, ctx.subId))
+    expect(afterWebhook!.planId).toBe(ctx.yearlyPlan.id)
+    expect(afterWebhook!.pendingPlanId).toBeNull()
+    expect(afterWebhook!.stripeScheduleId).toBeNull()
   })
 })

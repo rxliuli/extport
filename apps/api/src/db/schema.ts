@@ -540,6 +540,10 @@ export const subscriptions = sqliteTable(
     currentPeriodStart: text('current_period_start'),
     currentPeriodEnd: text('current_period_end'),
     cancelAtPeriodEnd: integer('cancel_at_period_end', { mode: 'boolean' }).notNull().default(false),
+    // End-of-period scheduled plan switch via Stripe Subscription Schedules.
+    pendingPlanId: text('pending_plan_id'),
+    pendingEffectiveAt: text('pending_effective_at'),
+    stripeScheduleId: text('stripe_schedule_id'),
     amountTotal: integer('amount_total'),
     currency: text('currency'),
     country: text('country'),

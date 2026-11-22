@@ -6,6 +6,12 @@ let seq = 0
 let accountSeq = 0
 /** @type {Array<{ method: string; path: string; auth: string | undefined; stripeAccount: string | string[] | undefined; params: Record<string, string> }>} */
 let requests = []
+/** @type {Map<string, { id: string; status: string; subscription: string; phases: Array<{ start_date: number; end_date: number; items: Array<{ price: string; quantity: number }> }> }>} */
+let schedules = new Map()
+/** @type {Map<string, string>} */
+let subSchedules = new Map()
+/** @type {Map<string, boolean>} */
+let subCancelAtPeriodEnd = new Map()
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -38,6 +44,9 @@ const server = http.createServer(async (req, res) => {
   if (method === 'POST' && url.pathname === '/__reset') {
     seq = 0
     requests = []
+    schedules = new Map()
+    subSchedules = new Map()
+    subCancelAtPeriodEnd = new Map()
     return sendJson(res, 200, { ok: true })
   }
 
@@ -115,24 +124,102 @@ const server = http.createServer(async (req, res) => {
 
   if (method === 'GET' && url.pathname.startsWith('/v1/subscriptions/')) {
     const id = decodeURIComponent(url.pathname.slice('/v1/subscriptions/'.length))
+    const nowSec = Math.floor(Date.now() / 1000)
+    const endSec = nowSec + 30 * 24 * 60 * 60
     return sendJson(res, 200, {
       id,
       object: 'subscription',
       status: 'active',
-      cancel_at_period_end: true,
+      cancel_at_period_end: subCancelAtPeriodEnd.get(id) ?? false,
       cancel_at: null,
+      current_period_start: nowSec,
+      current_period_end: endSec,
+      schedule: subSchedules.get(id) ?? null,
+      items: {
+        data: [
+          {
+            current_period_start: nowSec,
+            current_period_end: endSec,
+            price: { id: 'price_e2e_current' },
+          },
+        ],
+      },
     })
   }
 
   if (method === 'POST' && url.pathname.startsWith('/v1/subscriptions/')) {
     const id = decodeURIComponent(url.pathname.slice('/v1/subscriptions/'.length))
+    const cancel = params.cancel_at_period_end === 'true'
+    subCancelAtPeriodEnd.set(id, cancel)
     return sendJson(res, 200, {
       id,
       object: 'subscription',
       status: 'active',
-      cancel_at_period_end: params.cancel_at_period_end === 'true',
+      cancel_at_period_end: cancel,
       cancel_at: null,
     })
+  }
+
+  if (method === 'POST' && url.pathname === '/v1/subscription_schedules') {
+    const subId = params.from_subscription
+    const id = `sub_sched_e2e_${++seq}`
+    const nowSec = Math.floor(Date.now() / 1000)
+    const endSec = nowSec + 30 * 24 * 60 * 60
+    const sched = {
+      id,
+      object: 'subscription_schedule',
+      status: 'active',
+      subscription: subId,
+      phases: [
+        {
+          start_date: nowSec,
+          end_date: endSec,
+          items: [{ price: 'price_e2e_current', quantity: 1 }],
+        },
+      ],
+    }
+    schedules.set(id, sched)
+    if (subId) subSchedules.set(subId, id)
+    return sendJson(res, 200, sched)
+  }
+
+  if (method === 'GET' && url.pathname.startsWith('/v1/subscription_schedules/')) {
+    const id = decodeURIComponent(url.pathname.slice('/v1/subscription_schedules/'.length))
+    const sched = schedules.get(id)
+    if (!sched) return sendJson(res, 404, { error: { message: `No such subscription schedule: ${id}` } })
+    return sendJson(res, 200, sched)
+  }
+
+  if (method === 'POST' && url.pathname.startsWith('/v1/subscription_schedules/') && url.pathname.endsWith('/release')) {
+    const id = decodeURIComponent(
+      url.pathname.slice('/v1/subscription_schedules/'.length, -'/release'.length),
+    )
+    const sched = schedules.get(id)
+    if (!sched) return sendJson(res, 404, { error: { message: `No such subscription schedule: ${id}` } })
+    sched.status = 'released'
+    if (sched.subscription && subSchedules.get(sched.subscription) === id) {
+      subSchedules.delete(sched.subscription)
+    }
+    return sendJson(res, 200, sched)
+  }
+
+  if (method === 'POST' && url.pathname.startsWith('/v1/subscription_schedules/')) {
+    const id = decodeURIComponent(url.pathname.slice('/v1/subscription_schedules/'.length))
+    const sched = schedules.get(id)
+    if (!sched) return sendJson(res, 404, { error: { message: `No such subscription schedule: ${id}` } })
+    sched.phases = [
+      {
+        start_date: Number(params['phases[0][start_date]'] ?? sched.phases[0]?.start_date ?? 0),
+        end_date: Number(params['phases[0][end_date]'] ?? sched.phases[0]?.end_date ?? 0),
+        items: [{ price: params['phases[0][items][0][price]'] ?? 'price_e2e_current', quantity: 1 }],
+      },
+      {
+        start_date: Number(params['phases[0][end_date]'] ?? 0),
+        end_date: 0,
+        items: [{ price: params['phases[1][items][0][price]'] ?? '', quantity: 1 }],
+      },
+    ]
+    return sendJson(res, 200, sched)
   }
 
   if (method === 'GET' && url.pathname === '/v1/invoices') {

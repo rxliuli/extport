@@ -375,6 +375,204 @@ export async function updateStripeSubscription(
   }
 }
 
+type StripeRefLike = string | { id?: string | null } | null | undefined
+
+function refId(ref: StripeRefLike): string | null {
+  if (typeof ref === 'string') return ref.trim() || null
+  if (ref && typeof ref === 'object' && typeof ref.id === 'string') return ref.id.trim() || null
+  return null
+}
+
+interface StripeSubscriptionDetailResponse {
+  id: string
+  status?: string
+  cancel_at_period_end?: boolean
+  cancel_at?: number | null
+  current_period_start?: number | null
+  current_period_end?: number | null
+  schedule?: StripeRefLike
+  items?: {
+    data?: Array<{
+      current_period_start?: number | null
+      current_period_end?: number | null
+      price?: StripeRefLike
+      plan?: StripeRefLike
+    }> | null
+  } | null
+}
+
+interface StripeScheduleResponse {
+  id: string
+  status?: string
+  phases?: Array<{
+    start_date?: number | null
+    end_date?: number | null
+    items?: Array<{
+      price?: StripeRefLike
+      plan?: StripeRefLike
+      quantity?: number | null
+    }> | null
+  }> | null
+}
+
+export async function getStripeSubscription(
+  auth: StripeAuthInput,
+  input: { subscriptionId: string; apiBase?: string },
+): Promise<{
+  id: string
+  status: string
+  cancelAtPeriodEnd: boolean
+  currentPeriodStartSec: number | null
+  currentPeriodEndSec: number | null
+  priceId: string | null
+  scheduleId: string | null
+}> {
+  const sub = await stripeGet<StripeSubscriptionDetailResponse>(
+    auth,
+    `/subscriptions/${encodeURIComponent(input.subscriptionId)}`,
+    undefined,
+    input.apiBase,
+  )
+  const firstItem = sub.items?.data?.[0]
+  const startSec =
+    typeof sub.current_period_start === 'number'
+      ? sub.current_period_start
+      : typeof firstItem?.current_period_start === 'number'
+        ? firstItem.current_period_start
+        : null
+  const endSec =
+    typeof sub.current_period_end === 'number'
+      ? sub.current_period_end
+      : typeof firstItem?.current_period_end === 'number'
+        ? firstItem.current_period_end
+        : null
+  const priceId = refId(firstItem?.price) ?? refId(firstItem?.plan)
+  return {
+    id: sub.id,
+    status: sub.status ?? 'active',
+    cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end || sub.cancel_at),
+    currentPeriodStartSec: startSec,
+    currentPeriodEndSec: endSec,
+    priceId,
+    scheduleId: refId(sub.schedule),
+  }
+}
+
+export async function scheduleStripeSubscriptionPlanChange(
+  auth: StripeAuthInput,
+  input: {
+    subscriptionId: string
+    targetPriceId: string
+    targetPlanId?: string
+    existingScheduleId?: string | null
+    apiBase?: string
+  },
+): Promise<{ scheduleId: string; effectiveAt: string }> {
+  const current = await getStripeSubscription(auth, {
+    subscriptionId: input.subscriptionId,
+    apiBase: input.apiBase,
+  })
+
+  // Switching plans resumes a subscription that was scheduled to cancel at period end.
+  if (current.cancelAtPeriodEnd) {
+    await updateStripeSubscription(auth, {
+      subscriptionId: input.subscriptionId,
+      cancelAtPeriodEnd: false,
+      apiBase: input.apiBase,
+    })
+  }
+
+  let schedule: StripeScheduleResponse | null = null
+  const candidateScheduleId = current.scheduleId ?? input.existingScheduleId ?? null
+  if (candidateScheduleId) {
+    try {
+      const fetched = await stripeGet<StripeScheduleResponse>(
+        auth,
+        `/subscription_schedules/${encodeURIComponent(candidateScheduleId)}`,
+        undefined,
+        input.apiBase,
+      )
+      if (fetched.status === 'active' || fetched.status === 'not_started') {
+        schedule = fetched
+      }
+    } catch (err) {
+      if (!(err instanceof StripeApiError && err.status === 404)) throw err
+    }
+  }
+
+  if (!schedule) {
+    const createParams = new URLSearchParams()
+    createParams.set('from_subscription', input.subscriptionId)
+    schedule = await stripePost<StripeScheduleResponse>(auth, '/subscription_schedules', createParams, input.apiBase)
+  }
+
+  const phase0 = schedule.phases?.[0]
+  const phase0StartSec =
+    typeof phase0?.start_date === 'number' && phase0.start_date > 0 ? phase0.start_date : current.currentPeriodStartSec
+  const phase0EndSec =
+    typeof phase0?.end_date === 'number' && phase0.end_date > 0 ? phase0.end_date : current.currentPeriodEndSec
+  const phase0PriceId = refId(phase0?.items?.[0]?.price) ?? refId(phase0?.items?.[0]?.plan) ?? current.priceId
+
+  if (!phase0StartSec || !phase0EndSec || !phase0PriceId) {
+    throw new StripeApiError(
+      502,
+      'invalid_subscription_period',
+      'Unable to determine current subscription billing period from Stripe',
+    )
+  }
+
+  const updateParams = new URLSearchParams()
+  updateParams.set('end_behavior', 'release')
+  updateParams.set('proration_behavior', 'none')
+  updateParams.set('phases[0][start_date]', String(phase0StartSec))
+  updateParams.set('phases[0][end_date]', String(phase0EndSec))
+  updateParams.set('phases[0][items][0][price]', phase0PriceId)
+  updateParams.set('phases[0][items][0][quantity]', '1')
+  updateParams.set('phases[1][items][0][price]', input.targetPriceId)
+  updateParams.set('phases[1][items][0][quantity]', '1')
+  if (input.targetPlanId) {
+    updateParams.set('phases[1][metadata][extport_plan]', input.targetPlanId)
+    updateParams.set('metadata[extport_pending_plan]', input.targetPlanId)
+  }
+
+  const updated = await stripePost<StripeScheduleResponse>(
+    auth,
+    `/subscription_schedules/${encodeURIComponent(schedule.id)}`,
+    updateParams,
+    input.apiBase,
+  )
+
+  return {
+    scheduleId: updated.id,
+    effectiveAt: new Date(phase0EndSec * 1000).toISOString(),
+  }
+}
+
+export async function releaseStripeSubscriptionSchedule(
+  auth: StripeAuthInput,
+  input: { scheduleId: string; apiBase?: string },
+): Promise<void> {
+  try {
+    await stripePost<StripeScheduleResponse>(
+      auth,
+      `/subscription_schedules/${encodeURIComponent(input.scheduleId)}/release`,
+      new URLSearchParams(),
+      input.apiBase,
+    )
+  } catch (err) {
+    if (err instanceof StripeApiError) {
+      const msg = err.message.toLowerCase()
+      if (
+        err.status === 404 ||
+        (err.status === 400 && (msg.includes('released') || msg.includes('completed') || msg.includes('canceled')))
+      ) {
+        return
+      }
+    }
+    throw err
+  }
+}
+
 export interface StripeInvoiceSummary {
   id: string
   number: string | null

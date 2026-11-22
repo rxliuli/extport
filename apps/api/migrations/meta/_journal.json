@@ -260,6 +260,13 @@
       "when": 1795295292791,
       "tag": "0036_stripe_connect",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1795328696418,
+      "tag": "0037_subscription_scheduled_plan",
+      "breakpoints": true
     }
   ]
 }
