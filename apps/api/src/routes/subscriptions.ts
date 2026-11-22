@@ -12,7 +12,7 @@ import {
   StripeApiError,
   stripeErrorToHttp,
 } from '../lib/stripe-api'
-import { loadStripeCredential } from '../lib/stripe-credentials'
+import { loadStripeCredential, resolveStripeAuth } from '../lib/stripe-credentials'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
 
@@ -264,8 +264,9 @@ route.post(
     if (!priceId) return c.json({ error: 'no Stripe price configured for this plan' }, 400)
 
     const cred = await loadStripeCredential(c.env, db, tenant)
-    if (!cred?.apiKey) {
-      return c.json({ error: 'Stripe Restricted Key is not configured for this tenant' }, 400)
+    const stripeAuth = resolveStripeAuth(c.env, cred)
+    if (!stripeAuth) {
+      return c.json({ error: 'Stripe is not connected for this tenant' }, 400)
     }
 
     const externalUserId = body.externalUserId || undefined
@@ -309,7 +310,7 @@ route.post(
             existingExtSubs.find((r) => r.subscription.stripeCustomerId)?.subscription.stripeCustomerId ??
             reusableCustomerId
           if (portalCustomerId) {
-            const portal = await createStripeBillingPortalSession(cred.apiKey, {
+            const portal = await createStripeBillingPortalSession(stripeAuth, {
               customerId: portalCustomerId,
               returnUrl: body.cancelUrl,
               apiBase: resolveStripeApiBase(c.env),
@@ -320,7 +321,7 @@ route.post(
         }
       }
 
-      const session = await createStripeCheckoutSession(cred.apiKey, {
+      const session = await createStripeCheckoutSession(stripeAuth, {
         mode: 'subscription',
         priceId,
         planId: plan.id,
@@ -406,12 +407,13 @@ route.post(
     }
 
     const cred = await loadStripeCredential(c.env, db, tenant)
-    if (!cred?.apiKey) {
-      return c.json({ error: 'Stripe Restricted Key is not configured for this tenant' }, 400)
+    const stripeAuth = resolveStripeAuth(c.env, cred)
+    if (!stripeAuth) {
+      return c.json({ error: 'Stripe is not connected for this tenant' }, 400)
     }
 
     try {
-      const portal = await createStripeBillingPortalSession(cred.apiKey, {
+      const portal = await createStripeBillingPortalSession(stripeAuth, {
         customerId: best.subscription.stripeCustomerId,
         returnUrl: body.returnUrl,
         apiBase: resolveStripeApiBase(c.env),

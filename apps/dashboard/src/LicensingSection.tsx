@@ -420,7 +420,7 @@ function PlanPricingFields({
         </InputGroup>
         {!hasStripeApiKey ? (
           <p className="text-xs text-muted-foreground">
-            Connect your Stripe Restricted Key in{' '}
+            Connect your Stripe account in{' '}
             <Link to="/settings" hash="payment-credentials" className="underline underline-offset-4">
               Settings
             </Link>{' '}
@@ -439,7 +439,9 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
   const { data: plans = [] } = useQuery(plansQuery(extension.id))
   const { data: paymentCredentials = [] } = useQuery(paymentCredentialsQuery)
   const stripeCred = paymentCredentials.find((c) => c.provider === 'stripe')
-  const hasStripeApiKey = stripeCred ? (stripeCred.hasApiKey ?? Boolean(stripeCred.apiKeyHint)) : false
+  const hasStripeApiKey = stripeCred
+    ? Boolean(stripeCred.connected || stripeCred.stripeAccountId || stripeCred.hasApiKey || stripeCred.apiKeyHint)
+    : false
   const entitlementType: 'perpetual' | 'recurring' = billingMode === 'subscription' ? 'recurring' : 'perpetual'
 
   const [open, setOpen] = useState(false)

@@ -253,6 +253,13 @@
       "when": 1795294045618,
       "tag": "0035_plan_pricing_not_null",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1795295292791,
+      "tag": "0036_stripe_connect",
+      "breakpoints": true
     }
   ]
 }

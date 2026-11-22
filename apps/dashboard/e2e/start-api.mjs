@@ -39,6 +39,10 @@ const child = spawn(
     `PORTAL_URL:http://localhost:${dashboardPort}`,
     '--var',
     `STRIPE_API_BASE:http://127.0.0.1:${mockStripePort}/v1`,
+    '--var',
+    'STRIPE_CONNECT_CLIENT_ID:',
+    '--var',
+    'STRIPE_SECRET_KEY:',
   ],
   { cwd: apiDir, stdio: 'inherit' },
 )

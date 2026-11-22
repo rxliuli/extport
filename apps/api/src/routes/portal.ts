@@ -32,7 +32,7 @@ import {
   stripeErrorToHttp,
   updateStripeSubscription,
 } from '../lib/stripe-api'
-import { loadStripeCredential } from '../lib/stripe-credentials'
+import { loadStripeCredential, resolveStripeAuth } from '../lib/stripe-credentials'
 import { badRequest } from '../lib/validation'
 import type { AppEnv } from '../middleware/auth'
 
@@ -95,8 +95,9 @@ route.get(
       return c.json({ error: 'no Stripe price configured for this plan' }, 400)
     }
     const cred = await loadStripeCredential(c.env, db, row.tenant)
-    if (!cred?.apiKey) {
-      return c.json({ error: 'Stripe Restricted Key is not configured for this extension' }, 400)
+    const stripeAuth = resolveStripeAuth(c.env, cred)
+    if (!stripeAuth) {
+      return c.json({ error: 'Stripe is not connected for this extension' }, 400)
     }
 
     const portalBase = c.env.PORTAL_URL.replace(/\/+$/, '')
@@ -106,7 +107,7 @@ route.get(
       safeHttpUrl(c.req.query('cancel_url')) ?? safeHttpUrl(c.req.header('referer')) ?? `${portalBase}/portal`
 
     try {
-      const session = await createStripeCheckoutSession(cred.apiKey, {
+      const session = await createStripeCheckoutSession(stripeAuth, {
         mode: row.plan.entitlementType === 'recurring' ? 'subscription' : 'payment',
         priceId: row.plan.stripePriceId,
         planId: row.plan.id,
@@ -333,11 +334,19 @@ route.get(
     ]
     const credRows = tenantIds.length
       ? await db
-          .select({ tenantId: paymentCredentials.tenantId, apiKeyHint: paymentCredentials.apiKeyHint })
+          .select({
+            tenantId: paymentCredentials.tenantId,
+            apiKeyHint: paymentCredentials.apiKeyHint,
+            stripeAccountId: paymentCredentials.stripeAccountId,
+          })
           .from(paymentCredentials)
           .where(and(inArray(paymentCredentials.tenantId, tenantIds), eq(paymentCredentials.provider, 'stripe')))
       : []
-    const tenantsWithApiKey = new Set(credRows.filter((r) => Boolean(r.apiKeyHint)).map((r) => r.tenantId))
+    const tenantsWithApiKey = new Set(
+      credRows
+        .filter((r) => Boolean(r.apiKeyHint || (r.stripeAccountId && c.env.STRIPE_SECRET_KEY?.trim())))
+        .map((r) => r.tenantId),
+    )
 
     return c.json({
       email,
@@ -449,9 +458,10 @@ route.post(
 
     if (stripeCustomerId) {
       const cred = await loadStripeCredential(c.env, db, tenant)
-      if (cred?.apiKey) {
+      const stripeAuth = resolveStripeAuth(c.env, cred)
+      if (stripeAuth) {
         try {
-          const portal = await createStripeBillingPortalSession(cred.apiKey, {
+          const portal = await createStripeBillingPortalSession(stripeAuth, {
             customerId: stripeCustomerId,
             returnUrl: `${c.env.PORTAL_URL}/portal`,
             apiBase: resolveStripeApiBase(c.env),
@@ -499,12 +509,13 @@ async function setSubscriptionCancelAtPeriodEnd(c: Context<AppEnv>, cancelAtPeri
   }
 
   const cred = await loadStripeCredential(c.env, db, row.tenant)
-  if (!cred?.apiKey) {
-    return c.json({ error: 'Stripe Restricted Key is not configured for this extension' }, 400)
+  const stripeAuth = resolveStripeAuth(c.env, cred)
+  if (!stripeAuth) {
+    return c.json({ error: 'Stripe is not connected for this extension' }, 400)
   }
 
   try {
-    const updated = await updateStripeSubscription(cred.apiKey, {
+    const updated = await updateStripeSubscription(stripeAuth, {
       subscriptionId: sub.stripeSubscriptionId,
       cancelAtPeriodEnd,
       apiBase: resolveStripeApiBase(c.env),
@@ -606,12 +617,13 @@ route.get(
     }
 
     const cred = await loadStripeCredential(c.env, db, row.tenant)
-    if (!cred?.apiKey) {
-      return c.json({ error: 'Stripe Restricted Key is not configured for this extension' }, 400)
+    const stripeAuth = resolveStripeAuth(c.env, cred)
+    if (!stripeAuth) {
+      return c.json({ error: 'Stripe is not connected for this extension' }, 400)
     }
 
     try {
-      const invoices = await listStripeInvoices(cred.apiKey, {
+      const invoices = await listStripeInvoices(stripeAuth, {
         subscriptionId: sub.stripeSubscriptionId,
         customerId: sub.stripeCustomerId,
         apiBase: resolveStripeApiBase(c.env),

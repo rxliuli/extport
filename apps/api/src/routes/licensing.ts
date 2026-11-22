@@ -7,7 +7,7 @@ import * as v from 'valibot'
 import { activations, extensions, licenseEvents, licenses, plans, type Activation, type Db, type License } from '../db'
 import { formatEntitlementResponse, isLicenseEntitled, pickBestLicense } from '../lib/entitlement'
 import { createStripeCheckoutSession, resolveStripeApiBase, StripeApiError, stripeErrorToHttp } from '../lib/stripe-api'
-import { loadStripeCredential } from '../lib/stripe-credentials'
+import { loadStripeCredential, resolveStripeAuth } from '../lib/stripe-credentials'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
 
@@ -464,8 +464,9 @@ licensingTenantRoutes.post(
     if (!priceId) return c.json({ error: 'no Stripe price configured for this plan' }, 400)
 
     const cred = await loadStripeCredential(c.env, db, tenant)
-    if (!cred?.apiKey) {
-      return c.json({ error: 'Stripe Restricted Key is not configured for this tenant' }, 400)
+    const stripeAuth = resolveStripeAuth(c.env, cred)
+    if (!stripeAuth) {
+      return c.json({ error: 'Stripe is not connected for this tenant' }, 400)
     }
 
     const externalUserId = body.externalUserId || undefined
@@ -486,7 +487,7 @@ licensingTenantRoutes.post(
     }
 
     try {
-      const session = await createStripeCheckoutSession(cred.apiKey, {
+      const session = await createStripeCheckoutSession(stripeAuth, {
         mode: 'payment',
         priceId,
         planId: plan.id,

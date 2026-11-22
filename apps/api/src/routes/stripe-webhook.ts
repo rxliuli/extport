@@ -6,6 +6,7 @@ import {
   extensions,
   licenseEvents,
   licenses,
+  paymentCredentials,
   pendingStripeSubscriptions,
   plans,
   subscriptionEvents,
@@ -109,6 +110,8 @@ interface StripeChargeLike {
 interface StripeEvent {
   type: string
   created?: number
+  /** Present on Connect webhook events: the connected Standard account ID (acct_...). */
+  account?: string
   data: { object: unknown }
 }
 
@@ -287,6 +290,92 @@ async function upsertPendingSubscription(
 
 const route = new Hono<AppEnv>()
 
+function dispatchStripeEvent(c: Context<AppEnv>, tenant: Tenant, event: StripeEvent) {
+  switch (event.type) {
+    case 'checkout.session.completed':
+    case 'checkout.session.async_payment_succeeded':
+      return handleCheckoutCompleted(c, tenant, event.data.object as StripeCheckoutSession)
+    case 'customer.subscription.created':
+    case 'customer.subscription.updated':
+      return handleSubscriptionChange(c, tenant, event.type, event.data.object as StripeSubscription, event.created)
+    case 'customer.subscription.deleted':
+      return handleSubscriptionDeleted(c, tenant, event.data.object as StripeSubscription, event.created)
+    case 'invoice.paid':
+      return handleInvoicePaid(c, tenant, event.data.object as StripeInvoice, event.created)
+    case 'invoice.payment_failed':
+      return handleInvoicePaymentFailed(c, tenant, event.data.object as StripeInvoice, event.created)
+    case 'charge.refunded':
+    case 'charge.dispute.created':
+      return handleRefundOrDispute(c, tenant, event.type, event.data.object as StripeChargeLike)
+    default:
+      return c.json({ status: 'ignored', type: event.type })
+  }
+}
+
+// Registered before /:tenantId so /connect always hits the platform Connect endpoint.
+route.post(
+  '/connect',
+  describeRoute({
+    summary: 'Stripe Connect platform webhook receiver',
+    description:
+      'Single platform-level Connect webhook endpoint for all OAuth-connected Standard accounts. Routes events by event.account (acct_…) and handles account.application.deauthorized.',
+    tags: ['Licensing'],
+    security: [],
+    responses: {
+      200: { description: 'Handled or ignored' },
+      400: { description: 'Bad signature' },
+      404: { description: 'Connect webhook secret not configured' },
+    },
+  }),
+  async (c) => {
+    const secret = c.env.STRIPE_CONNECT_WEBHOOK_SECRET?.trim()
+    if (!secret) return c.json({ error: 'not found' }, 404)
+
+    const signature = c.req.header('stripe-signature')
+    if (!signature) return c.json({ error: 'missing stripe-signature header' }, 400)
+    const rawBody = await c.req.text()
+    if (!(await verifyStripeSignature(secret, rawBody, signature))) {
+      return c.json({ error: 'invalid signature' }, 400)
+    }
+
+    let event: StripeEvent
+    try {
+      event = JSON.parse(rawBody) as StripeEvent
+    } catch {
+      return c.json({ error: 'invalid payload' }, 400)
+    }
+
+    const accountId = typeof event.account === 'string' && event.account.trim() ? event.account.trim() : null
+    if (!accountId) {
+      return c.json({ status: 'ignored', reason: 'no account on connect event' })
+    }
+
+    const db = c.get('db')
+    const [row] = await db
+      .select({ credential: paymentCredentials, tenant: tenants })
+      .from(paymentCredentials)
+      .innerJoin(tenants, eq(paymentCredentials.tenantId, tenants.id))
+      .where(and(eq(paymentCredentials.provider, 'stripe'), eq(paymentCredentials.stripeAccountId, accountId)))
+    if (!row) {
+      return c.json({ status: 'ignored', reason: 'unknown connected account' })
+    }
+
+    if (event.type === 'account.application.deauthorized') {
+      if (!row.credential.hint && !row.credential.apiKeyHint) {
+        await db.delete(paymentCredentials).where(eq(paymentCredentials.id, row.credential.id))
+      } else {
+        await db
+          .update(paymentCredentials)
+          .set({ stripeAccountId: null })
+          .where(eq(paymentCredentials.id, row.credential.id))
+      }
+      return c.json({ status: 'deauthorized' })
+    }
+
+    return dispatchStripeEvent(c, row.tenant, event)
+  },
+)
+
 route.post(
   '/:tenantId',
   describeRoute({
@@ -326,25 +415,7 @@ route.post(
       return c.json({ error: 'invalid payload' }, 400)
     }
 
-    switch (event.type) {
-      case 'checkout.session.completed':
-      case 'checkout.session.async_payment_succeeded':
-        return handleCheckoutCompleted(c, tenant, event.data.object as StripeCheckoutSession)
-      case 'customer.subscription.created':
-      case 'customer.subscription.updated':
-        return handleSubscriptionChange(c, tenant, event.type, event.data.object as StripeSubscription, event.created)
-      case 'customer.subscription.deleted':
-        return handleSubscriptionDeleted(c, tenant, event.data.object as StripeSubscription, event.created)
-      case 'invoice.paid':
-        return handleInvoicePaid(c, tenant, event.data.object as StripeInvoice, event.created)
-      case 'invoice.payment_failed':
-        return handleInvoicePaymentFailed(c, tenant, event.data.object as StripeInvoice, event.created)
-      case 'charge.refunded':
-      case 'charge.dispute.created':
-        return handleRefundOrDispute(c, tenant, event.type, event.data.object as StripeChargeLike)
-      default:
-        return c.json({ status: 'ignored', type: event.type })
-    }
+    return dispatchStripeEvent(c, tenant, event)
   },
 )
 

@@ -107,7 +107,7 @@ test.describe('Billing & payment UI E2E', () => {
     await page.getByRole('button', { name: 'Add a plan' }).click()
     const dialog = page.getByRole('dialog', { name: 'Add a plan' })
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText(/Connect your Stripe Restricted Key in/i)).toBeVisible()
+    await expect(dialog.getByText(/Connect your Stripe account in/i)).toBeVisible()
     await expect(dialog.getByLabel('Monthly price')).toBeDisabled()
     await expect(dialog.getByRole('button', { name: 'Create plan' })).toBeDisabled()
     await dialog.getByRole('button', { name: 'Close' }).click()

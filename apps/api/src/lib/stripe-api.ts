@@ -2,6 +2,19 @@
 // Matches extport's zero-heavy-SDK philosophy (see lib/stripe.ts).
 
 const DEFAULT_STRIPE_API_BASE = 'https://api.stripe.com/v1'
+const DEFAULT_STRIPE_OAUTH_BASE = 'https://connect.stripe.com'
+
+export interface StripeAuth {
+  apiKey: string
+  /** Connected Standard account ID (acct_...); sent as `Stripe-Account` header. */
+  stripeAccountId?: string | null
+}
+
+export type StripeAuthInput = string | StripeAuth
+
+function normalizeAuth(auth: StripeAuthInput): StripeAuth {
+  return typeof auth === 'string' ? { apiKey: auth } : auth
+}
 
 /**
  * Resolves an optional Stripe API base URL override from Worker bindings
@@ -15,6 +28,16 @@ export function resolveStripeApiBase(env: unknown): string | undefined {
     }
   }
   return undefined
+}
+
+export function resolveStripeOAuthBase(env: unknown): string {
+  if (typeof env === 'object' && env !== null && 'STRIPE_CONNECT_OAUTH_BASE' in env) {
+    const value = (env as { STRIPE_CONNECT_OAUTH_BASE?: unknown }).STRIPE_CONNECT_OAUTH_BASE
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim().replace(/\/+$/, '')
+    }
+  }
+  return DEFAULT_STRIPE_OAUTH_BASE
 }
 
 export class StripeApiError extends Error {
@@ -52,12 +75,13 @@ function appendMetadata(params: URLSearchParams, prefix: string, metadata?: Reco
 }
 
 async function stripeRequest<T>(
-  apiKey: string,
+  authInput: StripeAuthInput,
   method: 'GET' | 'POST',
   path: string,
   params?: URLSearchParams,
   apiBase?: string,
 ): Promise<T> {
+  const auth = normalizeAuth(authInput)
   const base = apiBase ? apiBase.replace(/\/+$/, '') : DEFAULT_STRIPE_API_BASE
   const qs = method === 'GET' && params && [...params.keys()].length > 0 ? `?${params.toString()}` : ''
   let res: Response
@@ -65,7 +89,8 @@ async function stripeRequest<T>(
     res = await fetch(`${base}${path}${qs}`, {
       method,
       headers: {
-        authorization: `Bearer ${apiKey}`,
+        authorization: `Bearer ${auth.apiKey}`,
+        ...(auth.stripeAccountId ? { 'stripe-account': auth.stripeAccountId } : {}),
         ...(method === 'POST' ? { 'content-type': 'application/x-www-form-urlencoded' } : {}),
       },
       ...(method === 'POST' && params ? { body: params.toString() } : {}),
@@ -99,27 +124,127 @@ async function stripeRequest<T>(
   return data as T
 }
 
-async function stripePost<T>(apiKey: string, path: string, params: URLSearchParams, apiBase?: string): Promise<T> {
-  return stripeRequest<T>(apiKey, 'POST', path, params, apiBase)
+async function stripePost<T>(auth: StripeAuthInput, path: string, params: URLSearchParams, apiBase?: string): Promise<T> {
+  return stripeRequest<T>(auth, 'POST', path, params, apiBase)
 }
 
-async function stripeGet<T>(apiKey: string, path: string, params?: URLSearchParams, apiBase?: string): Promise<T> {
-  return stripeRequest<T>(apiKey, 'GET', path, params, apiBase)
+async function stripeGet<T>(auth: StripeAuthInput, path: string, params?: URLSearchParams, apiBase?: string): Promise<T> {
+  return stripeRequest<T>(auth, 'GET', path, params, apiBase)
+}
+
+export async function exchangeStripeOAuthCode(
+  secretKey: string,
+  code: string,
+  oauthBase?: string,
+): Promise<{ stripeUserId: string; livemode: boolean; scope: string | null }> {
+  const base = oauthBase ? oauthBase.replace(/\/+$/, '') : DEFAULT_STRIPE_OAUTH_BASE
+  const params = new URLSearchParams()
+  params.set('grant_type', 'authorization_code')
+  params.set('code', code)
+
+  let res: Response
+  try {
+    res = await fetch(`${base}/oauth/token`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${secretKey}`,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
+    })
+  } catch (err) {
+    throw new StripeApiError(
+      502,
+      'network_error',
+      err instanceof Error ? `Failed to reach Stripe OAuth: ${err.message}` : 'Failed to reach Stripe OAuth',
+    )
+  }
+
+  let data: Record<string, unknown> | null = null
+  try {
+    data = (await res.json()) as Record<string, unknown>
+  } catch {
+    data = null
+  }
+
+  if (!res.ok) {
+    const codeStr = typeof data?.['error'] === 'string' ? data['error'] : null
+    const desc =
+      typeof data?.['error_description'] === 'string' && data['error_description'].trim()
+        ? data['error_description']
+        : `Stripe OAuth error (${res.status})`
+    throw new StripeApiError(res.status, codeStr, desc)
+  }
+
+  const stripeUserId = typeof data?.['stripe_user_id'] === 'string' ? data['stripe_user_id'].trim() : ''
+  if (!stripeUserId) {
+    throw new StripeApiError(502, 'missing_account', 'Stripe OAuth token response omitted stripe_user_id')
+  }
+  return {
+    stripeUserId,
+    livemode: Boolean(data?.['livemode']),
+    scope: typeof data?.['scope'] === 'string' ? data['scope'] : null,
+  }
+}
+
+export async function deauthorizeStripeAccount(
+  secretKey: string,
+  clientId: string,
+  stripeAccountId: string,
+  oauthBase?: string,
+): Promise<void> {
+  const base = oauthBase ? oauthBase.replace(/\/+$/, '') : DEFAULT_STRIPE_OAUTH_BASE
+  const params = new URLSearchParams()
+  params.set('client_id', clientId)
+  params.set('stripe_user_id', stripeAccountId)
+
+  let res: Response
+  try {
+    res = await fetch(`${base}/oauth/deauthorize`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${secretKey}`,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
+    })
+  } catch (err) {
+    throw new StripeApiError(
+      502,
+      'network_error',
+      err instanceof Error ? `Failed to reach Stripe OAuth: ${err.message}` : 'Failed to reach Stripe OAuth',
+    )
+  }
+
+  if (!res.ok) {
+    let data: Record<string, unknown> | null = null
+    try {
+      data = (await res.json()) as Record<string, unknown>
+    } catch {
+      data = null
+    }
+    const codeStr = typeof data?.['error'] === 'string' ? data['error'] : null
+    const desc =
+      typeof data?.['error_description'] === 'string' && data['error_description'].trim()
+        ? data['error_description']
+        : `Stripe OAuth deauthorize error (${res.status})`
+    throw new StripeApiError(res.status, codeStr, desc)
+  }
 }
 
 export async function createStripeProduct(
-  apiKey: string,
+  auth: StripeAuthInput,
   input: { name: string; metadata?: Record<string, string>; apiBase?: string },
 ): Promise<{ id: string }> {
   const params = new URLSearchParams()
   params.set('name', input.name)
   appendMetadata(params, 'metadata', input.metadata)
-  const product = await stripePost<{ id: string }>(apiKey, '/products', params, input.apiBase)
+  const product = await stripePost<{ id: string }>(auth, '/products', params, input.apiBase)
   return { id: product.id }
 }
 
 export async function createStripePrice(
-  apiKey: string,
+  auth: StripeAuthInput,
   input: {
     productId: string
     unitAmount: number
@@ -137,18 +262,18 @@ export async function createStripePrice(
   if (input.interval) params.set('recurring[interval]', input.interval)
   if (input.nickname) params.set('nickname', input.nickname)
   appendMetadata(params, 'metadata', input.metadata)
-  const price = await stripePost<{ id: string }>(apiKey, '/prices', params, input.apiBase)
+  const price = await stripePost<{ id: string }>(auth, '/prices', params, input.apiBase)
   return { id: price.id }
 }
 
-export async function archiveStripePrice(apiKey: string, priceId: string, apiBase?: string): Promise<void> {
+export async function archiveStripePrice(auth: StripeAuthInput, priceId: string, apiBase?: string): Promise<void> {
   const params = new URLSearchParams()
   params.set('active', 'false')
-  await stripePost<{ id: string }>(apiKey, `/prices/${encodeURIComponent(priceId)}`, params, apiBase)
+  await stripePost<{ id: string }>(auth, `/prices/${encodeURIComponent(priceId)}`, params, apiBase)
 }
 
 export async function createStripeCheckoutSession(
-  apiKey: string,
+  auth: StripeAuthInput,
   input: {
     mode: 'payment' | 'subscription'
     priceId: string
@@ -181,7 +306,7 @@ export async function createStripeCheckoutSession(
   }
 
   const session = await stripePost<{ id: string; url?: string | null }>(
-    apiKey,
+    auth,
     '/checkout/sessions',
     params,
     input.apiBase,
@@ -193,14 +318,14 @@ export async function createStripeCheckoutSession(
 }
 
 export async function createStripeBillingPortalSession(
-  apiKey: string,
+  auth: StripeAuthInput,
   input: { customerId: string; returnUrl: string; apiBase?: string },
 ): Promise<{ id: string; url: string }> {
   const params = new URLSearchParams()
   params.set('customer', input.customerId)
   params.set('return_url', input.returnUrl)
   const session = await stripePost<{ id: string; url?: string | null }>(
-    apiKey,
+    auth,
     '/billing_portal/sessions',
     params,
     input.apiBase,
@@ -212,7 +337,7 @@ export async function createStripeBillingPortalSession(
 }
 
 export async function updateStripeSubscription(
-  apiKey: string,
+  auth: StripeAuthInput,
   input: { subscriptionId: string; cancelAtPeriodEnd: boolean; apiBase?: string },
 ): Promise<{ id: string; status: string; cancelAtPeriodEnd: boolean }> {
   const path = `/subscriptions/${encodeURIComponent(input.subscriptionId)}`
@@ -229,7 +354,7 @@ export async function updateStripeSubscription(
       status?: string
       cancel_at_period_end?: boolean
       cancel_at?: number | null
-    }>(apiKey, path, undefined, input.apiBase)
+    }>(auth, path, undefined, input.apiBase)
     if (current.cancel_at != null && !current.cancel_at_period_end) {
       params.set('cancel_at', '')
     } else {
@@ -242,7 +367,7 @@ export async function updateStripeSubscription(
     status?: string
     cancel_at_period_end?: boolean
     cancel_at?: number | null
-  }>(apiKey, path, params, input.apiBase)
+  }>(auth, path, params, input.apiBase)
   return {
     id: sub.id,
     status: sub.status ?? 'active',
@@ -262,7 +387,7 @@ export interface StripeInvoiceSummary {
 }
 
 export async function listStripeInvoices(
-  apiKey: string,
+  auth: StripeAuthInput,
   input: { subscriptionId?: string | null; customerId?: string | null; limit?: number; apiBase?: string },
 ): Promise<StripeInvoiceSummary[]> {
   const params = new URLSearchParams()
@@ -280,7 +405,7 @@ export async function listStripeInvoices(
       invoice_pdf?: string | null
       hosted_invoice_url?: string | null
     }>
-  }>(apiKey, '/invoices', params, input.apiBase)
+  }>(auth, '/invoices', params, input.apiBase)
   return (res.data ?? []).map((inv) => ({
     id: inv.id,
     number: inv.number ?? null,

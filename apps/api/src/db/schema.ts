@@ -612,6 +612,9 @@ export const paymentCredentials = sqliteTable(
       .$defaultFn(() => ''),
     // Last four characters of the Stripe Restricted/Secret Key, when stored.
     apiKeyHint: text('api_key_hint'),
+    // Connected Standard Stripe account ID (acct_...) when linked via Stripe
+    // Connect OAuth2. Null for legacy manual Restricted Key credentials.
+    stripeAccountId: text('stripe_account_id'),
     // { webhookSecret?, apiKey? } encrypted with the tenant DEK.
     encryptedPayload: text('encrypted_payload').notNull(),
     keyVersion: integer('key_version')
@@ -619,7 +622,10 @@ export const paymentCredentials = sqliteTable(
       .$defaultFn(() => 1),
     ...timestamps,
   },
-  (t) => [uniqueIndex('payment_credentials_tenant_provider_idx').on(t.tenantId, t.provider)],
+  (t) => [
+    uniqueIndex('payment_credentials_tenant_provider_idx').on(t.tenantId, t.provider),
+    uniqueIndex('payment_credentials_stripe_account_idx').on(t.stripeAccountId),
+  ],
 )
 
 // ===== 买家门户(slice C) =====

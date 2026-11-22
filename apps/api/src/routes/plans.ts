@@ -12,7 +12,8 @@ import {
   StripeApiError,
   stripeErrorToHttp,
 } from '../lib/stripe-api'
-import { loadStripeCredential } from '../lib/stripe-credentials'
+import { loadStripeCredential, resolveStripeAuth } from '../lib/stripe-credentials'
+import type { StripeAuth } from '../lib/stripe-api'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
 
@@ -197,16 +198,16 @@ route.post(
 
     if (needsStripeSync) {
       const cred = await loadStripeCredential(c.env, db, tenant)
-      if (!cred?.apiKey) {
+      const stripeAuth = resolveStripeAuth(c.env, cred)
+      if (!stripeAuth) {
         return c.json(
           {
             error:
-              'Configure your Stripe Restricted Key in Settings first to sync pricing with Stripe (or pass stripePriceId manually)',
+              'Connect your Stripe account in Settings first to sync pricing with Stripe (or pass stripePriceId manually)',
           },
           400,
         )
       }
-      const apiKey = cred.apiKey
       try {
         if (!stripeProductId) {
           // 1 Extension = 1 Stripe Product: reuse any Stripe Product already
@@ -221,7 +222,7 @@ route.post(
           if (existingProduct?.stripeProductId) {
             stripeProductId = existingProduct.stripeProductId
           } else {
-            const product = await createStripeProduct(apiKey, {
+            const product = await createStripeProduct(stripeAuth, {
               name: extension.name,
               metadata: { extport_extension: extension.id },
               apiBase: resolveStripeApiBase(c.env),
@@ -229,7 +230,7 @@ route.post(
             stripeProductId = product.id
           }
         }
-        const price = await createStripePrice(apiKey, {
+        const price = await createStripePrice(stripeAuth, {
           productId: stripeProductId,
           unitAmount: body.amount,
           currency: effectiveCurrency,
@@ -323,16 +324,16 @@ route.patch(
     if (!row) return c.json({ error: 'not found' }, 404)
     const existing = row.plan
 
-    let cachedKey: string | null | undefined
-    const getApiKey = async (): Promise<string | null> => {
-      if (cachedKey !== undefined) return cachedKey
+    let cachedAuth: StripeAuth | null | undefined
+    const getStripeAuth = async (): Promise<StripeAuth | null> => {
+      if (cachedAuth !== undefined) return cachedAuth
       const cred = await loadStripeCredential(c.env, db, tenant)
-      cachedKey = cred?.apiKey ?? null
-      return cachedKey
+      cachedAuth = resolveStripeAuth(c.env, cred)
+      return cachedAuth
     }
 
     let nextStripeProductId = body.stripeProductId !== undefined ? body.stripeProductId : existing.stripeProductId
-    const ensureStripeProduct = async (apiKey: string): Promise<string> => {
+    const ensureStripeProduct = async (auth: StripeAuth): Promise<string> => {
       if (nextStripeProductId) return nextStripeProductId
       const [existingProduct] = await db
         .select({ stripeProductId: plans.stripeProductId })
@@ -349,7 +350,7 @@ route.patch(
         nextStripeProductId = existingProduct.stripeProductId
         return nextStripeProductId
       }
-      const product = await createStripeProduct(apiKey, {
+      const product = await createStripeProduct(auth, {
         name: row.extensionName,
         metadata: { extport_extension: existing.extensionId },
         apiBase: resolveStripeApiBase(c.env),
@@ -372,19 +373,19 @@ route.patch(
             (body.amount !== existing.amount || currencyChanged || !existing.stripePriceId)) ||
           currencyChanged
         if (shouldSync) {
-          const apiKey = await getApiKey()
-          if (!apiKey) {
+          const auth = await getStripeAuth()
+          if (!auth) {
             return c.json(
               {
                 error:
-                  'Configure your Stripe Restricted Key in Settings first to update managed pricing (or pass stripePriceId manually)',
+                  'Connect your Stripe account in Settings first to update managed pricing (or pass stripePriceId manually)',
               },
               400,
             )
           }
-          const productId = await ensureStripeProduct(apiKey)
+          const productId = await ensureStripeProduct(auth)
           const interval = existing.billingInterval === 'one_time' ? undefined : existing.billingInterval
-          const created = await createStripePrice(apiKey, {
+          const created = await createStripePrice(auth, {
             productId,
             unitAmount: nextAmount,
             currency: nextCurrency,
@@ -395,7 +396,7 @@ route.patch(
           })
           if (existing.stripePriceId && existing.stripePriceId !== created.id) {
             try {
-              await archiveStripePrice(apiKey, existing.stripePriceId, resolveStripeApiBase(c.env))
+              await archiveStripePrice(auth, existing.stripePriceId, resolveStripeApiBase(c.env))
             } catch {
               // Best-effort archive — ignore if already archived in Stripe.
             }

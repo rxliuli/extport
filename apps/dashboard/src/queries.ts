@@ -161,9 +161,17 @@ export const credentialsQuery = queryOptions({
   queryFn: () => api<{ credentials: CredentialRow[] }>('/api/v1/credentials').then((r) => r.credentials),
 })
 
+export const paymentCredentialsStatusQuery = queryOptions({
+  queryKey: ['payment-credentials'],
+  queryFn: () =>
+    api<{ credentials: PaymentCredentialRow[]; connectEnabled?: boolean }>('/api/v1/payment-credentials'),
+})
+
 export const paymentCredentialsQuery = queryOptions({
   queryKey: ['payment-credentials'],
-  queryFn: () => api<{ credentials: PaymentCredentialRow[] }>('/api/v1/payment-credentials').then((r) => r.credentials),
+  queryFn: () =>
+    api<{ credentials: PaymentCredentialRow[]; connectEnabled?: boolean }>('/api/v1/payment-credentials'),
+  select: (r) => r.credentials,
 })
 
 export const keysQuery = queryOptions({

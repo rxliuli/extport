@@ -19,3 +19,13 @@ DEV_LOGIN_ENABLED=false
 # with a single permission: Account → Account Analytics → Read. Only needed to
 # run the rollup locally; leaving it empty just skips that cron.
 ANALYTICS_API_TOKEN=""
+
+# Stripe Connect Standard OAuth2 (optional; enables 1-click "Connect with Stripe"
+# in Settings instead of manual Restricted Keys + per-tenant webhooks).
+# Create a Connect platform in Stripe Sandbox → Settings → Connect → OAuth settings:
+#   - Register Redirect URI: http://localhost:5173/api/v1/payment-credentials/stripe/callback
+#   - Forward Connect webhooks locally with:
+#       stripe listen --forward-connect-to http://localhost:8787/api/v1/licensing/webhooks/stripe/connect
+# STRIPE_CONNECT_CLIENT_ID="ca_..."
+# STRIPE_SECRET_KEY="sk_test_..."
+# STRIPE_CONNECT_WEBHOOK_SECRET="whsec_..."

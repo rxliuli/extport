@@ -231,6 +231,8 @@ export interface PaymentCredentialRow {
   hasWebhookSecret: boolean
   apiKeyHint: string | null
   hasApiKey: boolean
+  stripeAccountId?: string | null
+  connected?: boolean
   /** ISO date string (Date -> JSON) */
   createdAt: string
   /** ISO date string (Date -> JSON) */
