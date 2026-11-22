@@ -189,6 +189,9 @@ export function LicenseStatusCell({ license }: { license: LicenseRow }) {
 export function LicensingSection({ extension }: { extension: Extension }) {
   const queryClient = useQueryClient()
   const { data: plans = [] } = useQuery(plansQuery(extension.id))
+  const { data: paymentCredentials = [], isLoading: credentialsLoading } = useQuery(paymentCredentialsQuery)
+  const stripeCred = paymentCredentials.find((c) => c.provider === 'stripe')
+  const stripeConnected = Boolean(stripeCred?.connected || stripeCred?.stripeAccountId)
   const [selectedMode, setSelectedMode] = useState<BillingMode>(extension.billingMode ?? 'license')
 
   const updateExtension = useMutation({
@@ -209,6 +212,32 @@ export function LicensingSection({ extension }: { extension: Extension }) {
 
   if (!extension.licensingEnabled) {
     const modeLocked = plans.length > 0
+    if (!credentialsLoading && !stripeConnected) {
+      return (
+        <Section
+          title="Connect Stripe to enable licensing"
+          description="Licensing requires a connected Stripe account to manage plans, prices, checkouts, and billing."
+        >
+          <div className={`flex flex-wrap items-center justify-between gap-3 ${sectionBodyClass}`}>
+            <p className="text-sm text-muted-foreground">
+              Connect your Stripe account in Settings first, then return here to enable{' '}
+              {modeLocked
+                ? billingMode === 'subscription'
+                  ? 'subscriptions'
+                  : 'one-time licenses'
+                : 'one-time licenses or subscriptions'}
+              .
+            </p>
+            <Button asChild>
+              <Link to="/settings" hash="payment-credentials">
+                Connect Stripe in Settings
+              </Link>
+            </Button>
+          </div>
+        </Section>
+      )
+    }
+
     return (
       <Section
         title="Licensing is off"
@@ -273,7 +302,7 @@ export function LicensingSection({ extension }: { extension: Extension }) {
                 modeLocked ? { licensingEnabled: true } : { licensingEnabled: true, billingMode: selectedMode },
               )
             }
-            disabled={updateExtension.isPending}
+            disabled={updateExtension.isPending || credentialsLoading}
           >
             {modeLocked
               ? billingMode === 'subscription'
@@ -439,9 +468,7 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
   const { data: plans = [] } = useQuery(plansQuery(extension.id))
   const { data: paymentCredentials = [] } = useQuery(paymentCredentialsQuery)
   const stripeCred = paymentCredentials.find((c) => c.provider === 'stripe')
-  const hasStripeApiKey = stripeCred
-    ? Boolean(stripeCred.connected || stripeCred.stripeAccountId || stripeCred.hasApiKey || stripeCred.apiKeyHint)
-    : false
+  const hasStripeApiKey = Boolean(stripeCred?.connected || stripeCred?.stripeAccountId)
   const entitlementType: 'perpetual' | 'recurring' = billingMode === 'subscription' ? 'recurring' : 'perpetual'
 
   const [open, setOpen] = useState(false)

@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { activations, licenseEvents, licenses, plans, type License, type Plan } from '../src/db'
-import { createApiKey, createExtension, request, seedTenantWithUser } from './helpers'
+import { connectStripeAccount, createApiKey, createExtension, request, seedTenantWithUser } from './helpers'
 
 const KEY_RE = /^[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){3}$/
 
@@ -30,7 +30,8 @@ interface WireResult {
 
 async function setupLicensedProduct(opts: { maxActivations?: number; licensingEnabled?: boolean } = {}) {
   const seeded = await seedTenantWithUser()
-  const { sessionCookie } = seeded
+  const { db, tenantId, sessionCookie } = seeded
+  await connectStripeAccount(db, tenantId)
   const extension = await createExtension(sessionCookie)
   if (opts.licensingEnabled !== false) {
     const patch = await request(`/api/v1/extensions/${extension.id}`, {
@@ -824,7 +825,8 @@ describe('host-based surface isolation', () => {
 
 describe('recurring licensing & server-side entitlement API', () => {
   it('enforces subscription entitlement states on /activate and /check', async () => {
-    const { db, sessionCookie } = await seedTenantWithUser()
+    const { db, tenantId, sessionCookie } = await seedTenantWithUser()
+    await connectStripeAccount(db, tenantId)
     const extension = await createExtension(sessionCookie, 'Legacy Recurring License Ext')
     await request(`/api/v1/extensions/${extension.id}`, {
       method: 'PATCH',
@@ -889,7 +891,8 @@ describe('recurring licensing & server-side entitlement API', () => {
   })
 
   it('GET /v1/licensing/entitlements verifies by externalUserId, email, or key and picks best active license', async () => {
-    const { db, sessionCookie } = await seedTenantWithUser()
+    const { db, tenantId, sessionCookie } = await seedTenantWithUser()
+    await connectStripeAccount(db, tenantId)
     const extension = await createExtension(sessionCookie, 'Legacy Ent Ext')
     await request(`/api/v1/extensions/${extension.id}`, {
       method: 'PATCH',

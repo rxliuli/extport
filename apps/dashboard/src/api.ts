@@ -227,12 +227,8 @@ export interface SubscriptionRow {
 export interface PaymentCredentialRow {
   id: string
   provider: 'stripe'
-  hint: string
-  hasWebhookSecret: boolean
-  apiKeyHint: string | null
-  hasApiKey: boolean
-  stripeAccountId?: string | null
-  connected?: boolean
+  stripeAccountId: string | null
+  connected: boolean
   /** ISO date string (Date -> JSON) */
   createdAt: string
   /** ISO date string (Date -> JSON) */

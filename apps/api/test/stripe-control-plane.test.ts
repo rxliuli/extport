@@ -1,9 +1,9 @@
 import { newId } from '@extport/shared'
 import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
-import { licenses, subscriptions, type License, type Plan, type Subscription } from '../src/db'
+import { extensions, licenses, subscriptions, type License, type Plan, type Subscription } from '../src/db'
 import { BUYER_SESSION_COOKIE, consumeMagicLink, createMagicLink } from '../src/lib/buyer-session'
-import { createApiKey, createExtension, request, seedTenantWithUser } from './helpers'
+import { connectStripeAccount, createApiKey, createExtension, request, seedTenantWithUser } from './helpers'
 
 const realFetch = globalThis.fetch
 
@@ -34,21 +34,21 @@ function mockStripeFetch(handler: StripeHandler) {
 
 async function setupControlPlaneTenant(opts: { apiKey?: string } = {}) {
   const seeded = await seedTenantWithUser()
-  const { sessionCookie } = seeded
+  const { db, tenantId, sessionCookie } = seeded
   const apiKey = await createApiKey(sessionCookie)
   const extension = await createExtension(sessionCookie, 'Control Plane Ext')
-  await request(`/api/v1/extensions/${extension.id}`, {
-    method: 'PATCH',
-    headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ licensingEnabled: true }),
-  })
   if (opts.apiKey !== undefined) {
-    const credRes = await request('/api/v1/payment-credentials', {
-      method: 'POST',
+    await connectStripeAccount(db, tenantId)
+    const enableRes = await request(`/api/v1/extensions/${extension.id}`, {
+      method: 'PATCH',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ provider: 'stripe', apiKey: opts.apiKey }),
+      body: JSON.stringify({ licensingEnabled: true }),
     })
-    expect(credRes.status).toBe(200)
+    expect(enableRes.status).toBe(200)
+  } else {
+    // Seed an already-enabled extension without a connected Stripe account to test
+    // post-disconnect guards on plan creation and entitlements.
+    await db.update(extensions).set({ licensingEnabled: true }).where(eq(extensions.id, extension.id))
   }
   return { ...seeded, apiKey, extension }
 }

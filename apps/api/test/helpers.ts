@@ -2,9 +2,32 @@ import { newId } from '@extport/shared'
 import { strToU8, zipSync } from 'fflate'
 import { createExecutionContext, env } from 'cloudflare:test'
 import { app } from '../src/index'
-import { createDb, tenants, users } from '../src/db'
+import { createDb, paymentCredentials, tenants, users, type Db } from '../src/db'
 import { provisionTenantDek } from '../src/lib/kms'
 import { SESSION_COOKIE, createSession } from '../src/lib/session'
+
+export const TEST_STRIPE_SECRET_KEY = 'sk_test_platform_helper'
+export const TEST_CONNECT_WEBHOOK_SECRET = 'whsec_testsecret123'
+
+let stripeAcctSeq = 0
+
+export async function connectStripeAccount(
+  db: Db,
+  tenantId: string,
+  stripeAccountId = `acct_test_${++stripeAcctSeq}`,
+): Promise<string> {
+  await db.insert(paymentCredentials).values({
+    id: newId('paymentCredential'),
+    tenantId,
+    provider: 'stripe',
+    hint: '',
+    apiKeyHint: null,
+    stripeAccountId,
+    encryptedPayload: '{}',
+    keyVersion: 1,
+  })
+  return stripeAccountId
+}
 
 export async function seedTenantWithUser(opts: { status?: 'pending' | 'active' } = {}) {
   const db = createDb(env.DB)
@@ -31,8 +54,14 @@ export async function seedTenantWithUser(opts: { status?: 'pending' | 'active' }
   return { db, tenantId, userId, sessionCookie: `${SESSION_COOKIE}=${session.token}` }
 }
 
-export function request(path: string, init?: RequestInit): Promise<Response> {
-  return Promise.resolve(app.request(path, init, env, createExecutionContext()))
+export function request(path: string, init?: RequestInit, customEnv?: Env): Promise<Response> {
+  const baseEnv = env as Env
+  const effectiveEnv: Env = customEnv ?? {
+    ...baseEnv,
+    STRIPE_SECRET_KEY: TEST_STRIPE_SECRET_KEY,
+    STRIPE_CONNECT_WEBHOOK_SECRET: TEST_CONNECT_WEBHOOK_SECRET,
+  }
+  return Promise.resolve(app.request(path, init, effectiveEnv, createExecutionContext()))
 }
 
 export async function createApiKey(sessionCookie: string): Promise<string> {

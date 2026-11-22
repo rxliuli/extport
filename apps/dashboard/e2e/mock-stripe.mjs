@@ -3,7 +3,8 @@ import http from 'node:http'
 const PORT = Number(process.env.MOCK_STRIPE_PORT ?? 8791)
 
 let seq = 0
-/** @type {Array<{ method: string; path: string; auth: string | undefined; params: Record<string, string> }>} */
+let accountSeq = 0
+/** @type {Array<{ method: string; path: string; auth: string | undefined; stripeAccount: string | string[] | undefined; params: Record<string, string> }>} */
 let requests = []
 
 function readBody(req) {
@@ -40,12 +41,36 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true })
   }
 
+  if (method === 'GET' && url.pathname === '/oauth/authorize') {
+    const redirectUri = url.searchParams.get('redirect_uri')
+    const state = url.searchParams.get('state') ?? ''
+    if (!redirectUri) {
+      return sendJson(res, 400, { error: 'missing redirect_uri' })
+    }
+    const target = new URL(redirectUri)
+    target.searchParams.set('code', `ac_e2e_${++accountSeq}`)
+    target.searchParams.set('state', state)
+    res.writeHead(302, { location: target.toString() })
+    return res.end()
+  }
+
   const rawBody = await readBody(req)
   const params = Object.fromEntries(new URLSearchParams(rawBody).entries())
+
+  if (method === 'POST' && url.pathname === '/oauth/token') {
+    const id = `acct_e2e_${accountSeq || ++accountSeq}`
+    return sendJson(res, 200, { stripe_user_id: id, livemode: false, scope: 'read_write' })
+  }
+
+  if (method === 'POST' && url.pathname === '/oauth/deauthorize') {
+    return sendJson(res, 200, { stripe_user_id: params.stripe_user_id ?? '' })
+  }
+
   requests.push({
     method,
     path: url.pathname,
     auth: req.headers.authorization,
+    stripeAccount: req.headers['stripe-account'],
     params,
   })
 

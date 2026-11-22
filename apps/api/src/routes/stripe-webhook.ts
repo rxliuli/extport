@@ -18,7 +18,6 @@ import {
 import { uniqueLicenseKey } from '../lib/license-key'
 import { sendLicenseEmail } from '../lib/licensing-email'
 import { verifyStripeSignature } from '../lib/stripe'
-import { loadStripeCredential } from '../lib/stripe-credentials'
 import type { AppEnv } from '../middleware/auth'
 
 // BYO-Stripe fulfillment: the tenant points their Stripe webhook
@@ -361,61 +360,11 @@ route.post(
     }
 
     if (event.type === 'account.application.deauthorized') {
-      if (!row.credential.hint && !row.credential.apiKeyHint) {
-        await db.delete(paymentCredentials).where(eq(paymentCredentials.id, row.credential.id))
-      } else {
-        await db
-          .update(paymentCredentials)
-          .set({ stripeAccountId: null })
-          .where(eq(paymentCredentials.id, row.credential.id))
-      }
+      await db.delete(paymentCredentials).where(eq(paymentCredentials.id, row.credential.id))
       return c.json({ status: 'deauthorized' })
     }
 
     return dispatchStripeEvent(c, row.tenant, event)
-  },
-)
-
-route.post(
-  '/:tenantId',
-  describeRoute({
-    summary: 'Stripe webhook receiver',
-    description:
-      'Set this URL (with your tenant id) as a webhook endpoint in Stripe. Authenticated by webhook signature.',
-    tags: ['Licensing'],
-    security: [],
-    responses: {
-      200: { description: 'Handled or ignored' },
-      400: { description: 'Bad signature' },
-      404: { description: 'Unknown tenant or no stripe credential' },
-    },
-  }),
-  async (c) => {
-    const db = c.get('db')
-    const [tenant] = await db
-      .select()
-      .from(tenants)
-      .where(eq(tenants.id, c.req.param('tenantId')))
-    if (!tenant) return c.json({ error: 'not found' }, 404)
-    const credential = await loadStripeCredential(c.env, db, tenant)
-    if (!credential?.webhookSecret) return c.json({ error: 'not found' }, 404)
-
-    const signature = c.req.header('stripe-signature')
-    if (!signature) return c.json({ error: 'missing stripe-signature header' }, 400)
-    // The exact raw bytes are what's signed — never the re-serialized JSON.
-    const rawBody = await c.req.text()
-    if (!(await verifyStripeSignature(credential.webhookSecret, rawBody, signature))) {
-      return c.json({ error: 'invalid signature' }, 400)
-    }
-
-    let event: StripeEvent
-    try {
-      event = JSON.parse(rawBody) as StripeEvent
-    } catch {
-      return c.json({ error: 'invalid payload' }, 400)
-    }
-
-    return dispatchStripeEvent(c, tenant, event)
   },
 )
 

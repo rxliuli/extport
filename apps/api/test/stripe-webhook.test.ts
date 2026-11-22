@@ -11,7 +11,7 @@ import {
   type Plan,
   type Subscription,
 } from '../src/db'
-import { createApiKey, createExtension, request, seedTenantWithUser } from './helpers'
+import { connectStripeAccount, createApiKey, createExtension, request, seedTenantWithUser } from './helpers'
 
 const SECRET = 'whsec_testsecret123'
 const KEY_RE = /^[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){3}$/
@@ -32,15 +32,15 @@ async function stripeSignature(body: string, opts: { secret?: string; timestamp?
 
 async function deliver(
   tenantId: string,
-  event: unknown,
+  event: Record<string, unknown>,
   opts: { secret?: string; timestamp?: number; signature?: string | null } = {},
 ): Promise<Response> {
-  const body = JSON.stringify(event)
+  const body = JSON.stringify({ ...event, account: `acct_${tenantId}` })
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (opts.signature !== null) {
     headers['stripe-signature'] = opts.signature ?? (await stripeSignature(body, opts))
   }
-  return request(`/api/v1/licensing/webhooks/stripe/${tenantId}`, { method: 'POST', headers, body })
+  return request('/api/v1/licensing/webhooks/stripe/connect', { method: 'POST', headers, body })
 }
 
 // sourceRef has a globally unique index, so every test needs its own ids —
@@ -68,13 +68,15 @@ function checkoutEvent(planId: string, sessionOverrides: Record<string, unknown>
 
 async function setupStripeTenant(opts: { entitlementType?: 'perpetual' | 'recurring' } = {}) {
   const seeded = await seedTenantWithUser()
-  const { sessionCookie } = seeded
+  const { db, tenantId, sessionCookie } = seeded
+  await connectStripeAccount(db, tenantId, `acct_${tenantId}`)
   const extension = await createExtension(sessionCookie)
-  await request(`/api/v1/extensions/${extension.id}`, {
+  const enableRes = await request(`/api/v1/extensions/${extension.id}`, {
     method: 'PATCH',
     headers: { cookie: sessionCookie, 'content-type': 'application/json' },
     body: JSON.stringify({ licensingEnabled: true }),
   })
+  expect(enableRes.status).toBe(200)
   const productRes = await request('/api/v1/plans', {
     method: 'POST',
     headers: { cookie: sessionCookie, 'content-type': 'application/json' },
@@ -87,12 +89,6 @@ async function setupStripeTenant(opts: { entitlementType?: 'perpetual' | 'recurr
     }),
   })
   const { plan } = (await productRes.json()) as { plan: Plan }
-  const credRes = await request('/api/v1/payment-credentials', {
-    method: 'POST',
-    headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ provider: 'stripe', webhookSecret: SECRET }),
-  })
-  expect(credRes.status).toBe(200)
   return { ...seeded, extension, plan }
 }
 
@@ -111,159 +107,26 @@ async function tenantSubscriptions(
 }
 
 describe('payment credentials API', () => {
-  it('stores the secret write-only (hint exposed, secret never returned)', async () => {
+  it('requires a dashboard session and rejects legacy manual POST', async () => {
     const { sessionCookie } = await seedTenantWithUser()
-    const res = await request('/api/v1/payment-credentials', {
-      method: 'POST',
-      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ provider: 'stripe', webhookSecret: SECRET }),
-    })
-    expect(res.status).toBe(200)
-    const stored = JSON.stringify(await res.json())
-    expect(stored).not.toContain(SECRET)
-    expect(stored).toContain(SECRET.slice(-4))
-
-    const listed = await request('/api/v1/payment-credentials', { headers: { cookie: sessionCookie } })
-    const body = (await listed.json()) as { credentials: { provider: string; hint: string }[] }
-    expect(body.credentials).toHaveLength(1)
-    expect(body.credentials[0]!.hint).toBe(SECRET.slice(-4))
-  })
-
-  it('upserts per (tenant, provider) and requires a dashboard session', async () => {
-    const { sessionCookie } = await seedTenantWithUser()
-    for (const secret of ['whsec_first111', 'whsec_second222']) {
-      await request('/api/v1/payment-credentials', {
-        method: 'POST',
-        headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-        body: JSON.stringify({ provider: 'stripe', webhookSecret: secret }),
-      })
-    }
-    const listed = await request('/api/v1/payment-credentials', { headers: { cookie: sessionCookie } })
-    const body = (await listed.json()) as { credentials: { hint: string }[] }
-    expect(body.credentials).toHaveLength(1)
-    expect(body.credentials[0]!.hint).toBe('d222')
 
     expect((await request('/api/v1/payment-credentials')).status).toBe(401)
     // API keys are locked out, same rule as store credentials.
     const apiKey = await createApiKey(sessionCookie)
     const viaKey = await request('/api/v1/payment-credentials', { headers: { authorization: `Bearer ${apiKey}` } })
     expect(viaKey.status).toBe(401)
-  })
 
-  it('merges webhookSecret and apiKey independently without wiping each other, and supports clearing apiKey', async () => {
-    const { sessionCookie, tenantId } = await seedTenantWithUser()
-
-    // 1. Store webhookSecret first.
-    const r1 = await request('/api/v1/payment-credentials', {
+    // Legacy manual credential POST endpoint is removed.
+    const manualPost = await request('/api/v1/payment-credentials', {
       method: 'POST',
       headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ provider: 'stripe', webhookSecret: 'whsec_merge_1234' }),
+      body: JSON.stringify({ provider: 'stripe', webhookSecret: SECRET }),
     })
-    expect(r1.status).toBe(200)
-    expect(((await r1.json()) as { credential: unknown }).credential).toMatchObject({
-      hint: '1234',
-      hasWebhookSecret: true,
-      apiKeyHint: null,
-      hasApiKey: false,
-    })
-
-    // 2. Add apiKey later — webhookSecret must remain intact!
-    const r2 = await request('/api/v1/payment-credentials', {
-      method: 'POST',
-      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ provider: 'stripe', apiKey: 'rk_test_merge_9876' }),
-    })
-    expect(r2.status).toBe(200)
-    const r2Text = await r2.text()
-    expect(r2Text).not.toContain('whsec_merge_1234')
-    expect(r2Text).not.toContain('rk_test_merge_9876')
-    expect(JSON.parse(r2Text).credential).toMatchObject({
-      hint: '1234',
-      hasWebhookSecret: true,
-      apiKeyHint: '9876',
-      hasApiKey: true,
-    })
-
-    // 3. Rotate webhookSecret — apiKey must remain intact!
-    const r3 = await request('/api/v1/payment-credentials', {
-      method: 'POST',
-      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ provider: 'stripe', webhookSecret: 'whsec_rotated_5678' }),
-    })
-    expect(r3.status).toBe(200)
-    expect(((await r3.json()) as { credential: unknown }).credential).toMatchObject({
-      hint: '5678',
-      hasWebhookSecret: true,
-      apiKeyHint: '9876',
-      hasApiKey: true,
-    })
-    // Verify the rotated webhookSecret actually verifies incoming webhook signatures.
-    const whRes = await deliver(
-      tenantId,
-      { type: 'invoice.paid', data: { object: {} } },
-      { secret: 'whsec_rotated_5678' },
-    )
-    expect(whRes.status).toBe(200)
-
-    // 4. Clear apiKey explicitly — webhookSecret stays.
-    const r4 = await request('/api/v1/payment-credentials', {
-      method: 'POST',
-      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ provider: 'stripe', apiKey: null }),
-    })
-    expect(r4.status).toBe(200)
-    expect(((await r4.json()) as { credential: unknown }).credential).toMatchObject({
-      hint: '5678',
-      hasWebhookSecret: true,
-      apiKeyHint: null,
-      hasApiKey: false,
-    })
-
-    // 5. Rejects invalid apiKey prefix, empty payload, and apiKey: null without webhookSecret.
-    expect(
-      (
-        await request('/api/v1/payment-credentials', {
-          method: 'POST',
-          headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-          body: JSON.stringify({ provider: 'stripe', apiKey: 'pk_test_not_allowed' }),
-        })
-      ).status,
-    ).toBe(400)
-    expect(
-      (
-        await request('/api/v1/payment-credentials', {
-          method: 'POST',
-          headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-          body: JSON.stringify({ provider: 'stripe' }),
-        })
-      ).status,
-    ).toBe(400)
-
-    const apiKeyOnly = await seedTenantWithUser()
-    expect(
-      (
-        await request('/api/v1/payment-credentials', {
-          method: 'POST',
-          headers: { cookie: apiKeyOnly.sessionCookie, 'content-type': 'application/json' },
-          body: JSON.stringify({ provider: 'stripe', apiKey: null }),
-        })
-      ).status,
-    ).toBe(400)
-    expect(
-      (
-        await request('/api/v1/payment-credentials', {
-          method: 'POST',
-          headers: { cookie: apiKeyOnly.sessionCookie, 'content-type': 'application/json' },
-          body: JSON.stringify({ provider: 'stripe', apiKey: 'rk_test_only_1111' }),
-        })
-      ).status,
-    ).toBe(200)
-    // Webhook receiver returns 404 when only apiKey (no webhookSecret) is stored.
-    expect((await deliver(apiKeyOnly.tenantId, { type: 'invoice.paid', data: { object: {} } })).status).toBe(404)
+    expect(manualPost.status).toBe(404)
   })
 })
 
-describe('POST /v1/licensing/webhooks/stripe/:tenantId — signature gate', () => {
+describe('POST /v1/licensing/webhooks/stripe/connect — signature gate', () => {
   it('rejects a missing, malformed, wrong-secret, or stale signature', async () => {
     const { tenantId, plan } = await setupStripeTenant()
     const event = checkoutEvent(plan.id)
@@ -275,10 +138,15 @@ describe('POST /v1/licensing/webhooks/stripe/:tenantId — signature gate', () =
     expect((await deliver(tenantId, event, { timestamp: stale })).status).toBe(400)
   })
 
-  it('404s for an unknown tenant or one without a stripe credential', async () => {
+  it('ignores events for unknown or unconnected accounts', async () => {
     const bare = await seedTenantWithUser()
-    expect((await deliver('ten_doesnotexist', {})).status).toBe(404)
-    expect((await deliver(bare.tenantId, {})).status).toBe(404)
+    const unknownRes = await deliver('ten_doesnotexist', {})
+    expect(unknownRes.status).toBe(200)
+    expect(await unknownRes.json()).toEqual({ status: 'ignored', reason: 'unknown connected account' })
+
+    const bareRes = await deliver(bare.tenantId, {})
+    expect(bareRes.status).toBe(200)
+    expect(await bareRes.json()).toEqual({ status: 'ignored', reason: 'unknown connected account' })
   })
 })
 

@@ -2,13 +2,13 @@ import crypto from 'node:crypto'
 import { expect, test, type Page } from '@playwright/test'
 
 const MOCK_STRIPE_URL = `http://127.0.0.1:${process.env.MOCK_STRIPE_PORT ?? 8791}`
-const WEBHOOK_SECRET = 'whsec_e2e_billing_secret_9876'
-const RESTRICTED_KEY = 'rk_test_e2e_restricted_key_1234'
+const CONNECT_WEBHOOK_SECRET = 'whsec_e2e_connect_secret_9876'
 
 interface RecordedStripeRequest {
   method: string
   path: string
   auth?: string
+  stripeAccount?: string
   params: Record<string, string>
 }
 
@@ -30,10 +30,14 @@ function signStripeWebhook(payload: string, secret: string): string {
   return `t=${timestamp},v1=${sig}`
 }
 
-async function postStripeWebhook(page: Page, tenantId: string, event: Record<string, unknown>): Promise<void> {
-  const payload = JSON.stringify(event)
-  const signature = signStripeWebhook(payload, WEBHOOK_SECRET)
-  const res = await page.request.post(`/api/v1/licensing/webhooks/stripe/${tenantId}`, {
+async function postStripeWebhook(
+  page: Page,
+  stripeAccountId: string,
+  event: Record<string, unknown>,
+): Promise<void> {
+  const payload = JSON.stringify({ ...event, account: stripeAccountId })
+  const signature = signStripeWebhook(payload, CONNECT_WEBHOOK_SECRET)
+  const res = await page.request.post('/api/v1/licensing/webhooks/stripe/connect', {
     data: payload,
     headers: {
       'content-type': 'application/json',
@@ -52,17 +56,14 @@ async function loginAsFreshTenant(page: Page, subject: string): Promise<{ tenant
   return { tenantId: me.tenant.id }
 }
 
-async function configureStripeInSettings(page: Page): Promise<void> {
+async function connectStripeInSettings(page: Page): Promise<string> {
   await page.getByRole('link', { name: 'Settings' }).click()
   await expect(page.getByRole('heading', { name: 'Stripe', level: 2 })).toBeVisible()
-
-  await page.locator('#stripe-restricted-key').fill(RESTRICTED_KEY)
-  await page.getByRole('button', { name: 'Save key' }).click()
-  await expect(page.getByText('rk_…1234')).toBeVisible()
-
-  await page.locator('#stripe-webhook-secret').fill(WEBHOOK_SECRET)
-  await page.getByRole('button', { name: 'Save secret' }).click()
-  await expect(page.getByText('whsec_…9876')).toBeVisible()
+  await page.getByRole('link', { name: 'Connect with Stripe' }).click()
+  await expect(page.getByText('Connected', { exact: true })).toBeVisible()
+  const accountCode = page.locator('code', { hasText: /^acct_e2e_/ }).first()
+  await expect(accountCode).toBeVisible()
+  return (await accountCode.textContent())!.trim()
 }
 
 async function createExtensionAndOpenLicensing(page: Page, name: string): Promise<string> {
@@ -95,32 +96,40 @@ test.describe('Billing & payment UI E2E', () => {
     expect(pageErrors, `Uncaught page errors: ${pageErrors.map((e) => e.message).join('; ')}`).toEqual([])
   })
 
-  test('gates plan pricing behind Stripe Restricted Key and persists Stripe credentials', async ({ page }) => {
+  test('gates enabling licensing behind Stripe Connect and removes manual Stripe setup', async ({ page }) => {
     await loginAsFreshTenant(page, `e2e-settings-${Date.now()}`)
     const extensionId = await createExtensionAndOpenLicensing(page, 'Key Gate Ext')
 
-    // Enable subscription mode before configuring Stripe Restricted Key.
+    // Without Stripe connected, Licensing cannot be enabled in the UI or via API.
+    await expect(page.getByRole('heading', { name: 'Connect Stripe to enable licensing', level: 2 })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Enable subscriptions|Enable one-time licenses/i })).toHaveCount(0)
+
+    const blockedEnable = await page.request.patch(`/api/v1/extensions/${extensionId}`, {
+      data: { licensingEnabled: true, billingMode: 'subscription' },
+    })
+    expect(blockedEnable.status()).toBe(400)
+
+    // Follow the Settings CTA -> only OAuth Connect is present (no manual Restricted Key / Webhook forms).
+    await page.getByRole('link', { name: 'Connect Stripe in Settings' }).click()
+    await expect(page.getByRole('heading', { name: 'Stripe', level: 2 })).toBeVisible()
+    await expect(page.locator('#stripe-restricted-key')).toHaveCount(0)
+    await expect(page.locator('#stripe-webhook-secret')).toHaveCount(0)
+    await expect(page.getByText(/Manual setup/i)).toHaveCount(0)
+
+    // Complete Stripe Connect OAuth flow and verify connection persists across reload.
+    await page.getByRole('link', { name: 'Connect with Stripe' }).click()
+    await expect(page.getByText('Connected', { exact: true })).toBeVisible()
+    const accountId = (await page.locator('code', { hasText: /^acct_e2e_/ }).first().textContent())!.trim()
+    await page.reload()
+    await expect(page.getByText(accountId)).toBeVisible()
+
+    // Return to Licensing -> can now enable subscriptions and create USD-priced plans.
+    await page.goto(`/extensions/${extensionId}/licensing`)
     await page.getByRole('radio', { name: /Subscription/i }).click()
     await page.getByRole('button', { name: 'Enable subscriptions' }).click()
 
-    // Add a plan dialog should disable pricing fields and link to Settings -> Stripe.
     await page.getByRole('button', { name: 'Add a plan' }).click()
     const dialog = page.getByRole('dialog', { name: 'Add a plan' })
-    await expect(dialog).toBeVisible()
-    await expect(dialog.getByText(/Connect your Stripe account in/i)).toBeVisible()
-    await expect(dialog.getByLabel('Monthly price')).toBeDisabled()
-    await expect(dialog.getByRole('button', { name: 'Create plan' })).toBeDisabled()
-    await dialog.getByRole('button', { name: 'Close' }).click()
-
-    // Configure Stripe credentials in Settings and verify they persist across reload.
-    await configureStripeInSettings(page)
-    await page.reload()
-    await expect(page.getByText('rk_…1234')).toBeVisible()
-    await expect(page.getByText('whsec_…9876')).toBeVisible()
-
-    // Return to Licensing -> pricing inputs are now enabled and USD-only (no currency dropdown).
-    await page.goto(`/extensions/${extensionId}/licensing`)
-    await page.getByRole('button', { name: 'Add a plan' }).click()
     await expect(dialog.getByLabel('Monthly price (USD)')).toBeEnabled()
     await expect(dialog.getByLabel('Currency')).toHaveCount(0)
   })
@@ -128,8 +137,8 @@ test.describe('Billing & payment UI E2E', () => {
   test('subscription lifecycle: USD plans reuse one Stripe Product, checkout, webhook fulfillment, duplicate guard, and disable pause', async ({
     page,
   }) => {
-    const { tenantId } = await loginAsFreshTenant(page, `e2e-sub-${Date.now()}`)
-    await configureStripeInSettings(page)
+    await loginAsFreshTenant(page, `e2e-sub-${Date.now()}`)
+    const stripeAccountId = await connectStripeInSettings(page)
     const extensionId = await createExtensionAndOpenLicensing(page, 'Sub Pro Ext')
 
     // Choose mutually exclusive Subscription billing mode.
@@ -216,7 +225,7 @@ test.describe('Billing & payment UI E2E', () => {
     // Fulfill subscription via signed Stripe webhooks and verify UI Subscriptions table updates.
     const nowSec = Math.floor(Date.now() / 1000)
     const periodEndSec = nowSec + 30 * 24 * 60 * 60
-    await postStripeWebhook(page, tenantId, {
+    await postStripeWebhook(page, stripeAccountId, {
       id: 'evt_e2e_sub_checkout_1',
       type: 'checkout.session.completed',
       data: {
@@ -234,7 +243,7 @@ test.describe('Billing & payment UI E2E', () => {
         },
       },
     })
-    await postStripeWebhook(page, tenantId, {
+    await postStripeWebhook(page, stripeAccountId, {
       id: 'evt_e2e_sub_created_1',
       type: 'customer.subscription.created',
       data: {
@@ -328,8 +337,8 @@ test.describe('Billing & payment UI E2E', () => {
   test('one-time license lifecycle: plan creation, webhook fulfillment, manual issuance, and disable guard', async ({
     page,
   }) => {
-    const { tenantId } = await loginAsFreshTenant(page, `e2e-lic-${Date.now()}`)
-    await configureStripeInSettings(page)
+    await loginAsFreshTenant(page, `e2e-lic-${Date.now()}`)
+    const stripeAccountId = await connectStripeInSettings(page)
     const extensionId = await createExtensionAndOpenLicensing(page, 'License Pro Ext')
 
     // One-time License is selected by default.
@@ -356,7 +365,7 @@ test.describe('Billing & payment UI E2E', () => {
       .replace(/^extport_plan=/, '')
 
     // Fulfill a Stripe one-time checkout webhook and verify license appears in UI.
-    await postStripeWebhook(page, tenantId, {
+    await postStripeWebhook(page, stripeAccountId, {
       id: 'evt_e2e_lic_checkout_1',
       type: 'checkout.session.completed',
       data: {

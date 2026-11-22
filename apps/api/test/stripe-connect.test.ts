@@ -307,4 +307,17 @@ describe('Stripe Connect Standard OAuth2', () => {
     const creds = await db.select().from(paymentCredentials).where(eq(paymentCredentials.tenantId, tenantId))
     expect(creds).toHaveLength(0)
   })
+
+  it('blocks enabling licensing on an extension until a Stripe account is connected', async () => {
+    const { sessionCookie } = await seedTenantWithUser()
+    const ext = await createExtension(sessionCookie, 'Unconnected Ext')
+
+    const blockedRes = await connectRequest(`/api/v1/extensions/${ext.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ licensingEnabled: true, billingMode: 'subscription' }),
+    })
+    expect(blockedRes.status).toBe(400)
+    expect(((await blockedRes.json()) as { error: string }).error).toMatch(/Connect a Stripe account/i)
+  })
 })

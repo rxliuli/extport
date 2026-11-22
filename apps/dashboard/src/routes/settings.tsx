@@ -526,16 +526,9 @@ function PaymentCredentialsSection() {
   const credentials = data?.credentials ?? []
   const connectEnabled = Boolean(data?.connectEnabled)
   const stripe = credentials.find((c) => c.provider === 'stripe')
-  const [webhookSecret, setWebhookSecret] = useState('')
-  const [editingWebhook, setEditingWebhook] = useState(false)
-  const [apiKey, setApiKey] = useState('')
-  const [editingApiKey, setEditingApiKey] = useState(false)
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
 
   const connectedAccountId = stripe?.stripeAccountId ?? null
-  const hasWebhookSecret = stripe ? (stripe.hasWebhookSecret ?? Boolean(stripe.hint)) : false
-  const hasApiKey = stripe ? (stripe.hasApiKey ?? Boolean(stripe.apiKeyHint)) : false
-  const hasManualSecrets = hasApiKey || hasWebhookSecret
 
   useEffect(() => {
     const url = new URL(window.location.href)
@@ -563,247 +556,65 @@ function PaymentCredentialsSection() {
     onError: (err) => toast.error(errorMessage(err)),
   })
 
-  const saveWebhook = useMutation({
-    mutationFn: (secret: string) =>
-      api('/api/v1/payment-credentials', {
-        method: 'POST',
-        body: JSON.stringify({ provider: 'stripe', webhookSecret: secret }),
-      }),
-    onSuccess: () => {
-      setWebhookSecret('')
-      setEditingWebhook(false)
-      toast.success('Webhook signing secret saved')
-      void queryClient.invalidateQueries({ queryKey: paymentCredentialsQuery.queryKey })
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  })
-
-  const saveApiKey = useMutation({
-    mutationFn: (nextKey: string | null) =>
-      api('/api/v1/payment-credentials', {
-        method: 'POST',
-        body: JSON.stringify({ provider: 'stripe', apiKey: nextKey }),
-      }),
-    onSuccess: (_data, nextKey) => {
-      setApiKey('')
-      setEditingApiKey(false)
-      toast.success(nextKey === null ? 'Stripe Restricted Key removed' : 'Stripe Restricted Key saved')
-      void queryClient.invalidateQueries({ queryKey: paymentCredentialsQuery.queryKey })
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  })
-
-  const manualControls = (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <Label htmlFor="stripe-restricted-key" className="text-sm font-medium">
-          Stripe Restricted Key
-        </Label>
-        {hasApiKey && !editingApiKey ? (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-            <code className="text-muted-foreground">rk_…{stripe!.apiKeyHint}</code>
-            <div className="ml-auto flex items-center gap-3">
-              <span className="text-xs whitespace-nowrap text-muted-foreground">
-                updated {formatDate(stripe!.updatedAt)}
-              </span>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                aria-label="Replace Stripe Restricted Key"
-                onClick={() => setEditingApiKey(true)}
-              >
-                Replace
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <form
-            className="flex flex-col gap-2 sm:flex-row sm:items-center"
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (apiKey.trim()) saveApiKey.mutate(apiKey.trim())
-            }}
-          >
-            <Input
-              id="stripe-restricted-key"
-              name="apiKey"
-              type="password"
-              placeholder="rk_live_… or rk_test_…"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              aria-describedby="stripe-restricted-key-help"
-              required
-            />
-            <div className="flex items-center gap-2">
-              <Button type="submit" disabled={saveApiKey.isPending}>
-                {saveApiKey.isPending && <Loader2 className="animate-spin" />}
-                {hasApiKey ? 'Replace key' : 'Save key'}
-              </Button>
-              {hasApiKey && (
-                <Button type="button" variant="ghost" onClick={() => setEditingApiKey(false)}>
-                  Cancel
-                </Button>
-              )}
-            </div>
-          </form>
-        )}
-        <p id="stripe-restricted-key-help" className="text-xs text-muted-foreground">
-          Create a Restricted Key in Stripe (Developers → API keys → Create restricted key) with Write permission for:{' '}
-          <strong>Products</strong>, <strong>Prices</strong>, <strong>Customers</strong>,{' '}
-          <strong>Checkout Sessions</strong>, <strong>Subscriptions</strong>, and <strong>Customer Portal</strong>, plus
-          Read permission for <strong>Invoices</strong>.
-        </p>
-      </div>
-
-      <div className="space-y-2 border-t border-border/60 pt-5">
-        <Label htmlFor="stripe-webhook-secret" className="text-sm font-medium">
-          Webhook signing secret
-        </Label>
-        {hasWebhookSecret && !editingWebhook ? (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-            <code className="text-muted-foreground">whsec_…{stripe!.hint}</code>
-            <div className="ml-auto flex items-center gap-3">
-              <span className="text-xs whitespace-nowrap text-muted-foreground">
-                updated {formatDate(stripe!.updatedAt)}
-              </span>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                aria-label="Replace webhook signing secret"
-                onClick={() => setEditingWebhook(true)}
-              >
-                Replace
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <form
-            className="flex flex-col gap-2 sm:flex-row sm:items-center"
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (webhookSecret.trim()) saveWebhook.mutate(webhookSecret.trim())
-            }}
-          >
-            <Input
-              id="stripe-webhook-secret"
-              name="webhookSecret"
-              type="password"
-              placeholder="whsec_…"
-              value={webhookSecret}
-              onChange={(e) => setWebhookSecret(e.target.value)}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              aria-describedby="stripe-webhook-help"
-              required
-            />
-            <div className="flex items-center gap-2">
-              <Button type="submit" disabled={saveWebhook.isPending}>
-                {saveWebhook.isPending && <Loader2 className="animate-spin" />}
-                {hasWebhookSecret ? 'Replace secret' : 'Save secret'}
-              </Button>
-              {hasWebhookSecret && (
-                <Button type="button" variant="ghost" onClick={() => setEditingWebhook(false)}>
-                  Cancel
-                </Button>
-              )}
-            </div>
-          </form>
-        )}
-        <p id="stripe-webhook-help" className="text-xs text-muted-foreground">
-          Found on your Stripe webhook endpoint's page (Developers → Webhooks → your endpoint → Signing secret). Test and
-          live mode have separate secrets — store whichever mode your sales currently run in.
-        </p>
-      </div>
-
-      <WebhookUrlRow />
-    </div>
-  )
-
   return (
     <Section
       id="payment-credentials"
       title="Stripe"
-      description={
-        connectEnabled
-          ? 'Connect your Stripe account in one click — no manual API keys or webhook setup required. extport manages Products, Prices, Checkout Sessions, and Invoices on your behalf.'
-          : 'Connect your Stripe account with a Restricted Key (rk_…) and webhook signing secret (whsec_…). extport manages Products, Prices, Checkout Sessions, and Invoices directly from here — secrets are envelope-encrypted, write-only, and never shown in full again.'
-      }
+      description="Connect your Stripe account in one click — no manual API keys or webhook setup required. extport manages Products, Prices, Checkout Sessions, and Invoices on your behalf."
     >
-      <div className={`space-y-6 ${sectionBodyClass}`}>
-        {(connectEnabled || connectedAccountId) && (
-          <div className="space-y-2">
-            {connectedAccountId ? (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-                <Badge variant="secondary">Connected</Badge>
-                <code className="text-muted-foreground">{connectedAccountId}</code>
-                <div className="ml-auto flex items-center gap-3">
-                  <span className="text-xs whitespace-nowrap text-muted-foreground">
-                    updated {formatDate(stripe!.updatedAt)}
-                  </span>
-                  <AlertDialog open={confirmDisconnect} onOpenChange={setConfirmDisconnect}>
-                    <AlertDialogTrigger asChild>
-                      <Button type="button" variant="outline" size="sm">
-                        Disconnect
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Disconnect Stripe account?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          New checkouts, plan price syncs, and portal subscription management will pause until you
-                          reconnect a Stripe account. Existing licenses and subscriptions remain intact in Stripe.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          variant="destructive"
-                          disabled={disconnect.isPending}
-                          onClick={(e: React.MouseEvent) => {
-                            e.preventDefault()
-                            disconnect.mutate()
-                          }}
-                        >
-                          {disconnect.isPending ? 'Disconnecting…' : 'Disconnect'}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm text-muted-foreground">
-                  Authorize your Standard Stripe account via OAuth2. Webhooks and API access are configured
-                  automatically.
-                </p>
-                <Button asChild>
-                  <a href="/api/v1/payment-credentials/stripe/connect">Connect with Stripe</a>
-                </Button>
-              </div>
-            )}
+      <div className={sectionBodyClass}>
+        {connectedAccountId ? (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+            <Badge variant="secondary">Connected</Badge>
+            <code className="text-muted-foreground">{connectedAccountId}</code>
+            <div className="ml-auto flex items-center gap-3">
+              <span className="text-xs whitespace-nowrap text-muted-foreground">
+                updated {formatDate(stripe!.updatedAt)}
+              </span>
+              <AlertDialog open={confirmDisconnect} onOpenChange={setConfirmDisconnect}>
+                <AlertDialogTrigger asChild>
+                  <Button type="button" variant="outline" size="sm">
+                    Disconnect
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Disconnect Stripe account?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      New checkouts, plan price syncs, and portal subscription management will pause until you reconnect
+                      a Stripe account. Existing licenses and subscriptions remain intact in Stripe.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      variant="destructive"
+                      disabled={disconnect.isPending}
+                      onClick={(e: React.MouseEvent) => {
+                        e.preventDefault()
+                        disconnect.mutate()
+                      }}
+                    >
+                      {disconnect.isPending ? 'Disconnecting…' : 'Disconnect'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           </div>
-        )}
-
-        {connectEnabled && !hasManualSecrets ? (
-          <details className="border-t border-border/60 pt-4">
-            <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
-              Manual setup (Restricted Key &amp; Webhook)
-            </summary>
-            <div className="pt-4">{manualControls}</div>
-          </details>
+        ) : connectEnabled ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              Authorize your Standard Stripe account via OAuth2. Webhooks and API access are configured automatically.
+            </p>
+            <Button asChild>
+              <a href="/api/v1/payment-credentials/stripe/connect">Connect with Stripe</a>
+            </Button>
+          </div>
         ) : (
-          <div className={connectEnabled || connectedAccountId ? 'border-t border-border/60 pt-5' : undefined}>
-            {manualControls}
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Stripe Connect OAuth is not configured on this server yet.
+          </p>
         )}
       </div>
     </Section>
@@ -866,32 +677,6 @@ function BuyerSupportSection() {
   )
 }
 
-// The webhook URL embeds the tenant id, which has no other UI surface —
-// this row is what the docs point at when Stripe asks for an endpoint.
-function WebhookUrlRow() {
-  const { data: me } = useQuery(meQuery)
-  if (!me) return null
-  const url = `https://api.extport.dev/api/v1/licensing/webhooks/stripe/${me.tenant.id}`
-  return (
-    <div className="space-y-1">
-      <Label className="text-xs">Webhook endpoint URL (paste into Stripe)</Label>
-      <div className="flex items-center gap-2">
-        <code className="flex-1 truncate rounded-md border bg-muted px-3 py-2 text-xs">{url}</code>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            void navigator.clipboard.writeText(url)
-            toast.success('Copied')
-          }}
-        >
-          Copy
-        </Button>
-      </div>
-    </div>
-  )
-}
 
 function SettingsPage() {
   // Each section fetches its own data independently, so the page's real

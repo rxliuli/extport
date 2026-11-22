@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { activations, licenseEvents, licenses, magicLinks, type License, type Plan } from '../src/db'
 import { createMagicLink } from '../src/lib/buyer-session'
-import { createExtension, request, seedTenantWithUser } from './helpers'
+import { connectStripeAccount, createExtension, request, seedTenantWithUser } from './helpers'
 
 const realFetch = globalThis.fetch
 
@@ -10,15 +10,20 @@ afterEach(() => {
   globalThis.fetch = realFetch
 })
 
-async function setupLicensed(buyerEmail = 'buyer@example.com') {
+async function setupLicensed(buyerEmail = 'buyer@example.com', opts: { connectStripe?: boolean } = {}) {
   const seeded = await seedTenantWithUser()
-  const { sessionCookie } = seeded
+  const { db, tenantId, sessionCookie } = seeded
+  if (opts.connectStripe !== false) {
+    await connectStripeAccount(db, tenantId)
+  }
   const extension = await createExtension(sessionCookie)
-  await request(`/api/v1/extensions/${extension.id}`, {
-    method: 'PATCH',
-    headers: { cookie: sessionCookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ licensingEnabled: true }),
-  })
+  if (opts.connectStripe !== false) {
+    await request(`/api/v1/extensions/${extension.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ licensingEnabled: true }),
+    })
+  }
   const planRes = await request('/api/v1/plans', {
     method: 'POST',
     headers: { cookie: sessionCookie, 'content-type': 'application/json' },
@@ -176,7 +181,8 @@ describe('portal supportUrl', () => {
 describe('portal subscription fields and billingPortalUrl', () => {
   it('returns subscription metadata and billingPortalUrl on /licenses and /purchase/:sessionId', async () => {
     const seeded = await seedTenantWithUser()
-    const { db, sessionCookie } = seeded
+    const { db, tenantId, sessionCookie } = seeded
+    await connectStripeAccount(db, tenantId)
     const extension = await createExtension(sessionCookie)
     await request(`/api/v1/extensions/${extension.id}`, {
       method: 'PATCH',
@@ -324,14 +330,9 @@ describe('tenant seat release + license detail', () => {
 describe('buyer portal one-click billing portal', () => {
   it('computes canManageBilling and creates Billing Portal sessions or falls back to billingPortalUrl', async () => {
     const a = await setupLicensed('portal-buyer@example.com')
-    const b = await setupLicensed('portal-buyer@example.com')
+    const b = await setupLicensed('portal-buyer@example.com', { connectStripe: false })
 
-    // Tenant A: Stripe Restricted Key + license with stripeCustomerId.
-    await request('/api/v1/payment-credentials', {
-      method: 'POST',
-      headers: { cookie: a.sessionCookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ provider: 'stripe', apiKey: 'rk_test_buyer_portal' }),
-    })
+    // Tenant A: Connected Stripe account + license with stripeCustomerId.
     await a.db.update(licenses).set({ stripeCustomerId: 'cus_portal_buyer' }).where(eq(licenses.id, a.license.id))
 
     // Tenant B: only static billingPortalUrl on first license, and third tenant C has neither.
@@ -340,7 +341,7 @@ describe('buyer portal one-click billing portal', () => {
       headers: { cookie: b.sessionCookie, 'content-type': 'application/json' },
       body: JSON.stringify({ billingPortalUrl: 'https://billing.stripe.com/p/login/b_static' }),
     })
-    const c = await setupLicensed('portal-buyer@example.com')
+    const c = await setupLicensed('portal-buyer@example.com', { connectStripe: false })
     const otherBuyer = await setupLicensed('someone-else@example.com')
 
     const cookie = await buyerCookie(a.db, 'portal-buyer@example.com')

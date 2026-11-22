@@ -9,6 +9,7 @@ import {
   deploymentVersions,
   extensions,
   licenses,
+  paymentCredentials,
   plans,
   publishEvents,
   publishTargets,
@@ -216,6 +217,16 @@ route.patch(
     const patch: Partial<typeof extensions.$inferInsert> = {}
     if (body.name?.trim()) patch.name = body.name.trim()
     if (typeof body.licensingEnabled === 'boolean') {
+      if (body.licensingEnabled && !existing.licensingEnabled) {
+        const [stripeCred] = await db
+          .select({ stripeAccountId: paymentCredentials.stripeAccountId })
+          .from(paymentCredentials)
+          .where(and(eq(paymentCredentials.tenantId, tenant.id), eq(paymentCredentials.provider, 'stripe')))
+          .limit(1)
+        if (!stripeCred?.stripeAccountId) {
+          return c.json({ error: 'Connect a Stripe account in Settings before enabling licensing' }, 400)
+        }
+      }
       patch.licensingEnabled = body.licensingEnabled
     }
     if (body.billingMode !== undefined && body.billingMode !== existing.billingMode) {
