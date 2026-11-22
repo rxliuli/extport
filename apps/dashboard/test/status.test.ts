@@ -29,6 +29,14 @@ describe('summarizeStoreError', () => {
     )
   })
 
+  it('pulls the detail out of an App Store Connect JSON:API error body', () => {
+    const raw =
+      'version creation failed (409): {"errors":[{"status":"409","code":"STATE_ERROR","title":"Conflict","detail":"You cannot create a new version of the App in the current state."}]}'
+    expect(summarizeStoreError(raw)).toBe(
+      'The store rejected the request (409): You cannot create a new version of the App in the current state.',
+    )
+  })
+
   it('leaves messages without a status code alone', () => {
     expect(summarizeStoreError('network unreachable')).toBe('network unreachable')
   })

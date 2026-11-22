@@ -1473,6 +1473,149 @@ describe('runReconciliation — safari per-platform lifecycles', () => {
   })
 })
 
+describe('runReconciliation — error email formatting', () => {
+  it('summarizes a verbose/truncated Chrome Web Store 400 JSON body in the error email while keeping raw detail in D1', async () => {
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      artifacts: [{ version: '0.0.77' }],
+      versions: [{ version: '0.0.77', status: 'queued' }],
+    })
+    const cwsErrorBody = JSON.stringify(
+      {
+        error: {
+          code: 400,
+          message:
+            'Your submission does not meet the requirements to be published in the store. Check the Developer Dashboard for steps to resolve.',
+          status: 'INVALID_ARGUMENT',
+          details: [
+            {
+              '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+              reason: 'INVALID_ITEM_METADATA',
+              domain: 'chromewebstore.googleapis.com',
+              metadata: {
+                itemId: 'ejhilomfbamkbfehkjbhemkpaghpcglj',
+                publisherId: '52e331b5-7add-4233-b6a1-a655b560dc50',
+              },
+            },
+            {
+              '@type': 'type.googleapis.com/google.rpc.LocalizedMessage',
+              locale: 'en-US',
+              message:
+                'Your submission does not meet the requirements to be published in the store. Check the Developer Dashboard for steps to resolve.',
+            },
+            {
+              '@type': 'type.googleapis.com/google.rpc.Help',
+              links: [
+                {
+                  description: 'Edit Item Link',
+                  url: 'https://chrome.google.com/webstore/devconsole/52e331b5-7add-4233-b6a1-a655b560dc50/ejhilomfbamkbfehkjbhemkpaghpcglj/edit',
+                },
+              ],
+            },
+          ],
+        },
+      },
+      null,
+      2,
+    )
+    expect(cwsErrorBody.length).toBeGreaterThan(1000)
+
+    const routes = chromeRoutes().map((r) =>
+      r.test('https://chromewebstore.googleapis.com/v2/publishers/pub-1/items/item-1:publish', { method: 'POST' })
+        ? {
+            test: (u: string, i?: RequestInit) => u.endsWith(':publish') && i?.method === 'POST',
+            respond: () => ({ status: 400, body: cwsErrorBody }),
+          }
+        : r,
+    )
+    globalThis.fetch = routedFetch(routes).fetch
+    const { notifier, sent } = recordingNotifier()
+
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
+    expect(summary).toMatchObject({ errors: 1 })
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.subject).toBe('⚠️ Ext v0.0.77 publishing error on Chrome Web Store')
+    expect(sent[0]!.text).toContain(
+      'The store rejected the request (400): Your submission does not meet the requirements to be published in the store. Check the Developer Dashboard for steps to resolve.',
+    )
+    expect(sent[0]!.text).not.toContain('google.rpc.ErrorInfo')
+    expect(sent[0]!.text).not.toContain('INVALID_ITEM_METADATA')
+
+    const target = await targetFor(db, extensionId)
+    expect(target.lastErrorDetail).toContain('publish failed (400):')
+    expect(target.lastErrorDetail).toContain('INVALID_ITEM_METADATA')
+  })
+
+  it('summarizes App Store Connect JSON:API errors with platform prefix in the error email', async () => {
+    const { db, tenantId, extensionId } = await setupSafariScenario({
+      artifacts: [{ version: '0.0.2' }],
+      versions: [
+        { version: '0.0.1', status: 'online', platform: 'macos' },
+        { version: '0.0.2', status: 'queued', platform: 'macos' },
+        { version: '0.0.1', status: 'online', platform: 'ios' },
+      ],
+    })
+    globalThis.fetch = routedFetch([
+      {
+        test: (u, i) =>
+          u.includes('/appStoreVersions') && u.includes('PREPARE_FOR_SUBMISSION') && (i?.method ?? 'GET') === 'GET',
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+      {
+        test: (u, i) =>
+          u.includes('/appStoreVersions') && u.includes('filter[platform]=MAC_OS') && (i?.method ?? 'GET') === 'GET',
+        respond: () => ({
+          status: 200,
+          body: {
+            data: [{ id: 'v-mac-1', attributes: { versionString: '0.0.1', appStoreState: 'READY_FOR_DISTRIBUTION' } }],
+          },
+        }),
+      },
+      {
+        test: (u, i) =>
+          u.includes('/appStoreVersions') && u.includes('filter[platform]=IOS') && (i?.method ?? 'GET') === 'GET',
+        respond: () => ({
+          status: 200,
+          body: {
+            data: [{ id: 'v-ios-1', attributes: { versionString: '0.0.1', appStoreState: 'READY_FOR_DISTRIBUTION' } }],
+          },
+        }),
+      },
+      {
+        test: (u) => u.includes('/builds') && u.includes('filter[preReleaseVersion.platform]=MAC_OS'),
+        respond: () => ({ status: 200, body: { data: [{ id: 'b-mac-2', attributes: { processingState: 'VALID' } }] } }),
+      },
+      {
+        test: (u, i) => u.endsWith('/v1/appStoreVersions') && i?.method === 'POST',
+        respond: () => ({
+          status: 409,
+          body: {
+            errors: [
+              {
+                id: 'req-1',
+                status: '409',
+                code: 'STATE_ERROR',
+                title: 'The request cannot be fulfilled because of the state of another resource.',
+                detail: 'You cannot create a new version of the App in the current state.',
+              },
+            ],
+          },
+        }),
+      },
+    ]).fetch
+    const { notifier, sent } = recordingNotifier()
+
+    await runReconciliation(env, db, { tenantId }, notifier)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.text).toContain(
+      'macos: The store rejected the request (409): You cannot create a new version of the App in the current state.',
+    )
+    expect(sent[0]!.text).not.toContain('"STATE_ERROR"')
+    const target = await targetFor(db, extensionId)
+    expect(target.lastErrorDetail).toContain('STATE_ERROR')
+  })
+})
+
 describe('queueLatestArtifact — platform-aware', () => {
   it('queues only for lifecycles where the version is newer, and never invents platforms', async () => {
     const { db, tenantId, extensionId } = await setupSafariScenario({
@@ -1636,7 +1779,10 @@ describe('queue consumer — a job whose target was locked', () => {
       versions: [{ version: '1.0.0', status: 'queued' }],
     })
     // Another invocation holds the target right now.
-    await db.update(publishTargets).set({ reconcilingSince: new Date().toISOString() }).where(eq(publishTargets.id, targetId))
+    await db
+      .update(publishTargets)
+      .set({ reconcilingSince: new Date().toISOString() })
+      .where(eq(publishTargets.id, targetId))
     const { fetch, calls } = routedFetch(chromeRoutes())
     globalThis.fetch = fetch
     const outcomes: unknown[] = []

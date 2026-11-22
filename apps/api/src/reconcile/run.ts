@@ -3,6 +3,7 @@ import {
   DEFAULT_STALE_REVIEW_DAYS,
   decryptJson,
   newId,
+  summarizeStoreError,
   type Store,
   type TargetError,
 } from '@extport/shared'
@@ -303,7 +304,13 @@ async function persistError(
     type: 'error',
     payload: { message: detail, version },
   })
-  await notify(notifier, row, 'error', { message: detail, version }, credentials)
+  const emailMessage = errors
+    .map((e) => {
+      const summary = summarizeStoreError(e.message)
+      return e.platform ? `${e.platform}: ${summary}` : summary
+    })
+    .join('\n')
+  await notify(notifier, row, 'error', { message: emailMessage, version }, credentials)
 }
 
 function staleReviewThresholdDays(tenant: Tenant, store: Store): number {
