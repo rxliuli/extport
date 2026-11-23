@@ -33,7 +33,7 @@ describe('setupPageScript', () => {
   // The generated ViewController's call signature depends on the layout, so
   // the script sniffs instead of assuming one. Running the script also runs
   // its own trailing fallback, exactly as the page would.
-  const evaluate = (script: string, userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)') => {
+  const evaluate = (script: string, userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', maxTouchPoints = 0) => {
     const classes = new Set<string>()
     const body = {
       classList: {
@@ -47,7 +47,7 @@ describe('setupPageScript', () => {
     }
     const document = { body, querySelectorAll: () => [], querySelector: () => null }
     const fn = new Function('document', 'navigator', 'webkit', `${script}; return show`)
-    return { show: fn(document, { userAgent }, {}) as (...args: unknown[]) => void, classes }
+    return { show: fn(document, { userAgent, maxTouchPoints }, {}) as (...args: unknown[]) => void, classes }
   }
 
   it('reads the three-argument form a macOS/iOS project uses', () => {
@@ -68,8 +68,19 @@ describe('setupPageScript', () => {
     const { show, classes } = evaluate(setupPageScript())
     show('ios')
     expect(classes).toContain('platform-ios')
+    expect(classes).not.toContain('platform-mac')
     expect(classes).not.toContain('state-on')
     expect(classes).not.toContain('state-off')
+  })
+
+  // Regression: iPadOS 13+ WKWebView reports a desktop Macintosh user agent.
+  // Seeding platform-mac and then calling show('ios') from ViewController left
+  // both platform-mac and platform-ios on body, causing CSS to hide both guides
+  // and leaving only the app icon and title (rejected under Guideline 2.1(a)).
+  it('detects iPadOS desktop-mode user agent as iOS via maxTouchPoints', () => {
+    const { classes } = evaluate(setupPageScript(), 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 5)
+    expect(classes).toContain('platform-ios')
+    expect(classes).not.toContain('platform-mac')
   })
 
   // Regression: a macos-only project's ViewController returns early when the
