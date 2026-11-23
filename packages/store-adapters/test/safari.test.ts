@@ -305,6 +305,86 @@ describe('safari adapter — submit (review orchestration, binary uploaded out-o
     expect(patch.data.attributes.submitted).toBe(true)
   })
 
+  it('cancels a lingering UNRESOLVED_ISSUES submission from a prior rejection before submitting the new version', async () => {
+    // After a rejection, the old reviewSubmission stays in UNRESOLVED_ISSUES
+    // holding the appStoreVersion item (Twitter Filter iOS v0.0.73 → v0.0.77,
+    // 2026-11-23). Canceling it detaches the version so a fresh submission can
+    // accept the renamed version and submit cleanly.
+    const { fetch, calls } = queueFetch([
+      { status: 200, body: { data: [{ id: 'build-77' }] } }, // builds lookup
+      { status: 200, body: { data: [{ id: 'ver-1', attributes: { versionString: '0.0.73' } }] } }, // rejected editable version
+      { status: 200, body: {} }, // PATCH versionString → 0.0.77
+      { status: 200, body: {} }, // attach build
+      { status: 200, body: { data: [{ id: 'loc-1', attributes: { whatsNew: 'Bug fixes and improvements.' } }] } },
+      { status: 200, body: { data: [{ id: 'sub-rejected', attributes: { state: 'UNRESOLVED_ISSUES' } }] } }, // open submissions lookup
+      { status: 200, body: {} }, // PATCH canceled:true on sub-rejected
+      { status: 201, body: { data: { id: 'sub-new' } } }, // POST fresh submission
+      { status: 200, body: { data: [] } }, // items lookup
+      { status: 201, body: {} }, // POST add item
+      { status: 200, body: {} }, // PATCH submitted:true
+    ])
+    const result = await createSafariAdapter(fetch).submit(await creds(), { storeItemId: APP_ID }, zip, '0.0.77', 'ios')
+    expect(result.submitted).toBe(true)
+    expect(calls[5]!.url).toContain('filter[state]=READY_FOR_REVIEW,UNRESOLVED_ISSUES')
+    expect(calls[6]!.url).toBe('https://api.appstoreconnect.apple.com/v1/reviewSubmissions/sub-rejected')
+    expect(calls[6]!.init?.method).toBe('PATCH')
+    expect(JSON.parse(String(calls[6]!.init?.body)).data.attributes.canceled).toBe(true)
+    expect(calls[7]!.url).toBe('https://api.appstoreconnect.apple.com/v1/reviewSubmissions')
+    expect(calls[7]!.init?.method).toBe('POST')
+    expect(calls[10]!.url).toBe('https://api.appstoreconnect.apple.com/v1/reviewSubmissions/sub-new')
+    expect(JSON.parse(String(calls[10]!.init?.body)).data.attributes.submitted).toBe(true)
+  })
+
+  it('cancels UNRESOLVED_ISSUES and reuses an existing READY_FOR_REVIEW draft when both are present', async () => {
+    const { fetch, calls } = queueFetch([
+      { status: 200, body: { data: [{ id: 'build-77' }] } },
+      { status: 200, body: { data: [{ id: 'ver-1', attributes: { versionString: '0.0.77' } }] } },
+      { status: 200, body: {} }, // attach build
+      { status: 200, body: { data: [{ id: 'loc-1', attributes: { whatsNew: 'Bug fixes and improvements.' } }] } },
+      {
+        status: 200,
+        body: {
+          data: [
+            { id: 'sub-rejected', attributes: { state: 'UNRESOLVED_ISSUES' } },
+            { id: 'sub-draft', attributes: { state: 'READY_FOR_REVIEW' } },
+          ],
+        },
+      },
+      { status: 200, body: {} }, // PATCH canceled:true on sub-rejected
+      { status: 200, body: { data: [] } }, // items lookup on sub-draft
+      { status: 201, body: {} }, // POST add item to sub-draft
+      { status: 200, body: {} }, // PATCH submitted:true on sub-draft
+    ])
+    const result = await createSafariAdapter(fetch).submit(await creds(), { storeItemId: APP_ID }, zip, '0.0.77', 'ios')
+    expect(result.submitted).toBe(true)
+    expect(calls[5]!.url).toBe('https://api.appstoreconnect.apple.com/v1/reviewSubmissions/sub-rejected')
+    expect(JSON.parse(String(calls[5]!.init?.body)).data.attributes.canceled).toBe(true)
+    // Reused sub-draft instead of creating a third submission
+    expect(calls.filter((c) => c.url.endsWith('/v1/reviewSubmissions') && c.init?.method === 'POST')).toHaveLength(0)
+    expect(calls[8]!.url).toBe('https://api.appstoreconnect.apple.com/v1/reviewSubmissions/sub-draft')
+    expect(JSON.parse(String(calls[8]!.init?.body)).data.attributes.submitted).toBe(true)
+  })
+
+  it('does not swallow a 409 when the item was already added to another reviewSubmission', async () => {
+    const { fetch, calls } = queueFetch([
+      { status: 200, body: { data: [{ id: 'build-1' }] } },
+      { status: 200, body: { data: [{ id: 'ver-1' }] } },
+      { status: 200, body: {} },
+      { status: 200, body: { data: [{ id: 'loc-1', attributes: { whatsNew: 'Bug fixes and improvements.' } }] } },
+      { status: 200, body: { data: [{ id: 'sub-draft', attributes: { state: 'READY_FOR_REVIEW' } }] } },
+      { status: 200, body: { data: [] } },
+      {
+        status: 409,
+        body: '{"errors":[{"status":"409","code":"ENTITY_ERROR.RELATIONSHIP.INVALID.NOT_ALLOWED","title":"appStoreVersion with id ver-1 was already added to another reviewSubmission."}]}',
+      },
+    ])
+    const result = await createSafariAdapter(fetch).submit(await creds(), { storeItemId: APP_ID }, zip, '1.2.0', 'ios')
+    expect(result.submitted).toBe(false)
+    expect(result.detail).toMatch(/submission item add failed \(409\)/)
+    // Must stop before attempting to submit the empty draft
+    expect(calls).toHaveLength(7)
+  })
+
   it('surfaces a definite ASC rejection as a failure detail (not waiting)', async () => {
     const { fetch } = queueFetch([
       { status: 200, body: { data: [{ id: 'build-1' }] } },

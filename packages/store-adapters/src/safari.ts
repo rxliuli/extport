@@ -246,13 +246,33 @@ async function submit(
     if (!notesRes.ok) return fail('release notes update', notesRes)
   }
 
-  // 4. Reuse an open draft review submission for this platform, or create one.
+  // 4. Clear any rejected submission left in UNRESOLVED_ISSUES, then reuse an
+  //    open draft review submission for this platform or create one.
+  //    After Apple rejects a version, its reviewSubmission enters
+  //    UNRESOLVED_ISSUES and keeps holding the appStoreVersion item. Trying to
+  //    add that renamed version to a brand-new READY_FOR_REVIEW draft 409s
+  //    ("already added to another reviewSubmission") — confirmed on Twitter
+  //    Filter iOS v0.0.73 → v0.0.77, 2026-11-23. Canceling the stale
+  //    UNRESOLVED_ISSUES submission detaches the version so the new/draft
+  //    submission can accept it.
   const openRes = await fetchImpl(
-    `${API_BASE}/v1/apps/${appId}/reviewSubmissions?filter[platform]=${platformValue}&filter[state]=READY_FOR_REVIEW&limit=1`,
+    `${API_BASE}/v1/apps/${appId}/reviewSubmissions?filter[platform]=${platformValue}&filter[state]=READY_FOR_REVIEW,UNRESOLVED_ISSUES&limit=10`,
     { headers: { authorization } },
   )
   if (!openRes.ok) return fail('review submission lookup', openRes)
-  let submission = ((await openRes.json()) as { data?: AscResource[] }).data?.[0]
+  const openSubmissions = ((await openRes.json()) as { data?: AscResource[] }).data ?? []
+  for (const stale of openSubmissions) {
+    if (stale.attributes?.state !== 'UNRESOLVED_ISSUES') continue
+    const cancelRes = await fetchImpl(`${API_BASE}/v1/reviewSubmissions/${stale.id}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({
+        data: { type: 'reviewSubmissions', id: stale.id, attributes: { canceled: true } },
+      }),
+    })
+    if (!cancelRes.ok) return fail('review submission cancel', cancelRes)
+  }
+  let submission = openSubmissions.find((s) => s.attributes?.state !== 'UNRESOLVED_ISSUES')
   if (!submission) {
     const createSubRes = await fetchImpl(`${API_BASE}/v1/reviewSubmissions`, {
       method: 'POST',
@@ -299,10 +319,13 @@ async function submit(
     })
     // ASC's own "already added to this reviewSubmission" 409 IS the outcome
     // step 5 wants — belt for the case where the pre-check misses again
-    // (response-shape drift, >50 items). Any other add failure is real.
+    // (response-shape drift, >50 items). Match "to this reviewSubmission"
+    // specifically so a 409 from the item still being attached to ANOTHER
+    // submission is surfaced as a real failure instead of leaving step 6 to
+    // submit an empty draft.
     if (!addItemRes.ok) {
       const body = await addItemRes.text()
-      if (!(addItemRes.status === 409 && body.includes('already added'))) {
+      if (!(addItemRes.status === 409 && body.includes('already added to this reviewSubmission'))) {
         return submitFailure('submission item add failed', addItemRes.status, body)
       }
     }
