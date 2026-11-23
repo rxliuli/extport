@@ -37,6 +37,127 @@ export interface StorageAdapter {
 /** The default idb-keyval store (keyval-store/keyval), matching where existing extensions already store it. */
 export const idbStorage: StorageAdapter = { get, set, del }
 
+interface StorageLocalApi {
+  get(keys: string[]): Promise<Record<string, unknown>>
+  set(items: Record<string, unknown>): Promise<void>
+  remove(keys: string[]): Promise<void>
+}
+
+function getStorageLocal(): StorageLocalApi | undefined {
+  const g = globalThis as unknown as Record<string, { storage?: { local?: StorageLocalApi } } | undefined>
+  const local = g['browser']?.storage?.local ?? g['chrome']?.storage?.local
+  if (
+    local &&
+    typeof local.get === 'function' &&
+    typeof local.set === 'function' &&
+    typeof local.remove === 'function'
+  ) {
+    return local
+  }
+  return undefined
+}
+
+function browserStorageAdapter(local: StorageLocalApi): StorageAdapter {
+  return {
+    async get<T>(key: string): Promise<T | undefined> {
+      const result = await local.get([key])
+      return result[key] as T | undefined
+    },
+    async set(key: string, value: unknown): Promise<void> {
+      await local.set({ [key]: value })
+    },
+    async del(key: string): Promise<void> {
+      await local.remove([key])
+    },
+  }
+}
+
+/**
+ * Wraps `browser.storage.local` with transparent lazy migration from a legacy
+ * store (default `idb-keyval`). On first read miss, falls back to `legacy`,
+ * copies the value into `primary`, and deletes the legacy entry only after
+ * `primary.set` succeeds. `set` and `del` always clean up `legacy` as well so
+ * revoked or overwritten records can never resurrect.
+ */
+function createMigratingStorage(
+  primary: StorageAdapter,
+  legacy: StorageAdapter,
+  legacyKey: (key: string) => string = (key) => key,
+): StorageAdapter {
+  const epochs = new Map<string, number>()
+  const inflight = new Map<string, Promise<unknown>>()
+
+  const bumpEpoch = (key: string) => {
+    const next = (epochs.get(key) ?? 0) + 1
+    epochs.set(key, next)
+    return next
+  }
+
+  return {
+    async get<T>(key: string): Promise<T | undefined> {
+      const value = await primary.get<T>(key)
+      if (value !== undefined) return value
+
+      const existing = inflight.get(key)
+      if (existing) return existing as Promise<T | undefined>
+
+      const startEpoch = epochs.get(key) ?? 0
+      const oldKey = legacyKey(key)
+      const task = (async () => {
+        let legacyValue: T | undefined
+        try {
+          legacyValue = await legacy.get<T>(oldKey)
+        } catch {
+          return undefined
+        }
+        if (legacyValue === undefined) return undefined
+        if ((epochs.get(key) ?? 0) !== startEpoch) {
+          return primary.get<T>(key)
+        }
+        await primary.set(key, legacyValue)
+        await legacy.del(oldKey).catch(() => {})
+        return legacyValue
+      })().finally(() => {
+        if (inflight.get(key) === task) inflight.delete(key)
+      })
+
+      inflight.set(key, task)
+      return task as Promise<T | undefined>
+    },
+
+    async set(key: string, value: unknown): Promise<void> {
+      bumpEpoch(key)
+      await primary.set(key, value)
+      await legacy.del(legacyKey(key)).catch(() => {})
+    },
+
+    async del(key: string): Promise<void> {
+      bumpEpoch(key)
+      await primary.del(key)
+      await legacy.del(legacyKey(key)).catch(() => {})
+    },
+  }
+}
+
+const DEFAULT_STORAGE_LOCAL_KEY = 'extport-plan'
+const LEGACY_IDB_KEY = 'plan'
+
+function resolveDefaultStorage(storageKey?: string): { storage: StorageAdapter; key: string } {
+  const local = getStorageLocal()
+  if (local) {
+    const key = storageKey ?? DEFAULT_STORAGE_LOCAL_KEY
+    const legacyKey = storageKey ? (k: string) => k : (k: string) => (k === DEFAULT_STORAGE_LOCAL_KEY ? LEGACY_IDB_KEY : k)
+    return {
+      storage: createMigratingStorage(browserStorageAdapter(local), idbStorage, legacyKey),
+      key,
+    }
+  }
+  return {
+    storage: idbStorage,
+    key: storageKey ?? LEGACY_IDB_KEY,
+  }
+}
+
 /**
  * Transport for cross-context change notifications. The core doesn't care
  * about the implementation (the webext entry provides a runtime-message one);
@@ -122,7 +243,11 @@ export interface ActivationClientOptions<TTier extends string, TLimit> {
   /** The capability table per tier; must include 'free'. Unknown tiers found in storage are treated as free. */
   plans: Record<TTier, TLimit>
   storage?: StorageAdapter
-  /** Storage key; defaults to 'plan' (matching existing extensions). */
+  /**
+   * Storage key. Defaults to `'extport-plan'` when backed by `browser.storage.local`
+   * (automatically migrating legacy `'plan'` entries from `idb-keyval`), or `'plan'`
+   * when falling back to `idb-keyval` / using a custom `storage` adapter.
+   */
   storageKey?: string
   transport?: Transport
   deviceInfo?: () => Record<string, unknown>
@@ -155,8 +280,14 @@ export class ActivationClient<TTier extends string, TLimit> {
     }
     this.options = options
     this.backend = options.apiBase ? extportBackend(options.apiBase) : PRODUCTION_BACKEND
-    this.storage = options.storage ?? idbStorage
-    this.key = options.storageKey ?? 'plan'
+    if (options.storage) {
+      this.storage = options.storage
+      this.key = options.storageKey ?? LEGACY_IDB_KEY
+    } else {
+      const resolved = resolveDefaultStorage(options.storageKey)
+      this.storage = resolved.storage
+      this.key = resolved.key
+    }
     this.freePlan = Object.freeze({ tier: 'free' as TTier, limit: freeLimit })
     this.snapshot = this.freePlan
     options.transport?.listen(() => {

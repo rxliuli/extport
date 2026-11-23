@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assertStoragePermissionForAnalytics, mergeDataCollectionPermissions, normalizeOptions, pluginSource } from './index'
+import { assertStoragePermission, mergeDataCollectionPermissions, normalizeOptions, pluginSource } from './index'
 
 describe('normalizeOptions', () => {
   it('reads the nested shape', () => {
@@ -36,17 +36,17 @@ describe('pluginSource', () => {
   })
 })
 
-describe('assertStoragePermissionForAnalytics', () => {
+describe('assertStoragePermission', () => {
   it('throws when the manifest has no storage permission', () => {
-    expect(() => assertStoragePermissionForAnalytics({ permissions: ['scripting'] })).toThrow(/requires the "storage" permission/)
+    expect(() => assertStoragePermission({ permissions: ['scripting'] })).toThrow(/requires the "storage" permission/)
   })
 
   it('throws when permissions is missing entirely', () => {
-    expect(() => assertStoragePermissionForAnalytics({})).toThrow(/requires the "storage" permission/)
+    expect(() => assertStoragePermission({})).toThrow(/requires the "storage" permission/)
   })
 
   it('does not throw when storage is declared', () => {
-    expect(() => assertStoragePermissionForAnalytics({ permissions: ['storage', 'scripting'] })).not.toThrow()
+    expect(() => assertStoragePermission({ permissions: ['storage', 'scripting'] })).not.toThrow()
   })
 })
 

@@ -79,26 +79,26 @@ export function pluginSource(extensionId: string, analytics: boolean): string {
 }
 
 /**
- * `analytics: true` requires the `storage` permission — browser.storage.local
- * backs installId persistence in @extport/sdk/analytics. A hand-rolled
- * IndexedDB open (the idb-keyval fallback used when `storage` isn't
- * declared) has more that can go wrong at creation time than a plain
- * key-value store, confirmed against a real incident: a corrupted
- * keyval-store database silently stopped installId from ever persisting,
- * so every ping minted a fresh one (87% of recorded "installs" were
- * one-off, never a returning user) — and nobody noticed until someone
- * happened to cross-check the numbers against the store console weeks
- * later. Throws rather than warns: a warning that's easy to ignore is how
- * this shipped silently the first time.
+ * `@extport/sdk` (both licensing and analytics) persists state in
+ * `browser.storage.local` and requires the `storage` permission. A hand-rolled
+ * IndexedDB open (the idb-keyval fallback used when `storage` isn't declared)
+ * has more that can go wrong at creation time and is vulnerable to eviction /
+ * Safari dynamic-origin resets — confirmed against real incidents (corrupted
+ * `keyval-store` breaking analytics installId; extension updates wiping IDB
+ * license state). Throws rather than warns: a warning that's easy to ignore is
+ * how this shipped silently the first time.
  */
-export function assertStoragePermissionForAnalytics(manifest: Record<string, unknown>): void {
+export function assertStoragePermission(manifest: Record<string, unknown>): void {
   const permissions = (manifest.permissions as unknown[] | undefined) ?? []
   if (!permissions.includes('storage')) {
     throw new Error(
-      '@extport/wxt: `analytics: true` requires the "storage" permission — add \'storage\' to manifest.permissions in wxt.config.ts (browser.storage.local backs installId persistence; without it, analytics falls back to a less reliable store).',
+      '@extport/wxt: `extport.extension` requires the "storage" permission — add \'storage\' to manifest.permissions in wxt.config.ts (browser.storage.local backs @extport/sdk licensing and analytics persistence; without it, the SDK falls back to a less reliable IndexedDB store).',
     )
   }
 }
+
+/** @deprecated Use {@link assertStoragePermission}. */
+export const assertStoragePermissionForAnalytics = assertStoragePermission
 
 /**
  * Merge the analytics data-collection declaration into a Firefox manifest.
@@ -185,12 +185,13 @@ export default defineWxtModule<ExtportWxtOptions>({
       wxt.logger.warn('@extport/wxt: `analytics: true` requires `extension` — analytics not injected.')
     }
 
-    // --- analytics: requires the `storage` permission, and Firefox's
-    // built-in data-collection consent declaration.
-    if (extension && analytics) {
+    // --- manifest checks: `storage` permission for @extport/sdk (licensing &
+    // analytics), plus Firefox's data-collection consent declaration when
+    // analytics is enabled.
+    if (extension) {
       wxt.hook('build:manifestGenerated', (_wxt, manifest) => {
-        assertStoragePermissionForAnalytics(manifest as unknown as Record<string, unknown>)
-        if (wxt.config.browser === 'firefox') {
+        assertStoragePermission(manifest as unknown as Record<string, unknown>)
+        if (analytics && wxt.config.browser === 'firefox') {
           mergeDataCollectionPermissions(manifest as unknown as Record<string, unknown>)
         }
       })

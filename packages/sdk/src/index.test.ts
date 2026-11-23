@@ -366,3 +366,78 @@ describe('变更通知', () => {
     )
   })
 })
+
+describe('默认存储：优先 browser.storage.local 并自动从 idb-keyval 迁移', () => {
+  function stubStorageLocal(globalKey: 'browser' | 'chrome' = 'browser') {
+    const data = new Map<string, unknown>()
+    const get = vi.fn(async (keys: string[]) =>
+      Object.fromEntries(keys.filter((k) => data.has(k)).map((k) => [k, data.get(k)])),
+    )
+    const set = vi.fn(async (items: Record<string, unknown>) => {
+      for (const [k, v] of Object.entries(items)) data.set(k, v)
+    })
+    const remove = vi.fn(async (keys: string[]) => {
+      for (const k of keys) data.delete(k)
+    })
+    vi.stubGlobal(globalKey, { storage: { local: { get, set, remove } } })
+    return { data, get, set, remove }
+  }
+
+  it('存在 browser.storage.local 时默认写入 extport-plan 键', async () => {
+    const local = stubStorageLocal('browser')
+    stubWire({ activate: ACTIVATE_OK })
+
+    await createClient().activate('AAAA-BBBB-CCCC-DDDD')
+
+    expect(local.data.get('extport-plan')).toMatchObject({
+      code: 'AAAA-BBBB-CCCC-DDDD',
+      tier: 'pro',
+    })
+    expect(await idbGet('plan')).toBeUndefined()
+  })
+
+  it('兼容 chrome.storage.local 全局对象', async () => {
+    const local = stubStorageLocal('chrome')
+    local.data.set('extport-plan', storedConfig())
+
+    expect((await createClient().getPlan()).tier).toBe('pro')
+    expect(local.get).toHaveBeenCalledWith(['extport-plan'])
+  })
+
+  it('首次读取时自动将 idb-keyval "plan" 迁入 browser.storage.local["extport-plan"] 并清理旧键', async () => {
+    const local = stubStorageLocal('browser')
+    const legacy = storedConfig({ code: 'OLD-IDB-CODE', fingerprint: 'fp-old' })
+    await idbSet('plan', legacy)
+
+    const client = createClient()
+    const plan = await client.getPlan()
+
+    expect(plan.tier).toBe('pro')
+    expect(local.data.get('extport-plan')).toEqual(legacy)
+    expect(await idbGet('plan')).toBeUndefined()
+  })
+
+  it('撤销激活时会同时清除 storage.local 与旧 idb-keyval，防止死灰复燃', async () => {
+    const local = stubStorageLocal('browser')
+    const record = storedConfig()
+    local.data.set('extport-plan', record)
+    await idbSet('plan', record)
+    stubWire({ check: CHECK_INACTIVE, activate: ACTIVATE_REJECTED })
+
+    const client = createClient()
+    expect(await client.checkActivation()).toBe(false)
+    expect(local.data.has('extport-plan')).toBe(false)
+    expect(await idbGet('plan')).toBeUndefined()
+    expect((await client.getPlan()).tier).toBe('free')
+  })
+
+  it('迁移写入 storage.local 失败时保留旧 idb-keyval 数据不丢失', async () => {
+    const local = stubStorageLocal('browser')
+    local.set.mockRejectedValueOnce(new Error('storage quota error'))
+    const legacy = storedConfig({ code: 'KEEP-IN-IDB' })
+    await idbSet('plan', legacy)
+
+    await expect(createClient().getPlan()).rejects.toThrow('storage quota error')
+    expect(await idbGet('plan')).toEqual(legacy)
+  })
+})
