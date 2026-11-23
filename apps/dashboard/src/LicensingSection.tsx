@@ -20,11 +20,13 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { parseDeviceAgent } from '@/lib/device-info'
+import { cn } from '@/lib/utils'
 import { licensesInfiniteQuery, paymentCredentialsQuery, plansQuery, subscriptionsInfiniteQuery } from '@/queries'
 import { formatDate } from '@/status'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Plus } from 'lucide-react'
+import { ChevronDown, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -1051,6 +1053,7 @@ function LicensesCard({ extension }: { extension: Extension }) {
 export function DevicesDialog({ license }: { license: LicenseRow }) {
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
+  const [showReleased, setShowReleased] = useState(false)
   const detail = useQuery({
     queryKey: ['licenses', license.id],
     queryFn: () => api<{ license: LicenseRow; activations: ActivationRow[] }>(`/api/v1/licenses/${license.id}`),
@@ -1065,7 +1068,9 @@ export function DevicesDialog({ license }: { license: LicenseRow }) {
   })
 
   const row = detail.data?.license ?? license
-  const active = (detail.data?.activations ?? []).filter((a) => !a.releasedAt)
+  const allActivations = detail.data?.activations ?? []
+  const active = allActivations.filter((a) => !a.releasedAt)
+  const released = allActivations.filter((a) => Boolean(a.releasedAt))
   const hasMetadata = row.entitlementType === 'recurring' || Boolean(row.externalUserId)
 
   return (
@@ -1075,7 +1080,7 @@ export function DevicesDialog({ license }: { license: LicenseRow }) {
           Devices
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             Devices · <code className="text-base">{license.key}</code>
@@ -1121,38 +1126,113 @@ export function DevicesDialog({ license }: { license: LicenseRow }) {
         )}
         {detail.isPending ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : active.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No active devices — all {license.maxActivations} seats free.</p>
         ) : (
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              {active.length} of {license.maxActivations} seats in use. Idle seats free themselves after 30 days;
-              releasing one here is the manual escape hatch for a buyer who asks.
-            </p>
-            <ul className="space-y-2">
-              {active.map((device) => (
-                <li key={device.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-                  <div>
-                    <code className="text-xs">{device.deviceFingerprint.slice(0, 13)}…</code>
-                    <p className="text-xs text-muted-foreground">
-                      activated {formatDate(device.activatedAt)}
-                      {device.lastHeartbeatAt ? ` · last seen ${formatDate(device.lastHeartbeatAt)}` : ''}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={release.isPending}
-                    onClick={() => release.mutate(device.deviceFingerprint)}
-                  >
-                    Release seat
-                  </Button>
-                </li>
-              ))}
-            </ul>
+          <div className="space-y-3">
+            {active.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No active devices — all {license.maxActivations} seats free.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  {active.length} of {license.maxActivations} seats in use. Idle seats free themselves after 30 days;
+                  releasing one here is the manual escape hatch for a buyer who asks.
+                </p>
+                <ul className="space-y-2">
+                  {active.map((device) => (
+                    <li
+                      key={device.id}
+                      className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm"
+                    >
+                      <DeviceActivationInfo device={device} />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                        disabled={release.isPending}
+                        onClick={() => release.mutate(device.deviceFingerprint)}
+                      >
+                        Release seat
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {released.length > 0 && (
+              <div className="border-t pt-2">
+                <button
+                  type="button"
+                  aria-expanded={showReleased}
+                  onClick={() => setShowReleased((v) => !v)}
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <ChevronDown className={cn('size-3.5 transition-transform', showReleased && 'rotate-180')} />
+                  Released devices ({released.length})
+                </button>
+                {showReleased && (
+                  <ul className="mt-2 space-y-2">
+                    {released.map((device) => (
+                      <li
+                        key={device.id}
+                        className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2 text-sm opacity-75"
+                      >
+                        <DeviceActivationInfo device={device} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+function DeviceActivationInfo({ device }: { device: ActivationRow }) {
+  const agent = parseDeviceAgent(device.uaHint)
+  const shortFingerprint = `${device.deviceFingerprint.slice(0, 13)}…`
+
+  return (
+    <div className="min-w-0 space-y-0.5">
+      <div className="flex flex-wrap items-center gap-x-1.5 text-sm">
+        {agent.label ? (
+          <span className="font-medium" title={device.uaHint ?? undefined}>
+            {agent.label}
+          </span>
+        ) : (
+          <code className="text-xs" title={device.deviceFingerprint}>
+            {shortFingerprint}
+          </code>
+        )}
+        {device.geoHint && (
+          <>
+            <span className="text-muted-foreground" aria-hidden>
+              ·
+            </span>
+            <span className="text-muted-foreground">{device.geoHint}</span>
+          </>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+        {device.ipHint && <code className="font-mono">{device.ipHint}</code>}
+        {device.ipHint && agent.label && <span aria-hidden>·</span>}
+        {agent.label && (
+          <code className="font-mono" title={device.deviceFingerprint}>
+            {shortFingerprint}
+          </code>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        activated {formatDate(device.activatedAt)}
+        {device.releasedAt
+          ? ` · released ${formatDate(device.releasedAt)}`
+          : device.lastHeartbeatAt
+            ? ` · last seen ${formatDate(device.lastHeartbeatAt)}`
+            : ''}
+      </p>
+    </div>
   )
 }

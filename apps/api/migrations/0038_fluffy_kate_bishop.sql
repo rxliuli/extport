@@ -1,0 +1,1 @@
+ALTER TABLE `activations` ADD `geo_hint` text;

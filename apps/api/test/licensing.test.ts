@@ -1051,4 +1051,66 @@ describe('recurring licensing & server-side entitlement API', () => {
     // Conflict when bound to a different user.
     expect((await bind({ extensionId: extension.id, key: license.key, externalUserId: 'acc_2' })).status).toBe(409)
   })
+
+  it('records ipHint, uaHint, and geoHint on activate and refreshes them on heartbeat', async () => {
+    const { db, sessionCookie, extension, license } = await setupLicensedProduct()
+    const ua1 =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+    const actRes = await request('/api/v1/licensing/activate', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'cf-connecting-ip': '203.0.113.10',
+        'user-agent': ua1,
+      },
+      body: JSON.stringify({ code: license.key, extensionId: extension.id, fingerprint: 'fp_hints_1' }),
+      cf: { city: 'Tokyo', country: 'JP' },
+    } as RequestInit)
+    expect(actRes.status).toBe(200)
+    expect(((await actRes.json()) as WireResult).success).toBe(true)
+
+    const detailRes = await request(`/api/v1/licenses/${license.id}`, {
+      headers: { cookie: sessionCookie },
+    })
+    expect(detailRes.status).toBe(200)
+    const detail = (await detailRes.json()) as {
+      activations: Array<{ deviceFingerprint: string; ipHint: string | null; uaHint: string | null; geoHint: string | null }>
+    }
+    expect(detail.activations).toHaveLength(1)
+    expect(detail.activations[0]).toMatchObject({
+      deviceFingerprint: 'fp_hints_1',
+      ipHint: '203.0.113.10',
+      uaHint: ua1,
+      geoHint: 'Tokyo, JP',
+    })
+
+    // Age heartbeat past 12h throttle and verify /check refreshes hints.
+    const oldHb = new Date(Date.now() - 13 * 60 * 60 * 1000).toISOString()
+    await db
+      .update(activations)
+      .set({ lastHeartbeatAt: oldHb })
+      .where(and(eq(activations.licenseId, license.id), eq(activations.deviceFingerprint, 'fp_hints_1')))
+
+    const ua2 =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0'
+    const checkRes = await request('/api/v1/licensing/check', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'cf-connecting-ip': '198.51.100.42',
+        'user-agent': ua2,
+      },
+      body: JSON.stringify({ code: license.key, extensionId: extension.id, fingerprint: 'fp_hints_1' }),
+      cf: { city: 'San Francisco', country: 'US' },
+    } as RequestInit)
+    expect(checkRes.status).toBe(200)
+
+    const [updated] = await db
+      .select()
+      .from(activations)
+      .where(and(eq(activations.licenseId, license.id), eq(activations.deviceFingerprint, 'fp_hints_1')))
+    expect(updated!.ipHint).toBe('198.51.100.42')
+    expect(updated!.uaHint).toBe(ua2)
+    expect(updated!.geoHint).toBe('San Francisco, US')
+  })
 })

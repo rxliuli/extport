@@ -394,6 +394,8 @@ route.get(
           activatedAt: d.activatedAt,
           lastHeartbeatAt: d.lastHeartbeatAt,
           releasedAt: d.releasedAt,
+          uaHint: d.uaHint,
+          geoHint: d.geoHint,
         })),
       })),
       subscriptions: subRows.map(({ subscription, plan, extension, tenantSettings }) => {

@@ -80,12 +80,34 @@ async function lookupByCode(db: Db, code: string) {
   return row
 }
 
-async function touchHeartbeat(db: Db, activation: Activation): Promise<void> {
+interface RequestHints {
+  ipHint: string | null
+  uaHint: string | null
+  geoHint: string | null
+}
+
+function extractRequestHints(c: { req: { header: (name: string) => string | undefined; raw: Request } }): RequestHints {
+  const ipHint = c.req.header('cf-connecting-ip') ?? null
+  const uaHint = c.req.header('user-agent') ?? null
+  const cf = (c.req.raw as Request & { cf?: { city?: unknown; country?: unknown } }).cf
+  const rawCountry = typeof cf?.country === 'string' ? cf.country.trim().toUpperCase() : ''
+  const country = /^[A-Z]{2}$/.test(rawCountry) && rawCountry !== 'XX' && rawCountry !== 'T1' ? rawCountry : ''
+  const city = typeof cf?.city === 'string' ? cf.city.trim() : ''
+  const geoHint = city && country ? `${city}, ${country}` : country || null
+  return { ipHint, uaHint, geoHint }
+}
+
+async function touchHeartbeat(db: Db, activation: Activation, hints?: RequestHints): Promise<void> {
   const last = activation.lastHeartbeatAt ? new Date(activation.lastHeartbeatAt).getTime() : 0
   if (Date.now() - last < HEARTBEAT_WRITE_INTERVAL_MS) return
   await db
     .update(activations)
-    .set({ lastHeartbeatAt: new Date().toISOString() })
+    .set({
+      lastHeartbeatAt: new Date().toISOString(),
+      ...(hints?.ipHint ? { ipHint: hints.ipHint } : {}),
+      ...(hints?.uaHint ? { uaHint: hints.uaHint } : {}),
+      ...(hints?.geoHint ? { geoHint: hints.geoHint } : {}),
+    })
     .where(eq(activations.id, activation.id))
 }
 
@@ -176,12 +198,14 @@ licensingPublicRoutes.post(
 
     const ok = { success: true, message: 'activated', data: wireEntitlementData(license, plan.tier) }
 
+    const hints = extractRequestHints(c)
+
     const [existing] = await db
       .select()
       .from(activations)
       .where(and(eq(activations.licenseId, license.id), eq(activations.deviceFingerprint, fingerprint)))
     if (existing && !existing.releasedAt) {
-      await touchHeartbeat(db, existing)
+      await touchHeartbeat(db, existing, hints)
       return c.json(ok)
     }
 
@@ -197,12 +221,11 @@ licensingPublicRoutes.post(
     }
 
     const nowIso = new Date().toISOString()
-    const ipHint = c.req.header('cf-connecting-ip') ?? null
-    const uaHint = c.req.header('user-agent') ?? null
+    const { ipHint, uaHint, geoHint } = hints
     if (existing) {
       await db
         .update(activations)
-        .set({ releasedAt: null, activatedAt: nowIso, lastHeartbeatAt: nowIso, ipHint, uaHint })
+        .set({ releasedAt: null, activatedAt: nowIso, lastHeartbeatAt: nowIso, ipHint, uaHint, geoHint })
         .where(eq(activations.id, existing.id))
     } else {
       await db.insert(activations).values({
@@ -213,6 +236,7 @@ licensingPublicRoutes.post(
         lastHeartbeatAt: nowIso,
         ipHint,
         uaHint,
+        geoHint,
       })
     }
     await db.insert(licenseEvents).values({
@@ -255,7 +279,7 @@ licensingPublicRoutes.post(
       .where(and(eq(activations.licenseId, license.id), eq(activations.deviceFingerprint, fingerprint)))
     if (!activation || activation.releasedAt) return c.json(inactive)
 
-    await touchHeartbeat(db, activation)
+    await touchHeartbeat(db, activation, extractRequestHints(c))
     return c.json({ success: true, data: { isActive: true, ...wireEntitlementData(license, plan.tier) } })
   },
 )

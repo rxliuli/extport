@@ -480,6 +480,7 @@ export const activations = sqliteTable(
     releasedAt: text('released_at'),
     ipHint: text('ip_hint'),
     uaHint: text('ua_hint'),
+    geoHint: text('geo_hint'),
     ...timestamps,
   },
   (t) => [

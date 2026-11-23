@@ -267,6 +267,13 @@
       "when": 1795328696418,
       "tag": "0037_subscription_scheduled_plan",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1795454103072,
+      "tag": "0038_fluffy_kate_bishop",
+      "breakpoints": true
     }
   ]
 }

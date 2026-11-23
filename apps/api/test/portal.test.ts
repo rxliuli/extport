@@ -840,4 +840,36 @@ describe('buyer portal end-of-period subscription plan switching', () => {
     expect(afterWebhook!.pendingPlanId).toBeNull()
     expect(afterWebhook!.stripeScheduleId).toBeNull()
   })
+
+  it('GET /v1/portal/licenses exposes uaHint and geoHint on devices but omits ipHint', async () => {
+    const { db, extension, license } = await setupLicensed('hints@example.com')
+    const ua =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+    const actRes = await request('/api/v1/licensing/activate', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'cf-connecting-ip': '203.0.113.99',
+        'user-agent': ua,
+      },
+      body: JSON.stringify({ code: license.key, extensionId: extension.id, fingerprint: 'fp_portal_hints' }),
+      cf: { city: 'Tokyo', country: 'JP' },
+    } as RequestInit)
+    expect(actRes.status).toBe(200)
+
+    const cookie = await buyerCookie(db, 'hints@example.com')
+    const listRes = await request('/api/v1/portal/licenses', { headers: { cookie } })
+    expect(listRes.status).toBe(200)
+    const body = (await listRes.json()) as {
+      licenses: Array<{ key: string; devices: Array<Record<string, unknown>> }>
+    }
+    const found = body.licenses.find((l) => l.key === license.key)
+    expect(found?.devices).toHaveLength(1)
+    expect(found!.devices[0]).toMatchObject({
+      fingerprint: 'fp_portal_hints',
+      uaHint: ua,
+      geoHint: 'Tokyo, JP',
+    })
+    expect('ipHint' in found!.devices[0]!).toBe(false)
+  })
 })

@@ -21,6 +21,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { parseDeviceAgent } from '@/lib/device-info'
 import { cn } from '@/lib/utils'
 import { PortalShell } from '@/PortalShell'
 import { formatDate } from '@/status'
@@ -50,6 +51,8 @@ interface PortalDevice {
   activatedAt: string
   lastHeartbeatAt: string | null
   releasedAt: string | null
+  uaHint?: string | null
+  geoHint?: string | null
 }
 
 interface PortalLicense {
@@ -946,18 +949,38 @@ function KeyRow({ value, muted }: { value: string; muted?: boolean }) {
 function Devices({ devices }: { devices: PortalDevice[] }) {
   return (
     <ul className="mt-3 divide-y rounded-md border text-sm">
-      {devices.map((device) => (
-        <li
-          key={device.fingerprint}
-          className="flex flex-col gap-0.5 px-3 py-2 text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:gap-3"
-        >
-          <span className="font-mono text-xs">{device.fingerprint.slice(0, 8)}…</span>
-          <span className="text-xs">
-            active since {formatDate(device.activatedAt)}
-            {device.lastHeartbeatAt ? ` · last seen ${formatDate(device.lastHeartbeatAt)}` : ''}
-          </span>
-        </li>
-      ))}
+      {devices.map((device) => {
+        const agent = parseDeviceAgent(device.uaHint)
+        const locationParts = [agent.label, device.geoHint].filter((p): p is string => Boolean(p))
+        return (
+          <li
+            key={device.fingerprint}
+            className="flex flex-col gap-0.5 px-3 py-2 text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+          >
+            <div className="flex flex-wrap items-center gap-x-1.5 text-xs">
+              {locationParts.length > 0 ? (
+                <>
+                  <span className="font-medium text-foreground" title={device.uaHint ?? undefined}>
+                    {locationParts.join(' · ')}
+                  </span>
+                  <span aria-hidden>·</span>
+                  <span className="font-mono" title={device.fingerprint}>
+                    {device.fingerprint.slice(0, 8)}…
+                  </span>
+                </>
+              ) : (
+                <span className="font-mono" title={device.fingerprint}>
+                  {device.fingerprint.slice(0, 8)}…
+                </span>
+              )}
+            </div>
+            <span className="text-xs">
+              active since {formatDate(device.activatedAt)}
+              {device.lastHeartbeatAt ? ` · last seen ${formatDate(device.lastHeartbeatAt)}` : ''}
+            </span>
+          </li>
+        )
+      })}
     </ul>
   )
 }

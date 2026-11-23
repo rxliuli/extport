@@ -198,6 +198,9 @@ export interface ActivationRow {
   lastHeartbeatAt: string | null
   /** ISO date string (Date -> JSON) */
   releasedAt: string | null
+  ipHint: string | null
+  uaHint: string | null
+  geoHint: string | null
 }
 
 export interface SubscriptionRow {
