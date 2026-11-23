@@ -18,7 +18,11 @@ const API_BASE = 'https://api.appstoreconnect.apple.com'
 // the next tick recorded it as in_review instead of resuming the submit —
 // a deadlock only a manual row flip could exit.
 const IN_REVIEW_STATES = new Set(['WAITING_FOR_REVIEW', 'IN_REVIEW', 'WAITING_FOR_EXPORT_COMPLIANCE'])
-const REJECTED_STATES = new Set(['REJECTED', 'METADATA_REJECTED', 'INVALID_BINARY', 'DEVELOPER_REJECTED'])
+const REJECTED_STATES = new Set(['REJECTED', 'METADATA_REJECTED', 'INVALID_BINARY'])
+// DEVELOPER_REJECTED means the developer manually withdrew the submission in
+// App Store Connect — not an Apple policy rejection, so it must NOT trigger
+// back-to-back rejection auto-pause (Twitter Filter iOS v0.0.77, 2026-11-23).
+const CANCELLED_STATES = new Set(['DEVELOPER_REJECTED'])
 const LIVE_STATES = new Set([
   'READY_FOR_DISTRIBUTION',
   'PENDING_DEVELOPER_RELEASE',
@@ -76,7 +80,7 @@ export async function ascAuthHeader(credentials: SafariCredentials): Promise<str
   return `Bearer ${jwt}`
 }
 
-const RELEVANT_STATES = [...LIVE_STATES, ...IN_REVIEW_STATES, ...REJECTED_STATES]
+const RELEVANT_STATES = [...LIVE_STATES, ...IN_REVIEW_STATES, ...REJECTED_STATES, ...CANCELLED_STATES]
 
 async function getState(credentials: SafariCredentials, appId: string, platform: string, fetchImpl: FetchLike): Promise<StoreState> {
   const authorization = await ascAuthHeader(credentials)
@@ -95,7 +99,7 @@ async function getState(credentials: SafariCredentials, appId: string, platform:
 
   let liveVersion: string | undefined
   let inReviewVersion: string | undefined
-  let reviewStatus: 'pending' | 'rejected' | undefined
+  let reviewStatus: 'pending' | 'rejected' | 'cancelled' | undefined
   for (const version of body.data ?? []) {
     const state = version.attributes?.appVersionState
     const versionString = version.attributes?.versionString
@@ -106,6 +110,7 @@ async function getState(credentials: SafariCredentials, appId: string, platform:
       reviewStatus = 'pending'
     }
     if (!reviewStatus && REJECTED_STATES.has(state)) reviewStatus = 'rejected'
+    if (!reviewStatus && CANCELLED_STATES.has(state)) reviewStatus = 'cancelled'
   }
 
   return {

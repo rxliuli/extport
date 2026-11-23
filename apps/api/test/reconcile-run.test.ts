@@ -675,6 +675,85 @@ describe('runReconciliation — rejection frees the slot for a newer version', (
     expect(sent).toHaveLength(1)
     expect(sent[0]!.text).not.toContain('paused')
   })
+
+  it('treats developer-cancelled Safari (DEVELOPER_REJECTED) as skipped, never auto-pauses even after a prior rejection, and unblocks the queued version', async () => {
+    // Real incident (Twitter Filter iOS v0.0.73 rejected -> v0.0.77 manually
+    // cancelled in ASC -> DEVELOPER_REJECTED, 2026-11-23): treating
+    // DEVELOPER_REJECTED as a store rejection triggered back-to-back auto-pause
+    // and froze both iOS and macOS v0.0.78.
+    const { db, tenantId, extensionId } = await setupSafariScenario({
+      platforms: ['ios'],
+      artifacts: [{ version: '0.0.78' }],
+      versions: [
+        { platform: 'ios', version: '0.0.69', status: 'online' },
+        { platform: 'ios', version: '0.0.73', status: 'rejected' },
+        { platform: 'ios', version: '0.0.77', status: 'in_review' },
+        { platform: 'ios', version: '0.0.78', status: 'queued' },
+      ],
+    })
+    globalThis.fetch = routedFetch([
+      {
+        test: (u, i) => u.includes('/appStoreVersions') && (!i?.method || i.method === 'GET'),
+        respond: () => ({
+          status: 200,
+          body: {
+            data: [
+              { id: 'v77', attributes: { versionString: '0.0.77', appVersionState: 'DEVELOPER_REJECTED' } },
+              { id: 'v69', attributes: { versionString: '0.0.69', appVersionState: 'READY_FOR_DISTRIBUTION' } },
+            ],
+          },
+        }),
+      },
+      {
+        test: (u) => u.includes('/builds'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+    ]).fetch
+    const { notifier, sent } = recordingNotifier()
+
+    await runReconciliation(env, db, { tenantId }, notifier)
+    const rows = await versionsFor(db, extensionId)
+    expect(rows).toMatchObject([
+      { version: '0.0.69', status: 'online' },
+      { version: '0.0.73', status: 'rejected' },
+      { version: '0.0.77', status: 'skipped', statusDetail: 'cancelled in store console' },
+      { version: '0.0.78', status: 'queued' },
+    ])
+    const [target] = await db.select().from(publishTargets).where(eq(publishTargets.extensionId, extensionId))
+    expect(target!.enabled).toBe(true)
+    expect(await eventsFor(db, extensionId)).toHaveLength(0)
+    expect(sent).toHaveLength(0)
+  })
+
+  it('treats Chrome CANCELLED as skipped (not rejected), never auto-pauses, and submits the queued version on the same tick', async () => {
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      artifacts: [{ version: '1.2.0' }],
+      versions: [
+        { version: '1.0.0', status: 'rejected' },
+        { version: '1.1.0', status: 'in_review' },
+        { version: '1.2.0', status: 'queued' },
+      ],
+    })
+    globalThis.fetch = routedFetch(
+      chromeRoutes({
+        fetchStatus: {
+          submittedItemRevisionStatus: { state: 'CANCELLED', distributionChannels: [{ crxVersion: '1.1.0' }] },
+        },
+      }),
+    ).fetch
+    const { notifier, sent } = recordingNotifier()
+
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
+    expect(summary.submitted).toBe(1)
+    expect(await versionsFor(db, extensionId)).toMatchObject([
+      { version: '1.0.0', status: 'rejected' },
+      { version: '1.1.0', status: 'skipped', statusDetail: 'cancelled in store console' },
+      { version: '1.2.0', status: 'in_review' },
+    ])
+    const [target] = await db.select().from(publishTargets).where(eq(publishTargets.extensionId, extensionId))
+    expect(target!.enabled).toBe(true)
+    expect(sent).toHaveLength(0)
+  })
 })
 
 describe('runReconciliation — phantom in-review row self-heals', () => {

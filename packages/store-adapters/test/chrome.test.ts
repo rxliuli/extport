@@ -90,6 +90,25 @@ describe('chrome adapter — getState', () => {
     expect(state.rejectionReason).toMatch(/does not expose rejection reasons/)
   })
 
+  it('maps a CANCELLED submission as cancelled (not rejected)', async () => {
+    const { fetch } = queueFetch([
+      { status: 200, body: { access_token: 'at' } },
+      {
+        status: 200,
+        body: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.0.0' }] },
+          submittedItemRevisionStatus: { state: 'CANCELLED', distributionChannels: [{ crxVersion: '1.1.0' }] },
+        },
+      },
+    ])
+    const state = await createChromeAdapter(fetch).getState(await creds(), { storeItemId: ITEM })
+    expect(state).toEqual({
+      live: { known: true, version: '1.0.0' },
+      inReview: { known: true },
+      reviewStatus: 'cancelled',
+    })
+  })
+
   it('handles a brand-new item with nothing submitted yet (omitted submittedItemRevisionStatus is not authoritative)', async () => {
     const { fetch } = queueFetch([{ status: 200, body: { access_token: 'at' } }, { status: 200, body: {} }])
     const state = await createChromeAdapter(fetch).getState(await creds(), { storeItemId: ITEM })

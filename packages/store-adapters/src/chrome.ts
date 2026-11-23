@@ -133,7 +133,7 @@ async function getState(
     }
     return { live, inReview: { known: true, version: submittedVersion }, reviewStatus: 'pending' }
   }
-  if (submitted.state === 'REJECTED' || submitted.state === 'CANCELLED') {
+  if (submitted.state === 'REJECTED') {
     return {
       live,
       inReview: { known: true },
@@ -141,6 +141,9 @@ async function getState(
       // Google does not expose rejection text via the API (confirmed 2026-07 research) — only the Dashboard/email do.
       rejectionReason: 'Chrome Web Store does not expose rejection reasons via API — check the Developer Dashboard or your email.',
     }
+  }
+  if (submitted.state === 'CANCELLED') {
+    return { live, inReview: { known: true }, reviewStatus: 'cancelled' }
   }
   console.warn(
     JSON.stringify({

@@ -53,6 +53,19 @@ describe('safari adapter — getState', () => {
     expect(state.rejectionReason).toMatch(/App Store Connect/)
   })
 
+  it('reports DEVELOPER_REJECTED as cancelled (withdrawn by developer), not a store rejection', async () => {
+    const { fetch } = queueFetch([
+      { status: 200, body: { data: [version('0.0.77', 'DEVELOPER_REJECTED'), version('0.0.69', 'READY_FOR_DISTRIBUTION')] } },
+    ])
+    const state = await createSafariAdapter(fetch).getState(await creds(), { storeItemId: APP_ID }, 'ios')
+    expect(state).toEqual({
+      live: { known: true, version: '0.0.69' },
+      inReview: { known: true, version: undefined },
+      reviewStatus: 'cancelled',
+      rejectionReason: undefined,
+    })
+  })
+
   it('handles an app with no versions at all', async () => {
     const { fetch } = queueFetch([{ status: 200, body: { data: [] } }])
     const state = await createSafariAdapter(fetch).getState(await creds(), { storeItemId: APP_ID })

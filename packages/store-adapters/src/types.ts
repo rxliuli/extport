@@ -14,7 +14,7 @@ export type VersionKnowledge = { known: false } | { known: true; version?: strin
 export interface StoreState {
   live: VersionKnowledge
   inReview: VersionKnowledge
-  reviewStatus?: 'pending' | 'rejected'
+  reviewStatus?: 'pending' | 'rejected' | 'cancelled'
   /** Only Firefox/Safari can say anything useful here; Chrome/Edge never expose review text via API. */
   rejectionReason?: string
 }

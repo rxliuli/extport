@@ -434,6 +434,17 @@ async function reconcileLifecycle(
       }
     }
   }
+  if (inReview && actual.reviewStatus === 'cancelled') {
+    // Developer withdrew the submission directly in the store console
+    // (App Store Connect DEVELOPER_REJECTED, Chrome Web Store CANCELLED).
+    // Not a policy rejection — mark skipped, do NOT auto-pause or send a
+    // rejection email, and let any queued version submit on this same tick.
+    await db
+      .update(deploymentVersions)
+      .set({ status: 'skipped', statusDetail: 'cancelled in store console' })
+      .where(eq(deploymentVersions.id, inReview.id))
+    inReview = null
+  }
   if (inReview && actual.reviewStatus === 'rejected') {
     await db
       .update(deploymentVersions)
