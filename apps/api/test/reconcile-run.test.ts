@@ -160,7 +160,7 @@ function routedFetch(routes: Route[]): { fetch: typeof fetch; calls: { url: stri
 }
 
 function chromeRoutes(
-  opts: { fetchStatus?: unknown; uploadOk?: boolean; publishOk?: boolean; cancelOk?: boolean } = {},
+  opts: { fetchStatus?: unknown; uploadOk?: boolean; uploadResponse?: { status: number; body: unknown }; publishOk?: boolean; cancelOk?: boolean } = {},
 ): Route[] {
   return [
     {
@@ -171,9 +171,11 @@ function chromeRoutes(
     {
       test: (u, i) => u.endsWith(':upload') && i?.method === 'POST',
       respond: () =>
-        opts.uploadOk === false
-          ? { status: 400, body: 'bad zip' }
-          : { status: 200, body: { uploadState: 'SUCCEEDED' } },
+        opts.uploadResponse
+          ? opts.uploadResponse
+          : opts.uploadOk === false
+            ? { status: 400, body: 'bad zip' }
+            : { status: 200, body: { uploadState: 'SUCCEEDED' } },
     },
     {
       test: (u, i) => u.endsWith(':publish') && i?.method === 'POST',
@@ -676,49 +678,149 @@ describe('runReconciliation — rejection frees the slot for a newer version', (
 })
 
 describe('runReconciliation — phantom in-review row self-heals', () => {
-  it('skips a local in_review row the store has no record of, and submits the queued one behind it', async () => {
-    // Reproduces a real incident: an adapter bug reported `submitted: true`
-    // for a version whose store-side create-version call never actually ran,
-    // leaving a phantom in_review row with nothing on the store's side to
-    // ever match it — and nothing to ever unstick decide() again. The store
-    // authoritatively reporting nothing in review (no submittedItemRevisionStatus
-    // at all, not merely omitted/unknown) is what should recover it. Old
-    // enough submittedAt to clear the same-tick propagation race guard below.
+  it('does not skip a Chrome in_review row when fetchStatus omits submittedItemRevisionStatus', async () => {
+    // Real incident (Twitter Filter v0.0.77, 2026-11-22/23): Google's v2
+    // :fetchStatus returned only publishedItemRevisionStatus (omitting
+    // submittedItemRevisionStatus completely) while the item was genuinely
+    // Pending review in Developer Console. Treating omission as authoritative
+    // wiped 0.0.77 to `skipped` on the next 30-min tick.
     const oldEnough = new Date(Date.now() - 60 * 60 * 1000).toISOString()
     const { db, tenantId, extensionId } = await setupChromeScenario({
-      artifacts: [{ version: '1.1.0' }, { version: '1.2.0' }],
+      artifacts: [{ version: '0.0.77' }, { version: '0.0.78' }],
       versions: [
-        { version: '1.1.0', status: 'in_review', submittedAt: oldEnough },
-        { version: '1.2.0', status: 'queued' },
+        { version: '0.0.76', status: 'online' },
+        { version: '0.0.77', status: 'in_review', submittedAt: oldEnough },
+        { version: '0.0.78', status: 'queued' },
       ],
     })
-    globalThis.fetch = routedFetch(chromeRoutes({ fetchStatus: {} })).fetch
+    globalThis.fetch = routedFetch(
+      chromeRoutes({
+        fetchStatus: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '0.0.76' }] },
+        },
+      }),
+    ).fetch
     const { notifier, sent } = recordingNotifier()
 
     const summary = await runReconciliation(env, db, { tenantId }, notifier)
-    expect(summary.submitted).toBe(1)
-    const rows = await versionsFor(db, extensionId)
-    expect(rows).toMatchObject([
-      { version: '1.1.0', status: 'skipped' },
-      { version: '1.2.0', status: 'in_review' },
+    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 1, errors: 0, skipped: 0 })
+    expect(await versionsFor(db, extensionId)).toMatchObject([
+      { version: '0.0.76', status: 'online' },
+      { version: '0.0.77', status: 'in_review' },
+      { version: '0.0.78', status: 'queued' },
     ])
-    // No email for the phantom row resolving (it was never real to begin
-    // with) and none for the follow-up submission either — success is silent.
     expect(sent).toHaveLength(0)
   })
 
-  it('leaves a freshly-submitted in_review row alone even if the store reports nothing yet', async () => {
-    // Reproduces a real incident: a genuinely successful, fast-reviewed
-    // submission got misidentified as phantom and skipped a few minutes
-    // after submitting, because getState()'s two calls (addon detail, then
-    // /versions/) aren't one atomic read — for a store fast enough to
-    // approve within that gap, "nothing in review" can be a stale snapshot,
-    // not the truth. Recent submittedAt must not trigger the phantom cleanup.
-    const justNow = new Date(Date.now() - 60 * 1000).toISOString()
+  it('does not skip an in_review row when reviewStatus is pending even if crxVersion is missing', async () => {
+    const oldEnough = new Date(Date.now() - 60 * 60 * 1000).toISOString()
     const { db, tenantId, extensionId } = await setupChromeScenario({
-      versions: [{ version: '1.1.0', status: 'in_review', submittedAt: justNow }],
+      artifacts: [{ version: '0.0.77' }],
+      versions: [{ version: '0.0.77', status: 'in_review', submittedAt: oldEnough }],
     })
-    globalThis.fetch = routedFetch(chromeRoutes({ fetchStatus: {} })).fetch
+    globalThis.fetch = routedFetch(
+      chromeRoutes({
+        fetchStatus: {
+          submittedItemRevisionStatus: { state: 'PENDING_REVIEW', distributionChannels: [] },
+        },
+      }),
+    ).fetch
+
+    await runReconciliation(env, db, { tenantId }, recordingNotifier().notifier)
+    expect(await versionsFor(db, extensionId)).toMatchObject([{ version: '0.0.77', status: 'in_review' }])
+  })
+
+  it('keeps a queued Chrome version waiting (no error email) when upload returns 400 NOT_UPDATEABLE (in review)', async () => {
+    // Real incident (Twitter Filter v0.0.78, 2026-11-23): after 0.0.77 was
+    // skipped and :fetchStatus still omitted submittedItemRevisionStatus,
+    // uploading 0.0.78 hit 400 NOT_UPDATEABLE ("You may not edit or publish an
+    // item that is in review."). That means the store is busy, not broken.
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      artifacts: [{ version: '0.0.78' }],
+      versions: [
+        { version: '0.0.76', status: 'online' },
+        { version: '0.0.78', status: 'queued' },
+      ],
+    })
+    globalThis.fetch = routedFetch(
+      chromeRoutes({
+        fetchStatus: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '0.0.76' }] },
+        },
+        uploadResponse: {
+          status: 400,
+          body: {
+            error: {
+              code: 400,
+              message: 'You may not edit or publish an item that is in review.',
+              status: 'FAILED_PRECONDITION',
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                  reason: 'NOT_UPDATEABLE',
+                  domain: 'chromewebstore.googleapis.com',
+                },
+              ],
+            },
+          },
+        },
+      }),
+    ).fetch
+    const { notifier, sent } = recordingNotifier()
+
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
+    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 0, skipped: 0 })
+    expect(await versionsFor(db, extensionId)).toMatchObject([
+      { version: '0.0.76', status: 'online' },
+      { version: '0.0.78', status: 'queued', statusDetail: 'waiting — Chrome Web Store reports an item is already in review' },
+    ])
+    expect(await eventsFor(db, extensionId)).toHaveLength(0)
+    expect(sent).toHaveLength(0)
+  })
+
+  it('skips a local in_review row the store authoritatively has no record of (Safari), and submits the queued one behind it', async () => {
+    const oldEnough = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const { db, tenantId, extensionId } = await setupSafariScenario({
+      platforms: ['macos'],
+      artifacts: [{ version: '1.1.0' }, { version: '1.2.0' }],
+      versions: [
+        { platform: 'macos', version: '1.1.0', status: 'in_review', submittedAt: oldEnough },
+        { platform: 'macos', version: '1.2.0', status: 'queued' },
+      ],
+    })
+    globalThis.fetch = routedFetch([
+      {
+        test: (u, i) => u.includes('/appStoreVersions') && (!i?.method || i.method === 'GET'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+      {
+        test: (u) => u.includes('/builds'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+    ]).fetch
+    const { notifier, sent } = recordingNotifier()
+
+    await runReconciliation(env, db, { tenantId }, notifier)
+    const rows = await versionsFor(db, extensionId)
+    expect(rows).toMatchObject([
+      { version: '1.1.0', status: 'skipped' },
+      { version: '1.2.0', status: 'queued' },
+    ])
+    expect(sent).toHaveLength(0)
+  })
+
+  it('leaves a freshly-submitted in_review row alone even if the store reports nothing yet (Safari)', async () => {
+    const justNow = new Date(Date.now() - 60 * 1000).toISOString()
+    const { db, tenantId, extensionId } = await setupSafariScenario({
+      platforms: ['macos'],
+      versions: [{ platform: 'macos', version: '1.1.0', status: 'in_review', submittedAt: justNow }],
+    })
+    globalThis.fetch = routedFetch([
+      {
+        test: (u, i) => u.includes('/appStoreVersions') && (!i?.method || i.method === 'GET'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+    ]).fetch
     const { notifier } = recordingNotifier()
 
     await runReconciliation(env, db, { tenantId }, notifier)
@@ -727,13 +829,16 @@ describe('runReconciliation — phantom in-review row self-heals', () => {
   })
 
   it("leaves an in_review row with no submittedAt alone — age can't be judged, so it is not eligible", async () => {
-    // Mirrors maybeEmitStaleReview's existing treatment of a null
-    // submittedAt as "can't judge staleness" — same reasoning applies here:
-    // without an age, err toward leaving a discovered baseline alone.
-    const { db, tenantId, extensionId } = await setupChromeScenario({
-      versions: [{ version: '1.1.0', status: 'in_review' }],
+    const { db, tenantId, extensionId } = await setupSafariScenario({
+      platforms: ['macos'],
+      versions: [{ platform: 'macos', version: '1.1.0', status: 'in_review' }],
     })
-    globalThis.fetch = routedFetch(chromeRoutes({ fetchStatus: {} })).fetch
+    globalThis.fetch = routedFetch([
+      {
+        test: (u, i) => u.includes('/appStoreVersions') && (!i?.method || i.method === 'GET'),
+        respond: () => ({ status: 200, body: { data: [] } }),
+      },
+    ]).fetch
     const { notifier } = recordingNotifier()
 
     await runReconciliation(env, db, { tenantId }, notifier)

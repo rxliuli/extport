@@ -109,7 +109,15 @@ async function getState(
     )
   }
   const live: VersionKnowledge = { known: true, version: publishedVersion }
-  if (!submitted) return { live, inReview: { known: true } }
+  // Confirmed against a real production response (Twitter Filter v0.0.77,
+  // 2026-11-23): Chrome Web Store API v2 :fetchStatus can omit
+  // submittedItemRevisionStatus entirely while the item is genuinely Pending
+  // review in Developer Console (and :upload immediately rejects with 400
+  // NOT_UPDATEABLE). Omission is therefore NOT authoritative proof that
+  // nothing is in review — return known: false so reconcile does not wipe a
+  // real in_review row to `skipped`. Approvals still resolve via `live`, and
+  // rejections/cancellations still resolve via REJECTED/CANCELLED below.
+  if (!submitted) return { live, inReview: { known: false } }
 
   const submittedVersion = submitted.distributionChannels?.[0]?.crxVersion
   if (submitted.state === 'PENDING_REVIEW' || submitted.state === 'STAGED') {
@@ -142,7 +150,22 @@ async function getState(
       submittedItemRevisionStatus: submitted,
     }),
   )
-  return { live, inReview: { known: true } }
+  return { live, inReview: { known: false } }
+}
+
+function isUploadBlockedByReview(status: number, body: string): boolean {
+  if (status !== 400) return false
+  try {
+    const parsed = JSON.parse(body) as {
+      error?: { status?: string; message?: string; details?: { reason?: string }[] }
+    }
+    const reason = parsed.error?.details?.find((d) => typeof d.reason === 'string')?.reason
+    if (reason === 'NOT_UPDATEABLE') return true
+    if (parsed.error?.status === 'FAILED_PRECONDITION' && /in review/i.test(parsed.error.message ?? '')) return true
+  } catch {
+    // Non-JSON error body — fall through to message check.
+  }
+  return /You may not edit or publish an item that is in review/i.test(body)
 }
 
 async function submit(
@@ -160,7 +183,15 @@ async function submit(
     body: artifact,
   })
   if (!uploadRes.ok) {
-    return submitFailure('upload failed', uploadRes.status, await uploadRes.text())
+    const errorBody = await uploadRes.text()
+    if (isUploadBlockedByReview(uploadRes.status, errorBody)) {
+      return {
+        submitted: false,
+        waiting: true,
+        detail: 'waiting — Chrome Web Store reports an item is already in review',
+      }
+    }
+    return submitFailure('upload failed', uploadRes.status, errorBody)
   }
   // V2 upload is synchronous — no polling needed, just check uploadState.
   const uploadBody = (await uploadRes.json()) as { uploadState?: string; itemError?: unknown }

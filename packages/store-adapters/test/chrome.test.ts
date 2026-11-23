@@ -90,10 +90,10 @@ describe('chrome adapter — getState', () => {
     expect(state.rejectionReason).toMatch(/does not expose rejection reasons/)
   })
 
-  it('handles a brand-new item with nothing submitted yet', async () => {
+  it('handles a brand-new item with nothing submitted yet (omitted submittedItemRevisionStatus is not authoritative)', async () => {
     const { fetch } = queueFetch([{ status: 200, body: { access_token: 'at' } }, { status: 200, body: {} }])
     const state = await createChromeAdapter(fetch).getState(await creds(), { storeItemId: ITEM })
-    expect(state).toEqual({ live: { known: true }, inReview: { known: true } })
+    expect(state).toEqual({ live: { known: true }, inReview: { known: false } })
   })
 
   it('logs a warning (without changing behavior) if PUBLISHED ever shows up with no distributionChannels version', async () => {
@@ -143,7 +143,7 @@ describe('chrome adapter — getState', () => {
       },
     ])
     const state = await createChromeAdapter(fetch).getState(await creds(), { storeItemId: ITEM })
-    expect(state).toEqual({ live: { known: true, version: '0.0.76' }, inReview: { known: true } })
+    expect(state).toEqual({ live: { known: true, version: '0.0.76' }, inReview: { known: false } })
     expect(log).toHaveBeenCalledTimes(1)
     const logged = JSON.parse(log.mock.calls[0]![0] as string)
     expect(logged).toMatchObject({
@@ -197,6 +197,67 @@ describe('chrome adapter — submit', () => {
     ])
     const result = await createChromeAdapter(fetch).submit(await creds(), { storeItemId: ITEM }, new ArrayBuffer(8), '1.0.0')
     expect(result.submitted).toBe(false)
+  })
+
+  it('treats 400 NOT_UPDATEABLE (item in review) on upload as waiting rather than a hard failure', async () => {
+    // Real incident (Twitter Filter v0.0.77/v0.0.78, 2026-11-22/23): CWS
+    // :fetchStatus omitted submittedItemRevisionStatus while the item was
+    // genuinely Pending review in Developer Console, so reconcile proceeded to
+    // :upload and hit 400 FAILED_PRECONDITION / NOT_UPDATEABLE.
+    const { fetch, calls } = queueFetch([
+      { status: 200, body: { access_token: 'at' } },
+      {
+        status: 400,
+        body: {
+          error: {
+            code: 400,
+            message: 'You may not edit or publish an item that is in review.',
+            status: 'FAILED_PRECONDITION',
+            details: [
+              {
+                '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                reason: 'NOT_UPDATEABLE',
+                domain: 'chromewebstore.googleapis.com',
+              },
+            ],
+          },
+        },
+      },
+    ])
+    const result = await createChromeAdapter(fetch).submit(await creds(), { storeItemId: ITEM }, new ArrayBuffer(8), '0.0.78')
+    expect(result).toEqual({
+      submitted: false,
+      waiting: true,
+      detail: 'waiting — Chrome Web Store reports an item is already in review',
+    })
+    expect(calls).toHaveLength(2)
+  })
+
+  it('still reports other 400 upload errors (e.g. INVALID_PACKAGE) as real failures', async () => {
+    const { fetch } = queueFetch([
+      { status: 200, body: { access_token: 'at' } },
+      {
+        status: 400,
+        body: {
+          error: {
+            code: 400,
+            message: 'The uploaded package was invalid.',
+            status: 'INVALID_ARGUMENT',
+            details: [
+              {
+                '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                reason: 'INVALID_PACKAGE',
+                domain: 'chromewebstore.googleapis.com',
+              },
+            ],
+          },
+        },
+      },
+    ])
+    const result = await createChromeAdapter(fetch).submit(await creds(), { storeItemId: ITEM }, new ArrayBuffer(8), '0.0.78')
+    expect(result.submitted).toBe(false)
+    expect(result.waiting).toBeUndefined()
+    expect(result.status).toBe(400)
   })
 })
 

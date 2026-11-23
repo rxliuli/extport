@@ -475,7 +475,7 @@ async function reconcileLifecycle(
   // comment for why not every store has one), fall back to an age heuristic
   // that only trusts "nothing" once it's been true long enough that a
   // same-tick propagation race can't explain it.
-  if (inReview && actual.inReview.known && !actual.inReview.version) {
+  if (inReview && actual.reviewStatus !== 'pending' && actual.inReview.known && !actual.inReview.version) {
     const reallyAbsent = adapter.confirmAbsent
       ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await adapter.confirmAbsent(credentials as any, storeTarget, inReview.version, platform)
