@@ -72,7 +72,22 @@ async function getState(
   const body = (await res.json()) as {
     publishedItemRevisionStatus?: { state?: string; distributionChannels?: { crxVersion?: string }[] }
     submittedItemRevisionStatus?: { state?: string; distributionChannels?: { crxVersion?: string }[] }
+    publicKey?: string
+    [key: string]: unknown
   }
+  // Log the raw fetchStatus payload (minus the bulky RSA publicKey) so
+  // discrepancies between :fetchStatus and :upload (e.g. Twitter Filter v0.0.77,
+  // 2026-11-22/23: :upload returned 400 NOT_UPDATEABLE "in review" while
+  // getState reported nothing pending) leave concrete evidence in Workers Logs.
+  const { publicKey: _publicKey, ...statusSnapshot } = body
+  console.log(
+    JSON.stringify({
+      level: 'info',
+      message: 'chrome fetchStatus',
+      storeItemId,
+      ...statusSnapshot,
+    }),
+  )
   const published = body.publishedItemRevisionStatus
   const submitted = body.submittedItemRevisionStatus
   const publishedVersion = published?.distributionChannels?.[0]?.crxVersion
@@ -98,6 +113,16 @@ async function getState(
 
   const submittedVersion = submitted.distributionChannels?.[0]?.crxVersion
   if (submitted.state === 'PENDING_REVIEW' || submitted.state === 'STAGED') {
+    if (!submittedVersion) {
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          message: 'chrome fetchStatus: pending review has no crxVersion in distributionChannels',
+          storeItemId,
+          submittedItemRevisionStatus: submitted,
+        }),
+      )
+    }
     return { live, inReview: { known: true, version: submittedVersion }, reviewStatus: 'pending' }
   }
   if (submitted.state === 'REJECTED' || submitted.state === 'CANCELLED') {
@@ -109,6 +134,14 @@ async function getState(
       rejectionReason: 'Chrome Web Store does not expose rejection reasons via API — check the Developer Dashboard or your email.',
     }
   }
+  console.warn(
+    JSON.stringify({
+      level: 'warn',
+      message: 'chrome fetchStatus: unhandled submittedItemRevisionStatus state',
+      storeItemId,
+      submittedItemRevisionStatus: submitted,
+    }),
+  )
   return { live, inReview: { known: true } }
 }
 

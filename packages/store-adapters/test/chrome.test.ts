@@ -127,6 +127,41 @@ describe('chrome adapter — getState', () => {
     expect(warn).not.toHaveBeenCalled()
     warn.mockRestore()
   })
+
+  it('logs the fetchStatus snapshot (without publicKey) and warns on unhandled submitted state', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { fetch } = queueFetch([
+      { status: 200, body: { access_token: 'at' } },
+      {
+        status: 200,
+        body: {
+          publicKey: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...',
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '0.0.76' }] },
+          submittedItemRevisionStatus: { state: 'ITEM_STATE_UNSPECIFIED' },
+        },
+      },
+    ])
+    const state = await createChromeAdapter(fetch).getState(await creds(), { storeItemId: ITEM })
+    expect(state).toEqual({ live: { known: true, version: '0.0.76' }, inReview: { known: true } })
+    expect(log).toHaveBeenCalledTimes(1)
+    const logged = JSON.parse(log.mock.calls[0]![0] as string)
+    expect(logged).toMatchObject({
+      level: 'info',
+      message: 'chrome fetchStatus',
+      storeItemId: ITEM,
+      submittedItemRevisionStatus: { state: 'ITEM_STATE_UNSPECIFIED' },
+    })
+    expect(logged.publicKey).toBeUndefined()
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(warn.mock.calls[0]![0] as string)).toMatchObject({
+      level: 'warn',
+      message: 'chrome fetchStatus: unhandled submittedItemRevisionStatus state',
+      storeItemId: ITEM,
+    })
+    log.mockRestore()
+    warn.mockRestore()
+  })
 })
 
 describe('chrome adapter — submit', () => {
