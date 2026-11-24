@@ -99,7 +99,7 @@ function ApiKeysSection() {
             <KeyRound />
             <AlertTitle>Copy now — shown once</AlertTitle>
             <AlertDescription className="flex flex-wrap items-center gap-2">
-              <code className="rounded bg-muted px-2 py-1 text-xs">{freshKey}</code>
+              <code className="break-all rounded bg-muted px-2 py-1 text-xs">{freshKey}</code>
               <Button
                 variant="outline"
                 size="sm"
@@ -612,9 +612,7 @@ function PaymentCredentialsSection() {
             </Button>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            Stripe Connect OAuth is not configured on this server yet.
-          </p>
+          <p className="text-sm text-muted-foreground">Stripe Connect OAuth is not configured on this server yet.</p>
         )}
       </div>
     </Section>
@@ -676,7 +674,6 @@ function BuyerSupportSection() {
     </Section>
   )
 }
-
 
 function SettingsPage() {
   // Each section fetches its own data independently, so the page's real

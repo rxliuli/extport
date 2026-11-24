@@ -1,4 +1,12 @@
-import { api, ApiError, type MatrixExtension, type MatrixTarget, type SafariPlatform, type Store, type TargetLifecycle } from '@/api'
+import {
+  api,
+  ApiError,
+  type MatrixExtension,
+  type MatrixTarget,
+  type SafariPlatform,
+  type Store,
+  type TargetLifecycle,
+} from '@/api'
 import {
   affectedExtensions,
   classifyFleet,
@@ -158,7 +166,7 @@ function ExtensionsPage() {
         }
         action={
           <form
-            className="flex items-center gap-2"
+            className="flex w-full items-center gap-2 sm:w-auto"
             onSubmit={(e) => {
               e.preventDefault()
               if (name.trim()) create.mutate(name.trim())
@@ -169,11 +177,17 @@ function ExtensionsPage() {
               onChange={(e) => setName(e.target.value)}
               placeholder="New extension name"
               aria-label="New extension name"
-              className="h-9 w-52"
+              className="h-9 min-w-0 flex-1 sm:w-52 sm:flex-none"
               required
             />
-            <Button type="submit" disabled={create.isPending}>
-              <Plus /> Add extension
+            <Button
+              type="submit"
+              disabled={create.isPending}
+              aria-label="Add extension"
+              className="relative max-sm:size-9 max-sm:px-0 max-sm:after:absolute max-sm:after:-inset-1"
+            >
+              <Plus aria-hidden="true" />
+              <span className="hidden sm:inline">Add extension</span>
             </Button>
           </form>
         }
@@ -193,8 +207,7 @@ function ExtensionsPage() {
                 <>
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3.5">
                     <h2 className="text-[15px] font-semibold">
-                      Needs your action{' '}
-                      {/* Issues, not extensions: one outage across four extensions is one entry. */}
+                      Needs your action {/* Issues, not extensions: one outage across four extensions is one entry. */}
                       <span className="font-medium text-muted-foreground">
                         · {entries.length} {entries.length === 1 ? 'issue' : 'issues'}
                       </span>
@@ -204,7 +217,10 @@ function ExtensionsPage() {
                   <ul>
                     {entries.map((entry) =>
                       entry.type === 'group' ? (
-                        <GroupedErrorRow key={`group:${entry.group.store}:${entry.group.summary}`} group={entry.group} />
+                        <GroupedErrorRow
+                          key={`group:${entry.group.store}:${entry.group.summary}`}
+                          group={entry.group}
+                        />
                       ) : (
                         <ActionRow key={actionKey(entry.item)} item={entry.item} />
                       ),

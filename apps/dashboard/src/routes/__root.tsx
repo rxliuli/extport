@@ -100,13 +100,13 @@ function RootLayout() {
         // in ui/card) so the login, pending, and portal cards — which render
         // outside this shell — keep their framed look.
         <div className="mx-auto max-w-6xl p-4 sm:p-6 max-sm:[&_[data-slot=card]]:-mx-4 max-sm:[&_[data-slot=card]]:rounded-none max-sm:[&_[data-slot=card]]:border-x-0">
-          {/* One row at every width: below sm the nav links and Sign out
-              fold into the dropdown so the header never wraps or clips. */}
+          {/* One row at every width: below lg the nav links and account
+              controls fold into the dropdown so the header never wraps or overflows. */}
           <header className="mb-4 flex items-center gap-6 sm:mb-8">
             <Link to="/" className="text-xl font-bold tracking-tight">
               extport
             </Link>
-            <nav aria-label="Primary" className="hidden items-center gap-1 sm:flex">
+            <nav aria-label="Primary" className="hidden items-center gap-1 lg:flex">
               <Link
                 to="/"
                 className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -146,16 +146,16 @@ function RootLayout() {
             </nav>
             <div className="ml-auto flex items-center gap-3 text-sm text-muted-foreground">
               <ReleaseInbox />
-              <span className="hidden sm:inline">{me.user?.displayName ?? me.user?.email}</span>
-              <Badge variant="secondary" className="hidden sm:inline-flex">
+              <span className="hidden max-w-44 truncate lg:inline">{me.user?.displayName ?? me.user?.email}</span>
+              <Badge variant="secondary" className="hidden lg:inline-flex">
                 {me.tenant.plan}
               </Badge>
-              <Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={() => void signOut()}>
+              <Button variant="outline" size="sm" className="hidden lg:inline-flex" onClick={() => void signOut()}>
                 Sign out
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon-sm" className="sm:hidden" aria-label="Menu">
+                  <Button variant="outline" size="icon-sm" className="lg:hidden" aria-label="Menu">
                     <Menu />
                   </Button>
                 </DropdownMenuTrigger>
@@ -177,7 +177,7 @@ function RootLayout() {
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   {/* Account line: who's signed in and on which plan — the
-                      plan badge only sits in the header from sm up. */}
+                      plan badge only sits in the header from lg up. */}
                   <div className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm">
                     <span className="truncate text-muted-foreground">{me.user?.displayName ?? me.user?.email}</span>
                     <Badge variant="secondary">{me.tenant.plan}</Badge>
