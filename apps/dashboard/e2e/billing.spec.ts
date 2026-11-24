@@ -267,12 +267,12 @@ test.describe('Billing & payment UI E2E', () => {
 
     // Buyer checkout-success page renders clean subscription confirmation (no activation code).
     await page.goto(`/purchase/success?session_id=${encodeURIComponent(checkoutBody.sessionId)}`)
-    await expect(page.getByText('Thanks for subscribing to Sub Pro Ext (pro)!')).toBeVisible()
-    await expect(page.getByText('Your subscription is now active.')).toBeVisible()
+    await expect(page.getByText('Thanks for subscribing to Sub Pro Ext!')).toBeVisible()
+    await expect(page.getByText(/Your pro plan is now active\./)).toBeVisible()
     await expect(page.getByText('Your activation code:')).toHaveCount(0)
     await page.goto(`/extensions/${extensionId}/licensing`)
 
-    // Duplicate checkout for an already-subscribed user redirects to Billing Portal.
+    // Duplicate checkout for an already-subscribed user redirects to the Extport Buyer Portal.
     const dupCheckoutRes = await page.request.post('/api/v1/subscriptions/checkout', {
       data: {
         extensionId,
@@ -288,7 +288,7 @@ test.describe('Billing & payment UI E2E', () => {
     const dupBody = (await dupCheckoutRes.json()) as { action: string; reason: string; url: string }
     expect(dupBody.action).toBe('portal')
     expect(dupBody.reason).toBe('already_subscribed')
-    expect(dupBody.url).toContain('https://billing.stripe.test/p/session/')
+    expect(dupBody.url).toMatch(/\/portal\?code=/)
 
     // Disable licensing: paused UI hides billing-mode radio switcher, blocks new checkout,
     // and keeps entitlements + billing portal active for existing subscribers.
