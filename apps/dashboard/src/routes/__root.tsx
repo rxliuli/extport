@@ -106,7 +106,7 @@ function RootLayout() {
             <Link to="/" className="text-xl font-bold tracking-tight">
               extport
             </Link>
-            <nav className="hidden items-center gap-1 sm:flex">
+            <nav aria-label="Primary" className="hidden items-center gap-1 sm:flex">
               <Link
                 to="/"
                 className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -121,6 +121,13 @@ function RootLayout() {
                 activeProps={{ className: 'bg-accent text-foreground' }}
               >
                 Licenses
+              </Link>
+              <Link
+                to="/subscriptions"
+                className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                activeProps={{ className: 'bg-accent text-foreground' }}
+              >
+                Subscriptions
               </Link>
               <Link
                 to="/analytics"
@@ -160,6 +167,9 @@ function RootLayout() {
                     <Link to="/licenses">Licenses</Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
+                    <Link to="/subscriptions">Subscriptions</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
                     <Link to="/analytics">Analytics</Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
@@ -192,8 +202,8 @@ function PendingScreen({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
         <CardHeader>
           <CardTitle className="text-2xl tracking-tight">Account on hold</CardTitle>
           <CardDescription>
-            Hi {me.user?.displayName ?? me.user?.email} — your account isn't active right now. If you think this is
-            a mistake, reach us on Discord and we'll sort it out.
+            Hi {me.user?.displayName ?? me.user?.email} — your account isn't active right now. If you think this is a
+            mistake, reach us on Discord and we'll sort it out.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

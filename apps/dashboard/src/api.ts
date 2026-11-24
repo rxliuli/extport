@@ -143,6 +143,7 @@ export interface CredentialRow {
 
 export type EntitlementType = 'perpetual' | 'balance' | 'recurring'
 export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired'
+export type SubscriptionStatusFilter = SubscriptionStatus | 'canceling'
 
 export type BillingInterval = 'one_time' | 'month' | 'year'
 
@@ -217,15 +218,38 @@ export interface SubscriptionRow {
   currentPeriodStart: string | null
   currentPeriodEnd: string | null
   cancelAtPeriodEnd: boolean
+  pendingPlanId?: string | null
+  pendingEffectiveAt?: string | null
+  pendingPlan?: { tier: string; billingInterval: BillingInterval } | null
   amountTotal: number | null
   currency: string | null
   country: string | null
   tier: string
+  billingInterval?: BillingInterval
   extensionName: string
   /** ISO date string (Date -> JSON) */
   createdAt: string
   /** ISO date string (Date -> JSON) */
   updatedAt: string
+}
+
+export interface SubscriptionsOverview {
+  /** Dominant plan currency among active subscriptions — the currency MRR is reported in. */
+  currency: string
+  /** Estimated monthly recurring revenue in smallest currency unit (yearly plans normalized / 12). */
+  mrr: number
+  hasMultipleCurrencies: boolean
+  counts: {
+    active: number
+    trialing: number
+    pastDue: number
+    canceling: number
+    canceled: number
+    expired: number
+    total: number
+  }
+  newLast30d: number
+  newPrev30d: number
 }
 
 export interface PaymentCredentialRow {

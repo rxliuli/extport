@@ -1,17 +1,12 @@
 import { isValidHttpUrl } from '@extport/shared'
-import { and, desc, eq, isNotNull, lt, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNotNull, lt, or, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
 import { extensions, plans, subscriptions } from '../db'
 import { createMagicLink } from '../lib/buyer-session'
 import { formatSubscriptionEntitlement, isSubscriptionEntitled, pickBestSubscription } from '../lib/entitlement'
-import {
-  createStripeCheckoutSession,
-  resolveStripeApiBase,
-  StripeApiError,
-  stripeErrorToHttp,
-} from '../lib/stripe-api'
+import { createStripeCheckoutSession, resolveStripeApiBase, StripeApiError, stripeErrorToHttp } from '../lib/stripe-api'
 import { loadStripeCredential, resolveStripeAuth } from '../lib/stripe-credentials'
 import { badRequest } from '../lib/validation'
 import { requireActiveTenant, requireAuth, type AppEnv } from '../middleware/auth'
@@ -26,6 +21,7 @@ const DEFAULT_PAGE_SIZE = 20
 const MAX_PAGE_SIZE = 100
 
 const SUBSCRIPTION_STATUSES = ['trialing', 'active', 'past_due', 'canceled', 'expired'] as const
+const SUBSCRIPTION_STATUS_FILTERS = [...SUBSCRIPTION_STATUSES, 'canceling'] as const
 
 const extensionIdField = v.pipe(
   v.string('extensionId is required'),
@@ -47,7 +43,7 @@ route.get(
     tags: ['Subscriptions'],
     summary: 'List subscriptions',
     description:
-      'Newest first with keyset pagination (?limit=20&before=createdAt~id or ?cursor=createdAt~id). Filter by ?extension=, ?status=, or ?search= (case-insensitive substring of buyerEmail or externalUserId).',
+      'Newest first with keyset pagination (?limit=20&before=createdAt~id or ?cursor=createdAt~id). Filter by ?extension=, ?status= (trialing, active, past_due, canceled, expired, or canceling), or ?search= (case-insensitive substring of buyerEmail or externalUserId).',
     responses: { 200: { description: 'OK' }, 400: { description: 'Invalid cursor or status filter' } },
   }),
   async (c) => {
@@ -64,10 +60,16 @@ route.get(
     const filters = [eq(subscriptions.tenantId, tenant.id)]
     if (extensionId) filters.push(eq(subscriptions.extensionId, extensionId))
     if (status) {
-      if (!(SUBSCRIPTION_STATUSES as readonly string[]).includes(status)) {
-        return c.json({ error: `status must be one of: ${SUBSCRIPTION_STATUSES.join(', ')}` }, 400)
+      if (!(SUBSCRIPTION_STATUS_FILTERS as readonly string[]).includes(status)) {
+        return c.json({ error: `status must be one of: ${SUBSCRIPTION_STATUS_FILTERS.join(', ')}` }, 400)
       }
-      filters.push(eq(subscriptions.status, status as (typeof SUBSCRIPTION_STATUSES)[number]))
+      if (status === 'canceling') {
+        filters.push(
+          and(inArray(subscriptions.status, ['active', 'trialing']), eq(subscriptions.cancelAtPeriodEnd, true))!,
+        )
+      } else {
+        filters.push(eq(subscriptions.status, status as (typeof SUBSCRIPTION_STATUSES)[number]))
+      }
     }
     if (search) {
       const pattern = `%${search.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`
@@ -95,6 +97,7 @@ route.get(
       .select({
         subscription: subscriptions,
         tier: plans.tier,
+        billingInterval: plans.billingInterval,
         extensionName: extensions.name,
       })
       .from(subscriptions)
@@ -104,14 +107,121 @@ route.get(
       .orderBy(desc(subscriptions.createdAt), desc(subscriptions.id))
       .limit(limit + 1)
 
-    const page = rows.slice(0, limit).map((r) => ({
+    const slice = rows.slice(0, limit)
+    const pendingPlanIds = [
+      ...new Set(slice.map((r) => r.subscription.pendingPlanId).filter((id): id is string => Boolean(id))),
+    ]
+    const pendingPlanMap = new Map<
+      string,
+      { tier: string; billingInterval: typeof plans.$inferSelect.billingInterval }
+    >()
+    if (pendingPlanIds.length > 0) {
+      const pendingPlans = await db
+        .select({ id: plans.id, tier: plans.tier, billingInterval: plans.billingInterval })
+        .from(plans)
+        .where(and(eq(plans.tenantId, tenant.id), inArray(plans.id, pendingPlanIds)))
+      for (const p of pendingPlans) {
+        pendingPlanMap.set(p.id, { tier: p.tier, billingInterval: p.billingInterval })
+      }
+    }
+
+    const page = slice.map((r) => ({
       ...r.subscription,
       tier: r.tier,
+      billingInterval: r.billingInterval,
+      pendingPlan: r.subscription.pendingPlanId ? (pendingPlanMap.get(r.subscription.pendingPlanId) ?? null) : null,
       extensionName: r.extensionName,
     }))
     const last = page[page.length - 1]
     const nextCursor = rows.length > limit ? `${last!.createdAt}~${last!.id}` : null
     return c.json({ subscriptions: page, nextCursor })
+  },
+)
+
+route.get(
+  '/overview',
+  describeRoute({
+    tags: ['Subscriptions'],
+    summary: 'Subscription KPI overview across all extensions',
+    description:
+      'Current subscription counts by status, estimated monthly recurring revenue (MRR) in the dominant plan currency across active subscriptions (yearly plans normalized by /12), and new subscriptions started in the last 30 days vs the previous 30 days.',
+    responses: { 200: { description: 'OK' } },
+  }),
+  async (c) => {
+    const db = c.get('db')
+    const tenant = c.get('tenant')
+
+    const grouped = await db
+      .select({
+        status: subscriptions.status,
+        cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
+        currency: plans.currency,
+        billingInterval: plans.billingInterval,
+        count: sql<number>`count(*)`,
+        sumAmount: sql<number>`coalesce(sum(${plans.amount}), 0)`,
+      })
+      .from(subscriptions)
+      .innerJoin(plans, eq(plans.id, subscriptions.planId))
+      .where(eq(subscriptions.tenantId, tenant.id))
+      .groupBy(subscriptions.status, subscriptions.cancelAtPeriodEnd, plans.currency, plans.billingInterval)
+
+    const counts = {
+      active: 0,
+      trialing: 0,
+      pastDue: 0,
+      canceling: 0,
+      canceled: 0,
+      expired: 0,
+      total: 0,
+    }
+
+    const mrrByCurrency = new Map<string, number>()
+    for (const row of grouped) {
+      const n = Number(row.count)
+      counts.total += n
+      if (row.status === 'active') counts.active += n
+      else if (row.status === 'trialing') counts.trialing += n
+      else if (row.status === 'past_due') counts.pastDue += n
+      else if (row.status === 'canceled') counts.canceled += n
+      else if (row.status === 'expired') counts.expired += n
+
+      if ((row.status === 'active' || row.status === 'trialing') && row.cancelAtPeriodEnd) {
+        counts.canceling += n
+      }
+
+      if (row.status === 'active') {
+        const monthly = row.billingInterval === 'year' ? Math.round(Number(row.sumAmount) / 12) : Number(row.sumAmount)
+        const curr = row.currency.toLowerCase()
+        mrrByCurrency.set(curr, (mrrByCurrency.get(curr) ?? 0) + monthly)
+      }
+    }
+
+    const sortedCurrencies = [...mrrByCurrency.entries()].sort((a, b) => b[1] - a[1])
+    const currency = sortedCurrencies[0]?.[0] ?? 'usd'
+    const mrr = sortedCurrencies[0]?.[1] ?? 0
+    const hasMultipleCurrencies = sortedCurrencies.length > 1
+
+    const nowMs = Date.now()
+    const dayMs = 24 * 60 * 60 * 1000
+    const last30dStart = new Date(nowMs - 30 * dayMs).toISOString()
+    const prev30dStart = new Date(nowMs - 60 * dayMs).toISOString()
+
+    const [recent] = await db
+      .select({
+        newLast30d: sql<number>`coalesce(sum(case when ${subscriptions.createdAt} >= ${last30dStart} then 1 else 0 end), 0)`,
+        newPrev30d: sql<number>`coalesce(sum(case when ${subscriptions.createdAt} >= ${prev30dStart} and ${subscriptions.createdAt} < ${last30dStart} then 1 else 0 end), 0)`,
+      })
+      .from(subscriptions)
+      .where(and(eq(subscriptions.tenantId, tenant.id), gte(subscriptions.createdAt, prev30dStart)))
+
+    return c.json({
+      currency,
+      mrr,
+      hasMultipleCurrencies,
+      counts,
+      newLast30d: Number(recent?.newLast30d ?? 0),
+      newPrev30d: Number(recent?.newPrev30d ?? 0),
+    })
   },
 )
 

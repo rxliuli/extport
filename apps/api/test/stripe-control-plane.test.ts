@@ -922,11 +922,12 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
         headers: { cookie: sessionCookie },
       })
     ).json()) as {
-      subscriptions: (Subscription & { tier: string; extensionName: string })[]
+      subscriptions: (Subscription & { tier: string; billingInterval: string; extensionName: string })[]
       nextCursor: string | null
     }
     expect(page1.subscriptions.map((s) => s.id)).toEqual([s3.id, s2.id])
     expect(page1.subscriptions[0]!.tier).toBe('pro')
+    expect(page1.subscriptions[0]!.billingInterval).toBe('month')
     expect(page1.subscriptions[0]!.extensionName).toBe('Control Plane Ext')
     expect(page1.nextCursor).not.toBeNull()
 
@@ -988,6 +989,165 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
       headers: { cookie: sessionCookie },
     })
     expect(delBlocked.status).toBe(409)
+  })
+
+  it('GET /api/v1/subscriptions/overview aggregates MRR, status counts, and 30d trend, and ?status=canceling filters properly', async () => {
+    const { db, tenantId, sessionCookie, extension } = await setupControlPlaneTenant()
+    const ext2 = await createExtension(sessionCookie, 'Second Sub Ext')
+    await db
+      .update(extensions)
+      .set({ licensingEnabled: true, billingMode: 'subscription' })
+      .where(eq(extensions.id, ext2.id))
+
+    const monthlyRes = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extension.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        billingInterval: 'month',
+        currency: 'usd',
+        amount: 500,
+        stripePriceId: 'price_ov_m',
+      }),
+    })
+    const { plan: monthlyPlan } = (await monthlyRes.json()) as { plan: Plan }
+
+    const yearlyRes = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: ext2.id,
+        tier: 'team',
+        entitlementType: 'recurring',
+        billingInterval: 'year',
+        currency: 'usd',
+        amount: 12000,
+        stripePriceId: 'price_ov_y',
+      }),
+    })
+    const { plan: yearlyPlan } = (await yearlyRes.json()) as { plan: Plan }
+
+    const nowMs = Date.now()
+    const dayMs = 24 * 60 * 60 * 1000
+    const recentIso = new Date(nowMs - 5 * dayMs).toISOString()
+    const prevIso = new Date(nowMs - 40 * dayMs).toISOString()
+    const oldIso = new Date(nowMs - 80 * dayMs).toISOString()
+
+    // 1) Active monthly ($5/mo) created 5 days ago
+    await seedSubscription(db, {
+      tenantId,
+      extensionId: extension.id,
+      planId: monthlyPlan.id,
+      buyerEmail: 'm1@example.com',
+      status: 'active',
+      createdAt: recentIso,
+    })
+    // 2) Active yearly ($120/yr -> $10/mo), canceling at period end, created 40 days ago
+    const cancelingSub = await seedSubscription(db, {
+      tenantId,
+      extensionId: ext2.id,
+      planId: yearlyPlan.id,
+      buyerEmail: 'y1@example.com',
+      status: 'active',
+      cancelAtPeriodEnd: true,
+      createdAt: prevIso,
+    })
+    // 3) Trialing created 5 days ago (not in MRR)
+    await seedSubscription(db, {
+      tenantId,
+      extensionId: extension.id,
+      planId: monthlyPlan.id,
+      buyerEmail: 't1@example.com',
+      status: 'trialing',
+      createdAt: recentIso,
+    })
+    // 4) Past due created 80 days ago
+    await seedSubscription(db, {
+      tenantId,
+      extensionId: extension.id,
+      planId: monthlyPlan.id,
+      buyerEmail: 'pd@example.com',
+      status: 'past_due',
+      createdAt: oldIso,
+    })
+    // 5) Expired created 80 days ago
+    await seedSubscription(db, {
+      tenantId,
+      extensionId: extension.id,
+      planId: monthlyPlan.id,
+      buyerEmail: 'exp@example.com',
+      status: 'expired',
+      createdAt: oldIso,
+    })
+
+    // Seed an unrelated tenant's subscription to verify tenant isolation.
+    const other = await setupControlPlaneTenant()
+    const otherPlanRes = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: other.sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: other.extension.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        billingInterval: 'month',
+        currency: 'usd',
+        amount: 9999,
+        stripePriceId: 'price_other_ov',
+      }),
+    })
+    const { plan: otherPlan } = (await otherPlanRes.json()) as { plan: Plan }
+    await seedSubscription(db, {
+      tenantId: other.tenantId,
+      extensionId: other.extension.id,
+      planId: otherPlan.id,
+      buyerEmail: 'other@example.com',
+      status: 'active',
+      createdAt: recentIso,
+    })
+
+    const ovRes = await request('/api/v1/subscriptions/overview', {
+      headers: { cookie: sessionCookie },
+    })
+    expect(ovRes.status).toBe(200)
+    expect(await ovRes.json()).toEqual({
+      currency: 'usd',
+      mrr: 1500, // 500 (monthly) + 12000 / 12 (yearly)
+      hasMultipleCurrencies: false,
+      counts: {
+        active: 2,
+        trialing: 1,
+        pastDue: 1,
+        canceling: 1,
+        canceled: 0,
+        expired: 1,
+        total: 5,
+      },
+      newLast30d: 2,
+      newPrev30d: 1,
+    })
+
+    // ?status=canceling returns only active/trialing subscriptions with cancelAtPeriodEnd=true.
+    const cancelingRes = await request('/api/v1/subscriptions?status=canceling', {
+      headers: { cookie: sessionCookie },
+    })
+    expect(cancelingRes.status).toBe(200)
+    const cancelingBody = (await cancelingRes.json()) as { subscriptions: Subscription[] }
+    expect(cancelingBody.subscriptions.map((s) => s.id)).toEqual([cancelingSub.id])
+
+    // Attach pendingPlanId to verify pendingPlan resolution in GET /api/v1/subscriptions.
+    await db
+      .update(subscriptions)
+      .set({ pendingPlanId: monthlyPlan.id, pendingEffectiveAt: '2027-01-01T00:00:00.000Z' })
+      .where(eq(subscriptions.id, cancelingSub.id))
+    const pendingRes = await request('/api/v1/subscriptions?search=y1@example.com', {
+      headers: { cookie: sessionCookie },
+    })
+    const pendingBody = (await pendingRes.json()) as {
+      subscriptions: Array<Subscription & { pendingPlan: { tier: string; billingInterval: string } | null }>
+    }
+    expect(pendingBody.subscriptions[0]!.pendingPlan).toEqual({ tier: 'pro', billingInterval: 'month' })
   })
 
   it('reuses one Stripe Product across multiple plans of the same extension', async () => {

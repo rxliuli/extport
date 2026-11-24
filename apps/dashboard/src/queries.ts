@@ -19,6 +19,8 @@ import {
   type PublishTarget,
   type Store,
   type SubscriptionRow,
+  type SubscriptionsOverview,
+  type SubscriptionStatusFilter,
 } from './api'
 
 export const meQuery = queryOptions({
@@ -92,6 +94,30 @@ export const subscriptionsInfiniteQuery = (extensionId: string) =>
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   })
 
+/** The cross-product subscription list — support lookup across all subscription extensions. */
+export const globalSubscriptionsQuery = (search: string, status: SubscriptionStatusFilter | 'all') =>
+  infiniteQueryOptions({
+    queryKey: ['subscriptions', 'global', search, status],
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams()
+      if (search) params.set('search', search)
+      if (status !== 'all') params.set('status', status)
+      if (pageParam) params.set('before', pageParam)
+      const qs = params.toString()
+      return api<{ subscriptions: SubscriptionRow[]; nextCursor: string | null }>(
+        `/api/v1/subscriptions${qs ? `?${qs}` : ''}`,
+      )
+    },
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    placeholderData: keepPreviousData,
+  })
+
+export const subscriptionsOverviewQuery = queryOptions({
+  queryKey: ['subscriptions', 'overview'],
+  queryFn: () => api<SubscriptionsOverview>('/api/v1/subscriptions/overview'),
+})
+
 /** The cross-product license list — the support workflow's entry point. */
 export const globalLicensesQuery = (search: string) =>
   infiniteQueryOptions({
@@ -163,14 +189,12 @@ export const credentialsQuery = queryOptions({
 
 export const paymentCredentialsStatusQuery = queryOptions({
   queryKey: ['payment-credentials'],
-  queryFn: () =>
-    api<{ credentials: PaymentCredentialRow[]; connectEnabled?: boolean }>('/api/v1/payment-credentials'),
+  queryFn: () => api<{ credentials: PaymentCredentialRow[]; connectEnabled?: boolean }>('/api/v1/payment-credentials'),
 })
 
 export const paymentCredentialsQuery = queryOptions({
   queryKey: ['payment-credentials'],
-  queryFn: () =>
-    api<{ credentials: PaymentCredentialRow[]; connectEnabled?: boolean }>('/api/v1/payment-credentials'),
+  queryFn: () => api<{ credentials: PaymentCredentialRow[]; connectEnabled?: boolean }>('/api/v1/payment-credentials'),
   select: (r) => r.credentials,
 })
 

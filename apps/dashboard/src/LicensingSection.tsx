@@ -817,7 +817,18 @@ function PlanEditDialog({
   )
 }
 
-function SubscriptionStatusCell({ sub }: { sub: SubscriptionRow }) {
+export function SubscriptionPlanCell({ tier, billingInterval }: { tier: string; billingInterval?: BillingInterval }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <Badge variant="secondary">{tier}</Badge>
+      {billingInterval && billingInterval !== 'one_time' && (
+        <span className="text-xs text-muted-foreground">{billingInterval === 'year' ? 'yearly' : 'monthly'}</span>
+      )}
+    </div>
+  )
+}
+
+export function SubscriptionStatusCell({ sub }: { sub: SubscriptionRow }) {
   const periodEnd = sub.currentPeriodEnd ? formatDate(sub.currentPeriodEnd) : null
   let label = sub.status.replace('_', ' ')
   let variant: 'secondary' | 'outline' | 'destructive' = 'secondary'
@@ -838,6 +849,10 @@ function SubscriptionStatusCell({ sub }: { sub: SubscriptionRow }) {
     variant = 'outline'
     label = 'canceling'
     if (periodEnd) hint = `ends ${periodEnd}`
+  } else if (sub.pendingPlan) {
+    const targetInterval = sub.pendingPlan.billingInterval === 'year' ? 'yr' : 'mo'
+    const eff = sub.pendingEffectiveAt ? formatDate(sub.pendingEffectiveAt) : periodEnd
+    hint = `→ ${sub.pendingPlan.tier} (${targetInterval})${eff ? ` ${eff}` : ''}`
   } else if (sub.status === 'trialing') {
     variant = 'secondary'
     if (periodEnd) hint = `trial ends ${periodEnd}`
@@ -881,7 +896,7 @@ function SubscriptionsCard({ extension }: { extension: Extension }) {
                   <LicenseBuyerCell buyerEmail={sub.buyerEmail} externalUserId={sub.externalUserId} />
                 </TableCell>
                 <TableCell>
-                  <Badge variant="secondary">{sub.tier}</Badge>
+                  <SubscriptionPlanCell tier={sub.tier} billingInterval={sub.billingInterval} />
                 </TableCell>
                 <TableCell className="text-muted-foreground">{formatAmount(sub.amountTotal, sub.currency)}</TableCell>
                 <TableCell>

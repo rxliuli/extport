@@ -30,11 +30,7 @@ function signStripeWebhook(payload: string, secret: string): string {
   return `t=${timestamp},v1=${sig}`
 }
 
-async function postStripeWebhook(
-  page: Page,
-  stripeAccountId: string,
-  event: Record<string, unknown>,
-): Promise<void> {
+async function postStripeWebhook(page: Page, stripeAccountId: string, event: Record<string, unknown>): Promise<void> {
   const payload = JSON.stringify({ ...event, account: stripeAccountId })
   const signature = signStripeWebhook(payload, CONNECT_WEBHOOK_SECRET)
   const res = await page.request.post('/api/v1/licensing/webhooks/stripe/connect', {
@@ -119,7 +115,10 @@ test.describe('Billing & payment UI E2E', () => {
     // Complete Stripe Connect OAuth flow and verify connection persists across reload.
     await page.getByRole('link', { name: 'Connect with Stripe' }).click()
     await expect(page.getByText('Connected', { exact: true })).toBeVisible()
-    const accountId = (await page.locator('code', { hasText: /^acct_e2e_/ }).first().textContent())!.trim()
+    const accountId = (await page
+      .locator('code', { hasText: /^acct_e2e_/ })
+      .first()
+      .textContent())!.trim()
     await page.reload()
     await expect(page.getByText(accountId)).toBeVisible()
 
@@ -264,6 +263,26 @@ test.describe('Billing & payment UI E2E', () => {
     await expect(page.getByText('alice@example.com')).toBeVisible()
     await expect(page.getByText('usr_alice_e2e')).toBeVisible()
     await expect(page.getByText('$5.99', { exact: true })).toBeVisible()
+
+    // Global Subscriptions page shows KPIs, cross-extension listing, search, and status filter.
+    await page.getByRole('link', { name: 'Subscriptions', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Subscriptions', level: 1 })).toBeVisible()
+    await expect(page.getByText('Est. MRR')).toBeVisible()
+    await expect(page.getByText('$5.99', { exact: true }).first()).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Sub Pro Ext' })).toBeVisible()
+    await expect(page.getByText('alice@example.com')).toBeVisible()
+    await expect(page.getByText('usr_alice_e2e')).toBeVisible()
+    await expect(page.getByText('monthly')).toBeVisible()
+
+    // Status filter + search filter.
+    await page.getByRole('button', { name: /Past due/ }).click()
+    await expect(page.getByText('No subscription matches your filters.')).toBeVisible()
+    await page.getByRole('button', { name: /^Active/ }).click()
+    await expect(page.getByText('alice@example.com')).toBeVisible()
+    await page.getByPlaceholder('Search by buyer email or user ID').fill('nobody@example.com')
+    await expect(page.getByText('No subscription matches your filters.')).toBeVisible()
+    await page.getByRole('button', { name: 'Clear search' }).click()
+    await expect(page.getByText('alice@example.com')).toBeVisible()
 
     // Buyer checkout-success page renders clean subscription confirmation (no activation code).
     await page.goto(`/purchase/success?session_id=${encodeURIComponent(checkoutBody.sessionId)}`)

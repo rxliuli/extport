@@ -16,6 +16,7 @@ import { Route as LicensesRouteImport } from './routes/licenses'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PortalRouteImport } from './routes/portal'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SubscriptionsRouteImport } from './routes/subscriptions'
 import { Route as ExtensionsExtensionIdRouteImport } from './routes/extensions.$extensionId'
 import { Route as PurchaseSuccessRouteImport } from './routes/purchase.success'
 import { Route as ExtensionsExtensionIdIndexRouteImport } from './routes/extensions.$extensionId.index'
@@ -56,6 +57,11 @@ const PortalRoute = PortalRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SubscriptionsRoute = SubscriptionsRouteImport.update({
+  id: '/subscriptions',
+  path: '/subscriptions',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ExtensionsExtensionIdRoute = ExtensionsExtensionIdRouteImport.update({
@@ -101,6 +107,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/portal': typeof PortalRoute
   '/settings': typeof SettingsRoute
+  '/subscriptions': typeof SubscriptionsRoute
   '/extensions/$extensionId': typeof ExtensionsExtensionIdRouteWithChildren
   '/purchase/success': typeof PurchaseSuccessRoute
   '/extensions/$extensionId/analytics': typeof ExtensionsExtensionIdAnalyticsRoute
@@ -116,6 +123,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/portal': typeof PortalRoute
   '/settings': typeof SettingsRoute
+  '/subscriptions': typeof SubscriptionsRoute
   '/purchase/success': typeof PurchaseSuccessRoute
   '/extensions/$extensionId/analytics': typeof ExtensionsExtensionIdAnalyticsRoute
   '/extensions/$extensionId/licensing': typeof ExtensionsExtensionIdLicensingRoute
@@ -131,6 +139,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/portal': typeof PortalRoute
   '/settings': typeof SettingsRoute
+  '/subscriptions': typeof SubscriptionsRoute
   '/extensions/$extensionId': typeof ExtensionsExtensionIdRouteWithChildren
   '/purchase/success': typeof PurchaseSuccessRoute
   '/extensions/$extensionId/analytics': typeof ExtensionsExtensionIdAnalyticsRoute
@@ -148,6 +157,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/portal'
     | '/settings'
+    | '/subscriptions'
     | '/extensions/$extensionId'
     | '/purchase/success'
     | '/extensions/$extensionId/analytics'
@@ -163,6 +173,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/portal'
     | '/settings'
+    | '/subscriptions'
     | '/purchase/success'
     | '/extensions/$extensionId/analytics'
     | '/extensions/$extensionId/licensing'
@@ -177,6 +188,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/portal'
     | '/settings'
+    | '/subscriptions'
     | '/extensions/$extensionId'
     | '/purchase/success'
     | '/extensions/$extensionId/analytics'
@@ -193,6 +205,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   PortalRoute: typeof PortalRoute
   SettingsRoute: typeof SettingsRoute
+  SubscriptionsRoute: typeof SubscriptionsRoute
   ExtensionsExtensionIdRoute: typeof ExtensionsExtensionIdRouteWithChildren
   PurchaseSuccessRoute: typeof PurchaseSuccessRoute
 }
@@ -246,6 +259,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/subscriptions': {
+      id: '/subscriptions'
+      path: '/subscriptions'
+      fullPath: '/subscriptions'
+      preLoaderRoute: typeof SubscriptionsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/extensions/$extensionId': {
@@ -320,6 +340,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   PortalRoute: PortalRoute,
   SettingsRoute: SettingsRoute,
+  SubscriptionsRoute: SubscriptionsRoute,
   ExtensionsExtensionIdRoute: ExtensionsExtensionIdRouteWithChildren,
   PurchaseSuccessRoute: PurchaseSuccessRoute,
 }
