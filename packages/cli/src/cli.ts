@@ -3,6 +3,7 @@ import { cancel, confirm, intro, isCancel, log as clackLog, outro, select, spinn
 import { defineCommand, runMain } from 'citty'
 import { readFile } from 'node:fs/promises'
 import process from 'node:process'
+import pkg from '../package.json' with { type: 'json' }
 import { buildPushUrl, resolvePushContext, resolvePushOptions, type PushDefaults, type PushOptions, type RawPushArgs } from './args'
 import {
   clearGlobalConfig,
@@ -358,7 +359,7 @@ function withCleanErrors<A>(fn: (args: A) => Promise<void>): (ctx: { args: A }) 
 }
 
 const main = defineCommand({
-  meta: { name: 'extport', description: 'Publish browser extension artifacts' },
+  meta: { name: 'extport', version: pkg.version, description: 'Publish browser extension artifacts' },
   subCommands: {
     login: defineCommand({
       meta: { name: 'login', description: 'Authorize this machine via your browser' },
