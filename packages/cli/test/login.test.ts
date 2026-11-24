@@ -73,4 +73,10 @@ describe('login', () => {
     const { openBrowser } = capturedOpen()
     await expect(login('https://dash.extport.dev', { openBrowser, log: () => {}, timeoutMs: 20 })).rejects.toThrow(/timed out/)
   })
+
+  it('rejects non-http(s) API URLs before opening the browser', async () => {
+    const openBrowser = vi.fn()
+    await expect(login('file:///etc/passwd', { openBrowser, log: () => {} })).rejects.toThrow(/http:\/\/ or https:\/\//)
+    expect(openBrowser).not.toHaveBeenCalled()
+  })
 })

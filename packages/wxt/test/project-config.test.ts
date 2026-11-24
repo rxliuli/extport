@@ -27,10 +27,9 @@ describe('generateProjectConfig', () => {
   })
 
   it('unauthored fields never clobber existing values (CLI-written history survives)', () => {
-    const existing = { apiUrl: 'https://api.extport.dev', safari: { issuerId: 'iss-cli', keyId: 'KEY-cli', teamId: 'TEAM1' } }
+    const existing = { safari: { issuerId: 'iss-cli', keyId: 'KEY-cli', teamId: 'TEAM1' } }
     const { config } = generateProjectConfig(existing, { extension: 'ext_a', safari: { projectPath: '.output/X' } })
     expect(config).toEqual({
-      apiUrl: 'https://api.extport.dev',
       extension: 'ext_a',
       safari: { issuerId: 'iss-cli', keyId: 'KEY-cli', teamId: 'TEAM1', projectPath: '.output/X' },
     })

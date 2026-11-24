@@ -1,3 +1,5 @@
+import { DEFAULT_API_URL, nonEmpty, normalizeApiUrl, sameApiOrigin } from './config'
+
 export interface PushOptions {
   /** Omitted only for --store safari — the binary already reached the store out-of-band. */
   file?: string
@@ -22,9 +24,9 @@ export interface RawPushArgs {
 }
 
 /**
- * Falls back to `extport login`'s saved key, extport.config.json's
- * extension/apiUrl, and — for a WXT project — the zip's conventional
- * .output/ path and the version read out of it (see wxt-project.ts).
+ * Falls back to `extport login`'s saved key/url pair, extport.config.json's
+ * extension, and — for a WXT project — the zip's conventional .output/ path
+ * and the version read out of it (see wxt-project.ts).
  */
 export interface PushDefaults {
   extension?: string
@@ -49,10 +51,21 @@ export interface PushContext {
 export function resolvePushContext(raw: Pick<RawPushArgs, 'extension' | 'apiUrl' | 'apiKey'>, env: Record<string, string | undefined>, defaults: PushDefaults = {}): PushContext {
   const extension = raw.extension ?? defaults.extension
   if (!extension) throw new Error('--extension is required')
-  const apiKey = raw.apiKey ?? env.EXTPORT_API_KEY ?? defaults.apiKey
-  if (!apiKey) throw new Error('missing API key: run `extport login`, or set EXTPORT_API_KEY / pass --api-key')
-  const apiUrl = (raw.apiUrl ?? env.EXTPORT_API_URL ?? defaults.apiUrl ?? 'https://dash.extport.dev').replace(/\/+$/, '')
-  return { extension, apiUrl, apiKey }
+  const apiUrl = normalizeApiUrl(raw.apiUrl ?? nonEmpty(env.EXTPORT_API_URL) ?? nonEmpty(defaults.apiUrl) ?? DEFAULT_API_URL)
+  const explicitKey = raw.apiKey ?? nonEmpty(env.EXTPORT_API_KEY)
+  if (explicitKey) return { extension, apiUrl, apiKey: explicitKey }
+
+  const storedApiUrl = nonEmpty(defaults.apiUrl) ?? DEFAULT_API_URL
+  const storedKey = nonEmpty(defaults.apiKey)
+  if (storedKey) {
+    if (!sameApiOrigin(apiUrl, storedApiUrl)) {
+      throw new Error(
+        `stored API key belongs to ${storedApiUrl.replace(/\/+$/, '')}, not ${apiUrl} — run \`extport login --api-url ${apiUrl}\`, or set EXTPORT_API_KEY / pass --api-key`,
+      )
+    }
+    return { extension, apiUrl, apiKey: storedKey }
+  }
+  throw new Error('missing API key: run `extport login`, or set EXTPORT_API_KEY / pass --api-key')
 }
 
 /**

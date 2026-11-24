@@ -4,7 +4,19 @@ import { defineCommand, runMain } from 'citty'
 import { readFile } from 'node:fs/promises'
 import process from 'node:process'
 import { buildPushUrl, resolvePushContext, resolvePushOptions, type PushDefaults, type PushOptions, type RawPushArgs } from './args'
-import { clearGlobalConfig, loadGlobalConfig, loadProjectConfig, saveGlobalConfig, saveProjectConfig } from './config'
+import {
+  clearGlobalConfig,
+  DEFAULT_API_URL,
+  loadGlobalConfig,
+  loadProjectConfig,
+  normalizeApiUrl,
+  resolveApiUrl,
+  resolveCredentials,
+  resolveStoredApiKey,
+  saveGlobalConfig,
+  saveProjectConfig,
+  warnIfProjectApiUrl,
+} from './config'
 import { existsSync } from 'node:fs'
 import { createExtension, downloadTemplate, fetchExtensions, patchScaffold, slugify } from './scaffold'
 import { detectShell, extractCompletionSchema, generateCompletion, type Shell } from './completion'
@@ -15,11 +27,6 @@ import { fillMissingPushDefaults, fillMissingSafariBuildDefaults, promptText, re
 import { resolveSafariBuildOptions, safariDefaultsChanged, type RawSafariBuildArgs } from './safari-build-args'
 import { runSafariBuild } from './safari-build'
 import { inferPushDefaults } from './wxt-project'
-
-async function resolveApiUrl(flagApiUrl?: string): Promise<string> {
-  const [globalConfig, projectConfig] = await Promise.all([loadGlobalConfig(), loadProjectConfig()])
-  return (flagApiUrl ?? process.env.EXTPORT_API_URL ?? projectConfig.apiUrl ?? globalConfig.apiUrl ?? 'https://dash.extport.dev').replace(/\/+$/, '')
-}
 
 interface Me {
   authType: string
@@ -130,18 +137,26 @@ async function runPushAll(raw: RawPushArgs, defaults: PushDefaults): Promise<voi
 
 async function runPush(raw: RawPushArgs): Promise<void> {
   const [globalConfig, projectConfig] = await Promise.all([loadGlobalConfig(), loadProjectConfig()])
-  let defaults: PushDefaults = { extension: projectConfig.extension, apiKey: globalConfig.apiKey, apiUrl: projectConfig.apiUrl ?? globalConfig.apiUrl }
+  warnIfProjectApiUrl(projectConfig)
+  const targetApiUrl = resolveApiUrl({ flagApiUrl: raw.apiUrl, env: process.env, globalConfig })
+  let effectiveRaw = raw
+  let defaults: PushDefaults = { extension: projectConfig.extension, apiKey: globalConfig.apiKey, apiUrl: globalConfig.apiUrl }
   if (process.stdin.isTTY) {
-    defaults = { ...defaults, ...(await fillMissingPushDefaults(raw, process.env, defaults)) }
+    const matchedStoredKey = resolveStoredApiKey(globalConfig, targetApiUrl)
+    const filled = await fillMissingPushDefaults(raw, process.env, { extension: projectConfig.extension, apiKey: matchedStoredKey })
+    defaults = { ...defaults, extension: filled.extension }
+    if (!raw.apiKey && !process.env.EXTPORT_API_KEY && !matchedStoredKey && filled.apiKey) {
+      effectiveRaw = { ...raw, apiKey: filled.apiKey }
+    }
   }
 
-  if (!raw.file && !raw.store) {
-    await runPushAll(raw, defaults)
+  if (!effectiveRaw.file && !effectiveRaw.store) {
+    await runPushAll(effectiveRaw, defaults)
     return
   }
 
-  const inferred = await inferPushDefaults(raw, raw.store, process.cwd())
-  const options = resolvePushOptions(raw, process.env, { ...defaults, ...inferred })
+  const inferred = await inferPushDefaults(effectiveRaw, effectiveRaw.store, process.cwd())
+  const options = resolvePushOptions(effectiveRaw, process.env, { ...defaults, ...inferred })
   await pushOnce(options)
 }
 
@@ -181,7 +196,9 @@ async function runSafariBuildCommand(raw: RawSafariBuildArgs): Promise<void> {
 }
 
 async function runLogin(flagApiUrl?: string): Promise<void> {
-  const apiUrl = await resolveApiUrl(flagApiUrl)
+  const [globalConfig, projectConfig] = await Promise.all([loadGlobalConfig(), loadProjectConfig()])
+  warnIfProjectApiUrl(projectConfig)
+  const apiUrl = resolveApiUrl({ flagApiUrl, env: process.env, globalConfig })
   console.log(`Opening ${apiUrl} to authorize this machine…`)
   const result = await login(apiUrl)
   await saveGlobalConfig({ apiKey: result.apiKey, apiUrl })
@@ -196,10 +213,9 @@ async function runLogout(): Promise<void> {
 }
 
 async function runWhoami(flagApiUrl?: string, flagApiKey?: string): Promise<void> {
-  const globalConfig = await loadGlobalConfig()
-  const apiKey = flagApiKey ?? process.env.EXTPORT_API_KEY ?? globalConfig.apiKey
-  if (!apiKey) throw new Error("not logged in — run 'extport login'")
-  const apiUrl = await resolveApiUrl(flagApiUrl)
+  const [globalConfig, projectConfig] = await Promise.all([loadGlobalConfig(), loadProjectConfig()])
+  warnIfProjectApiUrl(projectConfig)
+  const { apiUrl, apiKey } = resolveCredentials({ flagApiUrl, flagApiKey, env: process.env, globalConfig })
   const me = await fetchMe(apiUrl, apiKey)
   if (!me) throw new Error('could not verify credentials — the key may be invalid or revoked')
   console.log(`${me.tenant.name} (${me.tenant.plan}) — ${apiUrl}`)
@@ -225,7 +241,7 @@ async function runInit(): Promise<void> {
   intro('extport init — create a new extension project')
 
   let globalConfig = await loadGlobalConfig()
-  const apiUrl = globalConfig.apiUrl ?? 'https://dash.extport.dev'
+  const apiUrl = normalizeApiUrl(globalConfig.apiUrl ?? DEFAULT_API_URL)
 
   if (!globalConfig.apiKey) {
     const shouldLogin = await confirm({ message: 'Not logged in yet — log in now?', initialValue: true })

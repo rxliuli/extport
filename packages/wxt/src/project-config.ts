@@ -8,7 +8,6 @@ import { join } from 'node:path'
  */
 export interface ProjectConfig {
   extension?: string
-  apiUrl?: string
   safari?: {
     projectPath?: string
     teamId?: string
@@ -41,8 +40,8 @@ function definedEntries<T extends Record<string, unknown>>(obj: T | undefined): 
  * Regenerates extport.config.json from the wxt.config.ts-authored values —
  * in full, at setup time, so the file reaches its final state on
  * `pnpm install` instead of accreting fields across lifecycle stages.
- * Authored values win; fields the module doesn't own (apiUrl, anything the
- * CLI wrote that isn't re-authored) pass through untouched — non-WXT
+ * Authored values win; fields the module doesn't own (anything the CLI
+ * wrote that isn't re-authored) pass through untouched — non-WXT
  * projects that hand-write this file are unaffected by definition.
  */
 export function generateProjectConfig(

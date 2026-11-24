@@ -1,8 +1,21 @@
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
-import { clearGlobalConfig, loadGlobalConfig, loadProjectConfig, saveGlobalConfig, saveProjectConfig } from '../src/config'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  clearGlobalConfig,
+  loadGlobalConfig,
+  loadProjectConfig,
+  normalizeApiUrl,
+  parseApiUrl,
+  resolveApiUrl,
+  resolveCredentials,
+  resolveStoredApiKey,
+  sameApiOrigin,
+  saveGlobalConfig,
+  saveProjectConfig,
+  warnIfProjectApiUrl,
+} from '../src/config'
 
 describe('global config (extport login state)', () => {
   let home: string
@@ -63,5 +76,72 @@ describe('project config (extport.config.json)', () => {
     await saveProjectConfig({ extension: 'scrub' }, cwd)
     const info = await stat(join(cwd, 'extport.config.json'))
     expect(info.mode & 0o777).not.toBe(0o600)
+  })
+})
+
+describe('API URL validation and origin-bound credentials', () => {
+  it('accepts http/https URLs and rejects other schemes, credentials, or malformed URLs', () => {
+    expect(normalizeApiUrl('https://dash.extport.dev/')).toBe('https://dash.extport.dev')
+    expect(normalizeApiUrl('http://127.0.0.1:8787///')).toBe('http://127.0.0.1:8787')
+    expect(() => parseApiUrl('file:///etc/passwd')).toThrow(/http:\/\/ or https:\/\//)
+    expect(() => parseApiUrl('javascript:alert(1)')).toThrow(/http:\/\/ or https:\/\//)
+    expect(() => parseApiUrl('https://user:pass@dash.extport.dev')).toThrow(/credentials in URL/)
+    expect(() => parseApiUrl('not-a-url')).toThrow(/invalid API URL/)
+  })
+
+  it('compares origins accurately across default ports, trailing slashes, and ports', () => {
+    expect(sameApiOrigin('https://dash.extport.dev', 'https://DASH.EXTPORT.DEV:443/')).toBe(true)
+    expect(sameApiOrigin('http://127.0.0.1:8788', 'http://127.0.0.1:8787')).toBe(false)
+    expect(sameApiOrigin('https://dash.extport.dev', 'http://dash.extport.dev')).toBe(false)
+    expect(sameApiOrigin('https://dash.extport.dev', 'https://evil.example')).toBe(false)
+  })
+
+  it('resolves apiUrl from flag > env > global config > default', () => {
+    expect(resolveApiUrl({})).toBe('https://dash.extport.dev')
+    expect(resolveApiUrl({ env: { EXTPORT_API_URL: '' }, globalConfig: { apiUrl: 'http://127.0.0.1:8788/' } })).toBe('http://127.0.0.1:8788')
+    expect(resolveApiUrl({ globalConfig: { apiUrl: 'http://127.0.0.1:8788/' } })).toBe('http://127.0.0.1:8788')
+    expect(resolveApiUrl({ env: { EXTPORT_API_URL: 'http://127.0.0.1:9000/' }, globalConfig: { apiUrl: 'http://127.0.0.1:8788' } })).toBe(
+      'http://127.0.0.1:9000',
+    )
+    expect(
+      resolveApiUrl({
+        flagApiUrl: 'https://staging.extport.dev/',
+        env: { EXTPORT_API_URL: 'http://127.0.0.1:9000' },
+        globalConfig: { apiUrl: 'http://127.0.0.1:8788' },
+      }),
+    ).toBe('https://staging.extport.dev')
+  })
+
+  it('only sends stored global apiKey to the origin it was issued for', () => {
+    const globalConfig = { apiKey: 'sk_live_prod', apiUrl: 'https://dash.extport.dev' }
+    expect(resolveStoredApiKey(globalConfig, 'https://dash.extport.dev/')).toBe('sk_live_prod')
+    expect(resolveStoredApiKey(globalConfig, 'https://dash.extport.dev:443')).toBe('sk_live_prod')
+    expect(resolveStoredApiKey(globalConfig, 'http://127.0.0.1:8787')).toBeUndefined()
+    expect(resolveStoredApiKey({ apiKey: 'sk_live_legacy' }, 'https://dash.extport.dev')).toBe('sk_live_legacy')
+    expect(resolveStoredApiKey({ apiKey: 'sk_live_legacy' }, 'http://127.0.0.1:8787')).toBeUndefined()
+  })
+
+  it('resolveCredentials rejects mismatched target origin unless an explicit key is supplied', () => {
+    const globalConfig = { apiKey: 'sk_live_prod', apiUrl: 'https://dash.extport.dev' }
+    expect(resolveCredentials({ globalConfig })).toEqual({ apiUrl: 'https://dash.extport.dev', apiKey: 'sk_live_prod' })
+
+    expect(() => resolveCredentials({ flagApiUrl: 'http://127.0.0.1:8787', globalConfig })).toThrow(/stored credentials belong to https:\/\/dash\.extport\.dev/)
+    expect(() => resolveCredentials({ env: { EXTPORT_API_URL: 'http://127.0.0.1:8787' }, globalConfig })).toThrow(
+      /not logged in for http:\/\/127\.0\.0\.1:8787/,
+    )
+    expect(resolveCredentials({ flagApiUrl: 'http://127.0.0.1:8787', flagApiKey: 'sk_live_local', globalConfig })).toEqual({
+      apiUrl: 'http://127.0.0.1:8787',
+      apiKey: 'sk_live_local',
+    })
+    expect(() => resolveCredentials({ globalConfig: {} })).toThrow(/not logged in — run 'extport login'/)
+  })
+
+  it('warns when extport.config.json contains an ignored apiUrl', () => {
+    const warn = vi.fn()
+    expect(warnIfProjectApiUrl({ extension: 'ext_1' }, warn)).toBe(false)
+    expect(warn).not.toHaveBeenCalled()
+
+    expect(warnIfProjectApiUrl({ extension: 'ext_1', apiUrl: 'http://127.0.0.1:8787' }, warn)).toBe(true)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('ignoring "apiUrl" in extport.config.json'))
   })
 })

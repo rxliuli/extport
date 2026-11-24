@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
+import { parseApiUrl } from './config'
 
 export interface LoginResult {
   apiKey: string
@@ -146,6 +147,8 @@ export interface LoginDeps {
  * key never appears in a URL a browser would keep in its history.
  */
 export async function login(apiUrl: string, deps: LoginDeps = {}): Promise<LoginResult> {
+  // Validate protocol/shape before spawning the OS browser opener or binding a loopback port.
+  parseApiUrl(apiUrl)
   const log = deps.log ?? console.log
   const openBrowser = deps.openBrowser ?? defaultOpenBrowser
   const fetchImpl = deps.fetchImpl ?? fetch

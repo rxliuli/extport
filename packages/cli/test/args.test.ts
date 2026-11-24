@@ -84,6 +84,27 @@ describe('resolvePushContext', () => {
     expect(() => resolvePushContext({}, env)).toThrow(/--extension/)
     expect(() => resolvePushContext({ extension: 'e' }, {})).toThrow(/API key/)
   })
+
+  it('refuses to send a stored apiKey to a different origin unless an explicit key is provided', () => {
+    const stored = { extension: 'e', apiKey: 'sk_live_prod', apiUrl: 'https://dash.extport.dev' }
+    expect(resolvePushContext({}, {}, stored)).toEqual({ extension: 'e', apiUrl: 'https://dash.extport.dev', apiKey: 'sk_live_prod' })
+    expect(resolvePushContext({ apiUrl: 'https://dash.extport.dev:443/' }, {}, stored)).toEqual({
+      extension: 'e',
+      apiUrl: 'https://dash.extport.dev:443',
+      apiKey: 'sk_live_prod',
+    })
+
+    expect(() => resolvePushContext({ apiUrl: 'http://127.0.0.1:8787' }, {}, stored)).toThrow(/stored API key belongs to https:\/\/dash\.extport\.dev/)
+    expect(() => resolvePushContext({}, { EXTPORT_API_URL: 'http://127.0.0.1:8787' }, stored)).toThrow(
+      /stored API key belongs to https:\/\/dash\.extport\.dev/,
+    )
+
+    expect(resolvePushContext({ apiUrl: 'http://127.0.0.1:8787', apiKey: 'sk_live_local' }, {}, stored)).toEqual({
+      extension: 'e',
+      apiUrl: 'http://127.0.0.1:8787',
+      apiKey: 'sk_live_local',
+    })
+  })
 })
 
 describe('buildPushUrl', () => {

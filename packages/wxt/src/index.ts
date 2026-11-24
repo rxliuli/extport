@@ -127,7 +127,7 @@ export default defineWxtModule<ExtportWxtOptions>({
 
     // --- extport.config.json: generated here, at setup, so a plain
     // `pnpm install` (wxt prepare) leaves the file in its final state.
-    // Authored values win; everything else (apiUrl, CLI-written history)
+    // Authored values win; everything else (CLI-written history)
     // passes through. projectPath is the one exception — see below.
     // wxt resolves `manifest` per browser before modules run, so this is
     // already the Safari-specific name on a safari build — which is exactly
