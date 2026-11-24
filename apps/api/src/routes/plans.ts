@@ -117,10 +117,10 @@ route.post(
     tags: ['Licensing'],
     summary: 'Create a plan',
     description:
-      'One plan per (extension, tier, entitlementType, billingInterval) — each plan maps 1:1 to a Stripe Price under the extension Stripe Product. When amount is provided alongside a Stripe Restricted Key, creates/reuses the Stripe Product and creates the Stripe Price automatically.',
+      'One plan per (extension, tier, entitlementType, billingInterval) — each plan maps 1:1 to a Stripe Price under the extension Stripe Product. Creates or reuses the Stripe Product and creates the Stripe Price automatically via your connected Stripe account.',
     responses: {
       201: { description: 'Created' },
-      400: { description: 'Invalid input or missing Stripe Restricted Key' },
+      400: { description: 'Invalid input or Stripe account not connected' },
       404: { description: 'Extension not found' },
       409: { description: 'Plan already exists for this extension' },
       502: { description: 'Stripe API unavailable' },
@@ -301,12 +301,12 @@ route.patch(
   '/:id',
   describeRoute({
     tags: ['Licensing'],
-    summary: "Update a plan's device limit or pricing",
+    summary: "Update a plan's device limit, pricing, or active state",
     description:
-      'Updates maxActivations and/or pricing. When amount changes with a Stripe Restricted Key configured, creates a new Stripe Price and archives the previous one.',
+      'Updates active status, maxActivations, and/or pricing. When amount changes, creates a new Stripe Price on your connected Stripe account and archives the previous one.',
     responses: {
       200: { description: 'OK' },
-      400: { description: 'Invalid input or missing Stripe Restricted Key' },
+      400: { description: 'Invalid input or Stripe account not connected' },
       404: { description: 'Not found' },
       502: { description: 'Stripe API unavailable' },
     },

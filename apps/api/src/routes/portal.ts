@@ -71,12 +71,12 @@ route.get(
   describeRoute({
     summary: 'Start a hosted Stripe Checkout Session for a plan (public redirect)',
     description:
-      'Public checkout entrypoint for static storefronts (no tenant API key needed). Creates a Stripe Checkout Session for the plan using the tenant Restricted Key and redirects (303) to Stripe Checkout.',
+      'Public checkout entrypoint for static storefronts (no tenant API key needed). Creates a Stripe Checkout Session for the plan using the connected Stripe account and redirects (303) to Stripe Checkout.',
     tags: ['Buyer portal'],
     security: [],
     responses: {
       303: { description: 'Redirect to Stripe Checkout' },
-      400: { description: 'Licensing disabled, missing Stripe price, or missing Restricted Key' },
+      400: { description: 'Licensing disabled, plan disabled, missing Stripe price, or Stripe account not connected' },
       404: { description: 'Plan not found' },
       502: { description: 'Stripe API unavailable' },
     },
@@ -870,7 +870,7 @@ route.post(
     security: [{ buyerSession: [] }],
     responses: {
       200: { description: 'Scheduled for cancellation at period end' },
-      400: { description: 'Subscription cannot be canceled or missing Restricted Key' },
+      400: { description: 'Subscription cannot be canceled or Stripe account not connected' },
       401: { description: 'No buyer session' },
       404: { description: 'Subscription not found' },
       502: { description: 'Stripe API unavailable' },
@@ -887,7 +887,7 @@ route.post(
     security: [{ buyerSession: [] }],
     responses: {
       200: { description: 'Subscription resumed' },
-      400: { description: 'Subscription cannot be resumed or missing Restricted Key' },
+      400: { description: 'Subscription cannot be resumed or Stripe account not connected' },
       401: { description: 'No buyer session' },
       404: { description: 'Subscription not found' },
       502: { description: 'Stripe API unavailable' },
@@ -904,7 +904,7 @@ route.get(
     security: [{ buyerSession: [] }],
     responses: {
       200: { description: 'Invoice list' },
-      400: { description: 'Missing Stripe Restricted Key or subscription reference' },
+      400: { description: 'Stripe account not connected or missing subscription reference' },
       401: { description: 'No buyer session' },
       404: { description: 'Subscription not found' },
       502: { description: 'Stripe API unavailable' },

@@ -11,14 +11,22 @@ The model in one sentence: your extension sends **one anonymous ping per install
 version, and the browser's UI language — and extport derives everything else (browser, OS, country) from the
 request itself, server-side.
 
-## 1. Turn it on
+## 1. Turn it on with WXT
 
-If your extension uses [`@extport/wxt`](/wxt/), it's one flag:
+With [`@extport/wxt`](/wxt/) (recommended), install `@extport/sdk` and enable one flag:
+
+```sh
+pnpm add @extport/sdk
+```
 
 ```ts
 // wxt.config.ts
 export default defineConfig({
   modules: ['@extport/wxt'],
+  manifest: {
+    // Required by @extport/wxt — backs @extport/sdk's browser.storage.local persistence
+    permissions: ['storage'],
+  },
   extport: {
     extension: 'ext_…',
     analytics: true,
@@ -26,16 +34,18 @@ export default defineConfig({
 })
 ```
 
-This injects the daily ping into your background script and adds Firefox's data-collection declaration to the
-manifest automatically — nothing to write in your own source.
+This injects the daily ping into your background script and adds Firefox's `data_collection_permissions` declaration to
+the manifest automatically — nothing to write in your own source.
 
-Without the WXT module, call the SDK directly from your background entrypoint:
+:::note[Without WXT?]
+Add `"storage"` to your `manifest.json` permissions and call `attachAnalytics` from your background entrypoint:
 
 ```ts
 import { attachAnalytics } from '@extport/sdk/analytics'
 
 attachAnalytics({ extensionId: 'ext_…' })
 ```
+:::
 
 Either way, the ping is on by default (mirroring how Firefox's own install-prompt toggle works — on, with an easy
 way to turn it off) and never throws: a network hiccup or a missing id just means no ping that day, never a broken
@@ -43,7 +53,7 @@ extension.
 
 ## 2. Declare it to the stores
 
-Checking the box on your side isn't the whole story — each store store asks developers what data they collect, and
+Checking the box on your side isn't the whole story — each store asks developers what data they collect, and
 now there's a real (if minimal) answer. The exact fields the ping sends, and why each box is or isn't checked:
 
 **Chrome Web Store** — under your listing's Privacy practices tab:
@@ -72,9 +82,11 @@ if you're wiring the SDK directly) — Firefox shows it in the install prompt an
 
 ## 3. Read the dashboard
 
-Open your extension's **Analytics** tab. Every chart reads straight from the daily rollup:
+Open either the fleet-wide [**Analytics**](https://dash.extport.dev/analytics) page (for combined weekly active users,
+all-time installs, reporting extensions, and per-extension rankings across your entire fleet) or a single extension's
+**Analytics** tab. Every chart reads straight from the daily rollup:
 
-![The Analytics tab for Redirector, showing weekly-active-users/all-time-installs/top-version stat cards, the per-store weekly actives chart, and the country/language/OS breakdown cards](../../assets/screenshots/dashboard-analytics.jpg)
+![The Analytics tab for Redirector, showing weekly-active-users/all-time-installs/latest-version-adoption stat cards, the per-store weekly actives chart, and the country/language/OS breakdown cards](../../assets/screenshots/dashboard-analytics.jpg)
 
 - **Active users** — weekly actives (rolling 7 days, the same metric the Chrome Web Store console headlines), one
   line per store, so a review going sideways on one store or a release adopting slowly shows up as that store's line

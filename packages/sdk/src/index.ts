@@ -1,12 +1,14 @@
-import { del, get, set } from 'idb-keyval'
-
 /**
  * @extport/sdk — license activation client for browser extensions, the
  * successor to @rxliuli/activation-client. The server is the only source of
  * truth (online activate / online check); this client caches the resulting
  * entitlement locally — no client-side cryptography. Wire contract and
  * design rationale: extport's docs/licensing.md.
+ *
+ * @module core
  */
+
+import { del, get, set } from 'idb-keyval'
 
 /**
  * The persisted shape of the activation config. Identical to what

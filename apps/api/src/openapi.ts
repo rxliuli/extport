@@ -103,7 +103,8 @@ export const OPENAPI_DOCUMENTATION: OpenApiDocumentation = {
     { name: 'Artifacts', description: 'Push a build and it is submitted to every store you have connected.' },
     {
       name: 'Buyer portal',
-      description: 'The shopper-facing surface: order lookup, magic-link sign-in, and a read-only purchase list.',
+      description:
+        'The shopper-facing surface: hosted checkout redirects, order lookup, magic-link sign-in, license & device inspection, and native subscription management (cancel, resume, plan switch, invoices).',
     },
     {
       name: 'CLI login',
@@ -117,12 +118,16 @@ export const OPENAPI_DOCUMENTATION: OpenApiDocumentation = {
     {
       name: 'Licensing',
       description:
-        'Plans, one-time perpetual licenses, device activations, Stripe fulfillment, and the end-user verify/activate flow.',
+        'Plans, one-time perpetual licenses, device activations, Stripe Connect fulfillment, and the end-user verify/activate flow.',
+    },
+    {
+      name: 'Releases',
+      description: 'Published store releases ready to announce.',
     },
     {
       name: 'Subscriptions',
       description:
-        'Account-based recurring subscriptions: server-side entitlement checks, duplicate-guarded Checkout Sessions, and Stripe Billing Portal sessions.',
+        'Account-based recurring subscriptions: server-side entitlement checks, duplicate-guarded Checkout Sessions, overview metrics, and Buyer Portal SSO sign-in links.',
     },
     {
       name: 'Store credentials',

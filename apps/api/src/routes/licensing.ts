@@ -446,11 +446,11 @@ licensingTenantRoutes.post(
   describeRoute({
     summary: 'Create a Stripe Checkout Session for a one-time perpetual license',
     description:
-      'Resolves the perpetual plan and Stripe Price for (extensionId, tier) using the tenant Restricted Key and creates a one-time Checkout Session. For recurring subscriptions, use POST /v1/subscriptions/checkout.',
+      'Resolves the perpetual plan and Stripe Price for (extensionId, tier) using your connected Stripe account and creates a one-time Checkout Session. For recurring subscriptions, use POST /v1/subscriptions/checkout.',
     tags: ['Licensing'],
     responses: {
       200: { description: 'Checkout URL' },
-      400: { description: 'Invalid input, missing perpetual plan/price, or missing Stripe Restricted Key' },
+      400: { description: 'Invalid input, missing perpetual plan/price, or Stripe account not connected' },
       404: { description: 'Extension not found' },
       502: { description: 'Stripe API unavailable' },
     },

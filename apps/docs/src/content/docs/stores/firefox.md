@@ -31,6 +31,7 @@ whole listing URL into the dashboard's store item id field also works — it ext
 
 ## Source zip
 
-AMO requires the original, unminified source alongside a minified/bundled submission. When pushing specifically to
-Firefox (`--store firefox` / a Firefox-targeted push), you can attach a source zip alongside the build —
-see [Publishing](/publishing/) for the push command shape.
+AMO requires the original, unminified source alongside a minified/bundled submission. In a WXT project, running
+`pnpm zip:firefox` automatically produces `.output/{name}-{version}-sources.zip`, which `extport push` and
+`extport-dev/actions/push@v1` pick up with zero extra flags. Outside WXT, pass `--source-zip path/to/sources.zip`
+alongside `--store firefox` — see [Publishing](/publishing/) for the push command shape.

@@ -16,7 +16,9 @@ hero:
 
 - **[Publishing](/publishing/)** — push a build and extport submits it to every store you've connected, tracking
   what's live, in review, rejected, or stuck.
-- **[Licensing](/licensing/)** — sell activation codes through your own Stripe Payment Links; extport fulfills the
-  purchase and verifies activations from your extension.
+- **[Licensing](/licensing/)** — sell one-time activation codes with zero backend: connect Stripe once, share a hosted
+  checkout link, and verify activations from your extension with `@extport/sdk`.
+- **[Subscriptions](/subscriptions/)** — sell recurring monthly or yearly subscriptions for account-based extensions,
+  with server-side entitlements, duplicate-guarded checkout, and a native buyer portal.
 - **[Analytics](/analytics/)** — one anonymous ping a day gets you installs, active users, and version adoption
   across every store, in one dashboard.

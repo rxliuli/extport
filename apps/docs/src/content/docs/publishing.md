@@ -1,13 +1,19 @@
 ---
 title: Publishing
-description: Add store credentials, connect a target, and push your first build.
+description: Add store credentials, connect your first target (Firefox recommended), and push a WXT build.
 ---
 
-Once you've [signed in and created an extension](/getting-started/), connect it to the stores you publish to and
-push a build.
+Once you've [signed in and wired up your WXT project](/getting-started/), connect your extension to the stores you
+publish to and push a build.
 
 The examples on this page and the store pages all use one real, published extension — [Redirector](https://store.rxliuli.com/extensions/redirector/),
 which ships on all four stores — so every id shown is something you can look up yourself, not a placeholder.
+
+:::tip[Start with Firefox for the fastest first push]
+If you publish to Firefox (AMO), connect it first: setup takes ~30 seconds (just copy a JWT issuer & secret from AMO
+Developer Hub) and AMO gives extport full review-status tracking. If you only ship on Chrome today, jump straight to
+the [Chrome](/stores/chrome/) guide.
+:::
 
 ## 1. Add your store credentials
 
@@ -16,12 +22,12 @@ a label, the last four characters of the credential, and whether it verified suc
 
 ![The Store credentials list, showing one row each for Safari, Edge, Firefox, and Chrome with their status](../../assets/screenshots/dashboard-store-credentials.png)
 
-See the per-store pages for exactly which fields you need and where to find them:
+Pick the store you want to connect first — ordered below from quickest setup to most involved:
 
-- [Chrome](/stores/chrome/)
-- [Firefox](/stores/firefox/)
-- [Edge](/stores/edge/)
-- [Safari](/stores/safari/)
+- [**Firefox**](/stores/firefox/) — **recommended first stop**; 2 fields from AMO Developer Hub, full review tracking.
+- [**Chrome**](/stores/chrome/) — Google Cloud service account JSON + Publisher ID, full review tracking.
+- [**Edge**](/stores/edge/) — Client ID + API key from Partner Center (keys expire every 72 days; no store status API).
+- [**Safari**](/stores/safari/) — App Store Connect Admin API key + macOS signing certificate for CI builds.
 
 When a key changes, use **Rotate…** from the credential's row menu instead of deleting and re-adding it — the
 credential keeps its id, so every store target using it keeps working, and you're only asked for the fields that
@@ -29,11 +35,16 @@ change.
 
 ## 2. Connect a store target
 
-Open your extension and click **Add a store**. This is where the store's own listing id and one of your credentials
-get linked together — for Redirector on Chrome, that's its real item id, `lioaeidejmlpffbndjhaameocfldlhin`
-(from its [Chrome Web Store listing](https://chromewebstore.google.com/detail/redirector/lioaeidejmlpffbndjhaameocfldlhin)):
+Open your extension and click **Add a store**. This links one of your credentials to the store's own listing id.
 
-![The "Add a store" dialog for the Redirector extension, with Chrome selected and its real Chrome Web Store item id filled in](../../assets/screenshots/dashboard-add-store-target.png)
+Starting with Firefox, Redirector's public AMO listing is
+`addons.mozilla.org/firefox/addon/redirector-url/` — its store item id is the `redirector-url` slug (pasting the full
+listing URL into the form extracts the slug automatically):
+
+![The "Add a store" dialog with Firefox selected and Redirector's real AMO slug filled in](../../assets/screenshots/dashboard-add-store-target.png)
+
+Repeat for Chrome, Edge, and Safari whenever you're ready — every store target under the same extension ships from one
+push.
 
 ## 3. Get an API key
 
@@ -42,65 +53,80 @@ immediately, since only the last four characters are shown afterward:
 
 ![The API keys panel right after creating a key named "ci", showing the full sk_live_… value in a "copy now — shown once" banner](../../assets/screenshots/dashboard-api-keys.png)
 
-This is what the CLI and GitHub Actions use to push on your behalf — treat it like a password.
+This is what GitHub Actions (and headless CI) use to push on your behalf — treat it like a password.
 
 ## 4. Push a build
 
-Either from your own machine:
+### From your own machine (WXT)
+
+Build your extension with WXT, log in once, and push:
 
 ```sh
-npx extport login   # once per machine — stores a key locally, so push never needs --api-key here
-npx extport push    # WXT project: zip, version, and extension id all inferred
+pnpm zip:firefox    # builds .output/{name}-{version}-firefox.zip and -sources.zip
+pnpm zip            # builds .output/{name}-{version}-chrome.zip (also used for Edge)
+
+npx extport login   # once per machine — stores a key locally (bound to this API origin)
+npx extport push    # WXT project: zips, source zip, version, and extension id all inferred
 ```
 
-In a WXT project with [`@extport/wxt`](/wxt/) configured, that's the whole
-command: the extension id comes from `extport.config.json`, the per-browser zips from
-`.output/{name}-{version}-{browser}.zip`, and the version from their `manifest.json`. Outside a WXT project,
-point at the zip explicitly — the version still reads from the zip's own `manifest.json`, and `--extension` is
-only needed if you haven't created an `extport.config.json`:
+With [`@extport/wxt`](/wxt/) configured, `npx extport push` infers everything automatically:
+
+- the extension id from `extport.config.json` (kept in sync by `@extport/wxt`),
+- each enabled store target's zip from `.output/{name}-{version}-{browser}.zip` (Edge falls back to the Chrome zip when no dedicated Edge zip exists),
+- Firefox's required source zip from `.output/{name}-{version}-sources.zip`,
+- and the version from each zip's `manifest.json`.
+
+To push a single store while testing:
 
 ```sh
-npx extport push path/to/my-extension.zip --store chrome
+npx extport push --store firefox
 ```
 
-When passing a file, always say which store it was built for — zips are per-browser artifacts.
+:::note[Outside a WXT project?]
+Pass the zip path as a positional argument and specify `--store` (plus `--source-zip` for minified Firefox builds).
+The version still reads from the zip's `manifest.json`, and `--extension` is only needed if you don't have an
+`extport.config.json`:
 
-Or from CI, using the published GitHub Actions — CI can't run the interactive `login`, so the API key input
-takes its place, and everything else infers exactly like the local command. The convention is one step per
-store (it's what `extport init` scaffolds), because per-store inputs like Firefox's source zip attach to their
-own step and each store fails independently in the run view:
+```sh
+npx extport push path/to/my-extension-firefox.zip --store firefox --source-zip path/to/sources.zip
+```
+:::
+
+### From GitHub Actions
+
+CI can't run the interactive `login`, so pass your `EXTPORT_API_KEY` secret to `extport-dev/actions/push@v1` — everything
+else infers from your WXT build output just like the local command. The convention is one step per store (matching what
+`extport init` scaffolds), so per-store artifacts like Firefox's source zip attach cleanly and each store fails
+independently:
 
 ```yaml
 - uses: extport-dev/actions/push@v1
   with:
-    # file/version/extension inferred from .output/, its manifest.json, and extport.config.json
-    store: chrome
+    # file, source zip (.output/{name}-{version}-sources.zip), version, and extension inferred from WXT output
+    store: firefox
     api-key: ${{ secrets.EXTPORT_API_KEY }}
 
 - uses: extport-dev/actions/push@v1
   with:
-    # AMO's source zip infers too — .output/{name}-{version}-sources.zip, WXT's own sourcesTemplate
-    store: firefox
+    store: chrome
     api-key: ${{ secrets.EXTPORT_API_KEY }}
 ```
 
-Edge and Safari follow the same pattern (`store: edge` falls back to the chrome zip when no dedicated edge
-build exists; `store: safari` registers the version only — no zip travels through extport, see the
-[Safari](/stores/safari/) page). `extport init` scaffolds [the complete workflow below](#the-complete-release-workflow)
-so you never write it by hand.
+Edge and Safari follow the same pattern (`store: edge` falls back to the Chrome zip when no dedicated Edge build exists;
+`store: safari` registers the version only — no zip travels through extport, see the [Safari](/stores/safari/) page).
+`extport init` scaffolds [the complete workflow below](#the-complete-release-workflow) so you never write it by hand.
 
-Every push is checked against its target stores before it's accepted: a zip without a `manifest.json`, a manifest
-version that doesn't match the pushed version, a Chrome-only build (no `gecko.id`, service-worker-only background)
-headed for Firefox, or Manifest V2 headed for Chrome all fail immediately with the reason — not days later in
-store review.
+Every push is validated against its target store before it's accepted: a zip without a `manifest.json`, a manifest
+version mismatch, a Chrome-only build (missing `gecko.id` or service-worker-only background) headed for Firefox, or
+Manifest V2 headed for Chrome all fail immediately with the reason — not days later in store review.
 
 ## The complete release workflow
 
 This is [Redirector's](https://github.com/rxliuli/redirector) actual `release.yaml` — every release of it ships
 to all four stores through this exact file, so it is a production-tested reference, not a synthetic sample.
-Change the two `env` values and it is yours; `extport init` scaffolds the same file into new projects.
+Change the two `env` values and it is yours; `extport init` scaffolds the same file into new WXT projects.
 
-Read it noticing what is **absent**: no Chrome service account, no AMO JWT, no Edge API key. Store submission
+Read it noticing what is **absent**: no AMO JWT, no Chrome service account, no Edge API key. Store submission
 happens server-side with the credentials you added in step 1, which never enter CI. The only signing material
 in the workflow is Apple's — a structural exception, because the App Store Connect API cannot upload binaries,
 so the Safari build must be signed and uploaded from a macOS runner you control.
@@ -137,7 +163,7 @@ jobs:
         with:
           file: ${{ env.DIRECTORY }}/package.json
 
-  # Chrome, Edge, and Firefox: build, attach the zips to a GitHub Release,
+  # Firefox, Chrome, and Edge: build with WXT, attach zips to a GitHub Release,
   # push to extport. Submission for review is the reconcile loop's job from
   # here — if a store has a bad day, extport retries on its own schedule and
   # this run stays green.
@@ -160,8 +186,8 @@ jobs:
       - name: Zip extensions
         run: |
           cd ${{ env.DIRECTORY }}
-          pnpm zip
           pnpm zip:firefox
+          pnpm zip
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
@@ -172,9 +198,18 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            ${{ env.DIRECTORY }}/.output/${{ env.PROJECT_NAME }}-${{ needs.version.outputs.version }}-chrome.zip
             ${{ env.DIRECTORY }}/.output/${{ env.PROJECT_NAME }}-${{ needs.version.outputs.version }}-firefox.zip
             ${{ env.DIRECTORY }}/.output/${{ env.PROJECT_NAME }}-${{ needs.version.outputs.version }}-sources.zip
+            ${{ env.DIRECTORY }}/.output/${{ env.PROJECT_NAME }}-${{ needs.version.outputs.version }}-chrome.zip
+
+      - name: Push to Firefox AMO
+        uses: extport-dev/actions/push@v1
+        with:
+          # file/version inferred from .output/ and its manifest.json; the AMO
+          # source zip infers too — .output/{name}-{version}-sources.zip, WXT's
+          # own sourcesTemplate (only produced for the firefox build).
+          store: firefox
+          api-key: ${{ secrets.EXTPORT_API_KEY }}
 
       - name: Push to Chrome Web Store
         uses: extport-dev/actions/push@v1
@@ -189,15 +224,6 @@ jobs:
           # Edge is Chromium-based — extport falls back to the chrome zip
           # when no dedicated edge one was built.
           store: edge
-          api-key: ${{ secrets.EXTPORT_API_KEY }}
-
-      - name: Push to Firefox AMO
-        uses: extport-dev/actions/push@v1
-        with:
-          # file/version inferred from .output/ and its manifest.json; the AMO
-          # source zip infers too — .output/{name}-{version}-sources.zip, WXT's
-          # own sourcesTemplate (only produced for the firefox build).
-          store: firefox
           api-key: ${{ secrets.EXTPORT_API_KEY }}
 
   # Safari: build, sign, and upload the binary from macOS with your own
@@ -264,10 +290,12 @@ jobs:
 ### Tailoring
 
 - **No Safari target?** Delete the entire `safari` job and the five `APPLE_*` secrets. Nothing else references them.
-- **No Edge target?** Delete its one push step.
+- **No Chrome or Edge target yet?** Delete those push steps — every store step is completely independent.
 - **Monorepo?** Set `DIRECTORY` to the extension's path and add it to the trigger's `paths`.
 
-## Shell completion
+## Shell completion & CLI version
+
+Check your installed CLI version with `extport -v` / `extport --version`.
 
 `extport completion bash|zsh|fish` prints a Tab-completion script for subcommands, flag names, and the values of
 `--store`/`--platform`. It only prints — add the right line to your shell's own config to make it stick, same as

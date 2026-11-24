@@ -13,7 +13,7 @@ import { generateOpenApiSpec } from '@extport/api/openapi'
  * package's `predev` / `prebuild` hooks, so it can never drift. No Cloudflare
  * bindings or running Worker required — hono-openapi's `generateSpecs` is pure.
  *
- * Run manually with: `pnpm --filter @extport/docs generate:openapi`
+ * Run manually with: `pnpm --filter @extport/docs gen:openapi`
  */
 async function main() {
   const spec = await generateOpenApiSpec()

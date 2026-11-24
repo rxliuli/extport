@@ -51,13 +51,19 @@ export default defineConfig({
           },
         ]),
         starlightTypedoc({
-          entryPoints: ['../../packages/sdk/src/index.ts'],
+          entryPoints: [
+            '../../packages/sdk/src/index.ts',
+            '../../packages/sdk/src/webext.ts',
+            '../../packages/sdk/src/react.ts',
+            '../../packages/sdk/src/analytics.ts',
+            '../../packages/sdk/src/wxt-analytics.ts',
+          ],
           tsconfig: '../../packages/sdk/tsconfig.json',
           output: 'sdk',
-          // `entryFileName: 'index'` puts the README overview at `/sdk/` (the
-          // default would be `/sdk/readme/`). This works here because there is a
-          // single entry point, so no nested `index` module collides.
-          typeDoc: { entryFileName: 'index', readme: '../../packages/sdk/README.md' },
+          typeDoc: {
+            entryFileName: 'index',
+            readme: '../../packages/sdk/README.md',
+          },
           sidebar: { collapsed: true, label: 'SDK reference' },
         }),
         starlightTypeDocWxt({
@@ -84,15 +90,18 @@ export default defineConfig({
           label: 'Publishing',
           items: [
             { label: 'Push your first build', slug: 'publishing' },
-            { label: 'Chrome', slug: 'stores/chrome' },
             { label: 'Firefox', slug: 'stores/firefox' },
+            { label: 'Chrome', slug: 'stores/chrome' },
             { label: 'Edge', slug: 'stores/edge' },
             { label: 'Safari', slug: 'stores/safari' },
           ],
         },
         {
-          label: 'Licensing',
-          items: [{ label: 'Sell activation codes', slug: 'licensing' }],
+          label: 'Billing',
+          items: [
+            { label: 'Licensing', slug: 'licensing' },
+            { label: 'Subscriptions', slug: 'subscriptions' },
+          ],
         },
         {
           label: 'Analytics',

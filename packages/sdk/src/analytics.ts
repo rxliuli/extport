@@ -65,7 +65,11 @@ export interface AnalyticsOptions {
   apiBase?: string
   /** Defaults to runtime.getManifest().version. */
   version?: string
-  /** Defaults to idb-keyval, the same StorageAdapter shape licensing uses. */
+  /**
+   * Storage backend for installId / lastPingDate / enabled state. Defaults to
+   * `browser.storage.local` when available (requiring the `storage` manifest
+   * permission), falling back to `idb-keyval`.
+   */
   storage?: StorageAdapter
   /** Storage key; defaults to 'extport-analytics'. */
   storageKey?: string

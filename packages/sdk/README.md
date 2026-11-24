@@ -1,13 +1,29 @@
 # @extport/sdk
 
-License activation and anonymous usage analytics for browser extensions publishing through [extport](https://extport.dev) — sell lifetime licenses through your own Stripe Payment Link and see active users across Chrome, Firefox, Edge, and Safari in one dashboard.
+License activation and anonymous usage analytics for browser extensions publishing through [extport](https://extport.dev) — sell one-time licenses or recurring subscriptions through your connected Stripe account, and see active users across Chrome, Firefox, Edge, and Safari in one dashboard.
 
-The server is the only source of truth: activations verify online and cache the resulting entitlement locally. There is deliberately no client-side cryptography to reverse-engineer.
+The server is the only source of truth: activations verify online and cache the resulting entitlement locally (`browser.storage.local` by default, with automatic migration from legacy `idb-keyval`). There is deliberately no client-side cryptography to reverse-engineer.
 
 ## Install
 
 ```sh
 pnpm add @extport/sdk
+```
+
+With [WXT](https://wxt.dev) (recommended), pair `@extport/sdk` with [`@extport/wxt`](https://www.npmjs.com/package/@extport/wxt) so `extensionId` injects automatically and your manifest includes the required `storage` permission:
+
+```ts
+// wxt.config.ts
+export default defineConfig({
+  modules: ['@extport/wxt'],
+  manifest: {
+    permissions: ['storage'],
+  },
+  extport: {
+    extension: 'ext_…',
+    analytics: true,
+  },
+})
 ```
 
 ## Licensing
@@ -35,14 +51,24 @@ export const activationClient = createActivationClient<'free' | 'pro', PlanLimit
 `extensionId` resolves automatically when the extension is built with [`@extport/wxt`](https://www.npmjs.com/package/@extport/wxt) (`extport: { extension: 'ext_…' }`); otherwise pass it explicitly.
 
 ```ts
-// Redeem a code the buyer received by email
+// entrypoints/background.ts — sync across contexts and re-verify on startup
+import { attachBackground } from '@extport/sdk/webext'
+import { activationClient } from '../lib/activation'
+
+export default defineBackground(() => {
+  attachBackground(activationClient)
+})
+```
+
+```ts
+// Redeem an activation code from checkout / email
 await activationClient.activate('XXXX-XXXX-XXXX-XXXX')
 
 // Gate a feature — always reads current persisted state
 const plan = await activationClient.getPlan()
 if (count > plan.limit.records) showUpgradePrompt()
 
-// Periodic heartbeat + self-healing re-activation (call from the background)
+// Manual heartbeat + self-healing re-activation (attachBackground handles this automatically)
 await activationClient.checkActivation()
 ```
 
@@ -57,22 +83,34 @@ function Paywall() {
 }
 ```
 
+> **Storage & migration:** `@extport/sdk` stores activation state in `browser.storage.local` (`extport-plan`) when available, so it works reliably across MV3 service workers, popups, options pages, and content scripts (requires the `storage` permission in `manifest.json`). Existing installs from older SDK versions are migrated lazily from `idb-keyval` on first read.
+
 Guide: [docs.extport.dev/licensing](https://docs.extport.dev/licensing/)
 
 ## Analytics
 
 One anonymous ping per install per day — a random install id, version, and browser UI language; browser, OS, and country derive server-side from the request. No URLs, no page content, no behavioral data.
 
+With `@extport/wxt` (recommended), enable it with one config flag (`analytics: true` in `wxt.config.ts`). Without WXT, call `attachAnalytics` from your background entrypoint:
+
 ```ts
 // entrypoints/background.ts
 import { attachAnalytics } from '@extport/sdk/analytics'
 
-attachAnalytics() // extensionId auto-resolves via @extport/wxt, or pass { extensionId: 'ext_…' }
+attachAnalytics({ extensionId: 'ext_…' })
 ```
 
-With `@extport/wxt` this is a single config flag (`analytics: true`) instead. Firefox's built-in data-collection consent (`technicalAndInteraction`) is respected automatically. A provider for [`@wxt-dev/analytics`](https://www.npmjs.com/package/@wxt-dev/analytics) ships as `@extport/sdk/wxt-analytics`.
+Firefox's built-in data-collection consent (`technicalAndInteraction`) is respected automatically. A provider for [`@wxt-dev/analytics`](https://www.npmjs.com/package/@wxt-dev/analytics) ships as `@extport/sdk/wxt-analytics`.
 
 Guide: [docs.extport.dev/analytics](https://docs.extport.dev/analytics/)
+
+## Subpath exports
+
+- `@extport/sdk` — `createActivationClient`, `ActivationClient`, `resolveExtensionId`, `idbStorage`, and core types
+- `@extport/sdk/webext` — `webextTransport`, `attachBackground`
+- `@extport/sdk/react` — `usePlan`
+- `@extport/sdk/analytics` — `attachAnalytics`, `createAnalyticsPinger`
+- `@extport/sdk/wxt-analytics` — `extport` provider for `@wxt-dev/analytics`
 
 ## License
 
