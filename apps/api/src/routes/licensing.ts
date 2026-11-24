@@ -480,6 +480,7 @@ licensingTenantRoutes.post(
           eq(plans.extensionId, extension.id),
           eq(plans.tier, tier),
           eq(plans.entitlementType, 'perpetual'),
+          eq(plans.active, true),
         ),
       )
     if (!plan) return c.json({ error: `no perpetual plan found for tier "${tier}" on this extension` }, 400)

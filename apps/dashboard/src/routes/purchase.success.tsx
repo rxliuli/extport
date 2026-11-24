@@ -6,7 +6,7 @@ import { PortalShell } from '@/PortalShell'
 import { formatDate } from '@/status'
 import { useQuery } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { Check, Copy, CreditCard } from 'lucide-react'
+import { Check, CheckCircle2, Copy, CreditCard } from 'lucide-react'
 import { useState } from 'react'
 
 // Payment Links redirect here with ?session_id={CHECKOUT_SESSION_ID}.
@@ -93,14 +93,18 @@ function PurchaseSuccessPage() {
             <CardHeader>
               <CardTitle className="text-2xl tracking-tight">Almost there</CardTitle>
               <CardDescription>
-                Your payment went through, but the confirmation is taking longer than usual. Your activation code will
-                arrive by email shortly — no further action needed here.
+                Your payment went through, but the confirmation is taking longer than usual. Your access will activate
+                shortly — check your email or{' '}
+                <Link to="/portal" className="underline">
+                  your purchases
+                </Link>{' '}
+                in a moment.
               </CardDescription>
             </CardHeader>
           ) : (
             <CardHeader>
               <CardTitle className="text-2xl tracking-tight">Finishing up…</CardTitle>
-              <CardDescription>Payment received — preparing your activation code.</CardDescription>
+              <CardDescription>Payment received — activating your purchase.</CardDescription>
               <div className="space-y-2 pt-4">
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-4 w-2/3" />
@@ -128,30 +132,36 @@ function ReadyCard({ purchase }: { purchase: Purchase }) {
   if (isSubscription) {
     return (
       <>
-        <CardHeader>
+        <CardHeader className="space-y-2">
+          <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 className="size-5 shrink-0" aria-hidden="true" />
+            <span className="text-xs font-medium uppercase tracking-wider">Subscription active</span>
+          </div>
           <CardTitle className="text-2xl tracking-tight">
-            Thanks for subscribing to {purchase.productName} ({purchase.tier})!
+            Thanks for subscribing to {purchase.productName}!
           </CardTitle>
-          <CardDescription>Your subscription is now active.</CardDescription>
+          <CardDescription>
+            Your <span className="font-medium text-foreground">{purchase.tier}</span> plan is now active. You can close
+            this tab and return to the extension.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Sign in to the extension with <span className="font-medium text-foreground">{purchase.buyerEmail}</span> to
-            unlock your {purchase.tier} features — no activation code needed.
+            Your access syncs automatically when you sign in to the extension with{' '}
+            <span className="font-medium text-foreground">{purchase.buyerEmail}</span> — no activation code needed.
             {periodEnd
               ? purchase.subscriptionStatus === 'trialing'
                 ? ` Your trial runs through ${periodEnd}.`
                 : ` Your current billing period runs through ${periodEnd}.`
               : ''}
           </p>
-          <div className="flex flex-wrap items-center gap-4">
-            <Link
-              to="/portal"
-              className="inline-flex items-center gap-1.5 text-sm font-medium underline underline-offset-4 hover:text-foreground"
-            >
-              <CreditCard className="size-4" />
-              View in your purchases
-            </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button asChild variant="outline" size="sm">
+              <Link to="/portal">
+                <CreditCard className="size-4" aria-hidden="true" />
+                Manage subscription
+              </Link>
+            </Button>
           </div>
         </CardContent>
       </>

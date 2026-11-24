@@ -276,6 +276,7 @@ route.post(
 
 const patchPlanBodySchema = v.pipe(
   v.object({
+    active: v.optional(v.boolean('active must be a boolean')),
     maxActivations: v.optional(
       v.pipe(
         v.number('maxActivations must be a number'),
@@ -408,6 +409,7 @@ route.patch(
       await db
         .update(plans)
         .set({
+          active: body.active ?? existing.active,
           maxActivations: body.maxActivations ?? existing.maxActivations,
           currency: nextCurrency,
           amount: nextAmount,

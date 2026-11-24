@@ -1,0 +1,1 @@
+ALTER TABLE `plans` ADD `active` integer DEFAULT true NOT NULL;

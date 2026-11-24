@@ -143,10 +143,30 @@ export const Route = createFileRoute('/portal')({
   component: PortalPage,
 })
 
+// Deduplicate single-use magic-link exchanges across React StrictMode double mounts.
+const pendingMagicCodeExchanges = new Map<string, Promise<boolean>>()
+
+function exchangeMagicCodeOnce(magicCode: string): Promise<boolean> {
+  const existing = pendingMagicCodeExchanges.get(magicCode)
+  if (existing) return existing
+  const promise = api<{ email: string }>('/api/v1/portal/verify', {
+    method: 'POST',
+    body: JSON.stringify({ code: magicCode }),
+  })
+    .then(() => true)
+    .catch(() => false)
+    .finally(() => {
+      setTimeout(() => pendingMagicCodeExchanges.delete(magicCode), 5_000)
+    })
+  pendingMagicCodeExchanges.set(magicCode, promise)
+  return promise
+}
+
 function PortalPage() {
   const { code } = Route.useSearch()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [verifying, setVerifying] = useState(() => Boolean(code))
 
   const licenses = useQuery({
     queryKey: ['portal-licenses'],
@@ -162,33 +182,37 @@ function PortalPage() {
     },
     // A magic-link code in the URL is about to be exchanged — don't flash
     // the signed-out form in the meantime.
-    enabled: !code,
-  })
-
-  const verify = useMutation({
-    mutationFn: (magicCode: string) =>
-      api<{ email: string }>('/api/v1/portal/verify', { method: 'POST', body: JSON.stringify({ code: magicCode }) }),
-    onSettled: async () => {
-      // Strip the single-use code from the URL either way.
-      await navigate({ to: '/portal', search: {}, replace: true })
-      await queryClient.invalidateQueries({ queryKey: ['portal-licenses'] })
-    },
-    onError: () => {
-      toast.error('That sign-in link is invalid or has expired — request a new one below.')
-    },
+    enabled: !code && !verifying,
   })
 
   useEffect(() => {
-    if (code) verify.mutate(code)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code])
+    if (!code) {
+      setVerifying(false)
+      return
+    }
+    let cancelled = false
+    setVerifying(true)
+    void exchangeMagicCodeOnce(code).then(async (ok) => {
+      if (cancelled) return
+      if (!ok) {
+        toast.error('That sign-in link is invalid or has expired — request a new one below.')
+      }
+      // Strip the single-use code from the URL either way.
+      await navigate({ to: '/portal', search: {}, replace: true })
+      await queryClient.invalidateQueries({ queryKey: ['portal-licenses'] })
+      if (!cancelled) setVerifying(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [code, navigate, queryClient])
 
   const signOut = async () => {
     await api('/api/v1/portal/logout', { method: 'POST' })
     await queryClient.invalidateQueries({ queryKey: ['portal-licenses'] })
   }
 
-  const busy = Boolean(code) || verify.isPending || licenses.isLoading
+  const busy = Boolean(code) || verifying || licenses.isLoading
 
   if (busy) {
     return (
@@ -196,7 +220,7 @@ function PortalPage() {
         <main className="flex flex-1 items-center justify-center p-6">
           <div className="flex items-center gap-2 text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
-            {code || verify.isPending ? 'Signing you in…' : 'Loading…'}
+            {code || verifying ? 'Signing you in…' : 'Loading…'}
           </div>
         </main>
       </PortalShell>

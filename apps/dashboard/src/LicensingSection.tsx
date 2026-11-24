@@ -496,6 +496,23 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
     onError: (err) => setFormError(errorMessage(err)),
   })
 
+  const togglePlanActive = useMutation({
+    mutationFn: ({ planId, active }: { planId: string; active: boolean }) =>
+      api<{ plan: Plan }>(`/api/v1/plans/${planId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ active }),
+      }),
+    onSuccess: ({ plan }) => {
+      toast.success(
+        plan.active
+          ? `${plan.tier} (${formatBillingInterval(plan.billingInterval)}) enabled`
+          : `${plan.tier} (${formatBillingInterval(plan.billingInterval)}) disabled for new checkouts`,
+      )
+      void queryClient.invalidateQueries({ queryKey: ['extensions', extension.id, 'plans'] })
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  })
+
   function handleCreateSubmit(e: React.FormEvent) {
     e.preventDefault()
     setFormError(null)
@@ -615,9 +632,12 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
           </TableHeader>
           <TableBody>
             {plans.map((plan) => (
-              <TableRow key={plan.id}>
+              <TableRow key={plan.id} className={cn(!plan.active && 'opacity-60')}>
                 <TableCell>
-                  <Badge variant="secondary">{plan.tier}</Badge>
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant="secondary">{plan.tier}</Badge>
+                    {!plan.active && <Badge variant="outline">Disabled</Badge>}
+                  </div>
                 </TableCell>
                 {billingMode === 'subscription' && (
                   <TableCell className="text-muted-foreground">{formatBillingInterval(plan.billingInterval)}</TableCell>
@@ -638,7 +658,19 @@ function PlansCard({ extension, billingMode }: { extension: Extension; billingMo
                   </div>
                 </TableCell>
                 <TableCell>
-                  <PlanEditDialog plan={plan} extensionId={extension.id} hasStripeApiKey={hasStripeApiKey} />
+                  <div className="flex items-center justify-end gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={togglePlanActive.isPending}
+                      aria-label={`${plan.active ? 'Disable' : 'Enable'} ${plan.tier} ${formatBillingInterval(plan.billingInterval).toLowerCase()} plan`}
+                      onClick={() => togglePlanActive.mutate({ planId: plan.id, active: !plan.active })}
+                    >
+                      {plan.active ? 'Disable' : 'Enable'}
+                    </Button>
+                    <PlanEditDialog plan={plan} extensionId={extension.id} hasStripeApiKey={hasStripeApiKey} />
+                  </div>
                 </TableCell>
               </TableRow>
             ))}

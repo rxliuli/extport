@@ -4,9 +4,9 @@ import { Hono } from 'hono'
 import { describeRoute, validator } from 'hono-openapi'
 import * as v from 'valibot'
 import { extensions, plans, subscriptions } from '../db'
+import { createMagicLink } from '../lib/buyer-session'
 import { formatSubscriptionEntitlement, isSubscriptionEntitled, pickBestSubscription } from '../lib/entitlement'
 import {
-  createStripeBillingPortalSession,
   createStripeCheckoutSession,
   resolveStripeApiBase,
   StripeApiError,
@@ -179,8 +179,8 @@ const checkoutBodySchema = v.object({
   priceId: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(128))),
   externalUserId: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(255))),
   email: v.optional(v.pipe(v.string(), v.trim(), v.email('email must be a valid email'), v.maxLength(255))),
-  successUrl: httpUrlField('successUrl'),
-  cancelUrl: httpUrlField('cancelUrl'),
+  successUrl: v.optional(httpUrlField('successUrl')),
+  cancelUrl: v.optional(httpUrlField('cancelUrl')),
 })
 
 route.post(
@@ -189,12 +189,11 @@ route.post(
     tags: ['Subscriptions'],
     summary: 'Create a duplicate-guarded Stripe Checkout Session for a subscription',
     description:
-      'Resolves the recurring plan and Stripe Price by planId or (extensionId, tier, interval) using the tenant Restricted Key. Checks if the user already has an entitled subscription for this extension and redirects them to the Stripe Billing Portal instead of creating a duplicate.',
+      'Resolves the active recurring plan and Stripe Price by planId or (extensionId, tier, interval) using the connected Stripe account. Checks if the user already has an entitled subscription for this extension and returns a one-click Extport Buyer Portal link instead of creating a duplicate. Defaults successUrl to the Extport checkout confirmation page when omitted.',
     responses: {
-      200: { description: 'Checkout URL or Billing Portal redirect (already_subscribed)' },
-      400: { description: 'Invalid input, missing plan/price, or missing Stripe Restricted Key' },
+      200: { description: 'Checkout URL or Extport Buyer Portal redirect (already_subscribed)' },
+      400: { description: 'Invalid input, disabled/missing plan/price, or Stripe not connected' },
       404: { description: 'Extension not found' },
-      409: { description: 'Active subscription exists and no Stripe customer ID is available' },
       502: { description: 'Stripe API unavailable' },
     },
   }),
@@ -228,6 +227,7 @@ route.post(
         )
       plan = found
       if (!plan) return c.json({ error: 'recurring plan not found for this extension' }, 400)
+      if (!plan.active) return c.json({ error: 'this plan is currently disabled' }, 400)
     } else {
       const tier = body.tier || 'pro'
       const normalizedInterval =
@@ -245,11 +245,12 @@ route.post(
             eq(plans.extensionId, extension.id),
             eq(plans.tier, tier),
             eq(plans.entitlementType, 'recurring'),
+            eq(plans.active, true),
             ...(normalizedInterval ? [eq(plans.billingInterval, normalizedInterval)] : []),
           ),
         )
       if (matching.length === 0) {
-        return c.json({ error: `no recurring plan found for tier "${tier}" on this extension` }, 400)
+        return c.json({ error: `no active recurring plan found for tier "${tier}" on this extension` }, 400)
       }
       if (matching.length > 1) {
         return c.json(
@@ -288,6 +289,10 @@ route.post(
       reusableCustomerId = priorWithCustomer?.stripeCustomerId ?? null
     }
 
+    const portalBase = c.env.PORTAL_URL.replace(/\/+$/, '')
+    const successUrl = body.successUrl ?? `${portalBase}/purchase/success?session_id={CHECKOUT_SESSION_ID}`
+    const cancelUrl = body.cancelUrl ?? `${portalBase}/portal`
+
     try {
       if (matchClauses.length > 0) {
         const existingExtSubs = await db
@@ -305,17 +310,14 @@ route.post(
         const entitled = existingExtSubs.filter((r) => isSubscriptionEntitled(r.subscription))
         if (entitled.length > 0) {
           const best = pickBestSubscription(entitled)
-          const portalCustomerId =
-            best?.subscription.stripeCustomerId ??
-            existingExtSubs.find((r) => r.subscription.stripeCustomerId)?.subscription.stripeCustomerId ??
-            reusableCustomerId
-          if (portalCustomerId) {
-            const portal = await createStripeBillingPortalSession(stripeAuth, {
-              customerId: portalCustomerId,
-              returnUrl: body.cancelUrl,
-              apiBase: resolveStripeApiBase(c.env),
+          const portalEmail = best?.subscription.buyerEmail ?? email
+          if (portalEmail) {
+            const link = await createMagicLink(db, portalEmail)
+            return c.json({
+              action: 'portal',
+              url: `${portalBase}/portal?code=${link.code}`,
+              reason: 'already_subscribed',
             })
-            return c.json({ action: 'portal', url: portal.url, reason: 'already_subscribed' })
           }
           return c.json({ error: 'user already has an active subscription for this extension' }, 409)
         }
@@ -328,8 +330,8 @@ route.post(
         customerId: reusableCustomerId,
         customerEmail: email,
         externalUserId,
-        successUrl: body.successUrl,
-        cancelUrl: body.cancelUrl,
+        successUrl,
+        cancelUrl,
         apiBase: resolveStripeApiBase(c.env),
       })
       return c.json({ action: 'checkout', url: session.url, sessionId: session.id })
@@ -347,21 +349,20 @@ const portalBodySchema = v.object({
   extensionId: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(64))),
   externalUserId: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(255))),
   email: v.optional(v.pipe(v.string(), v.trim(), v.email('email must be a valid email'), v.maxLength(255))),
-  returnUrl: httpUrlField('returnUrl'),
+  returnUrl: v.optional(httpUrlField('returnUrl')),
 })
 
 route.post(
   '/portal',
   describeRoute({
     tags: ['Subscriptions'],
-    summary: 'Create a one-click Stripe Billing Portal session for a subscriber',
+    summary: 'Create a one-click Extport Buyer Portal sign-in link for a subscriber',
     description:
-      'Resolves the best matching subscription with a Stripe customer ID for externalUserId or email and creates a Stripe Billing Portal session via the tenant Restricted Key.',
+      'Resolves the best matching subscription for externalUserId or email and mints a single-use magic-link URL into the Extport Buyer Portal.',
     responses: {
-      200: { description: 'Billing Portal URL' },
-      400: { description: 'Missing lookup identifier, invalid returnUrl, or missing Stripe Restricted Key' },
+      200: { description: 'Extport Buyer Portal URL' },
+      400: { description: 'Missing lookup identifier or invalid returnUrl' },
       404: { description: 'Extension not found or no matching subscriber found' },
-      502: { description: 'Stripe API unavailable' },
     },
   }),
   validator('json', portalBodySchema, badRequest),
@@ -400,32 +401,14 @@ route.post(
         ),
       )
 
-    const withCustomer = rows.filter((r) => Boolean(r.subscription.stripeCustomerId))
-    const best = pickBestSubscription(withCustomer)
-    if (!best?.subscription.stripeCustomerId) {
+    const best = pickBestSubscription(rows)
+    if (!best) {
       return c.json({ error: 'no billing portal available for this user' }, 404)
     }
 
-    const cred = await loadStripeCredential(c.env, db, tenant)
-    const stripeAuth = resolveStripeAuth(c.env, cred)
-    if (!stripeAuth) {
-      return c.json({ error: 'Stripe is not connected for this tenant' }, 400)
-    }
-
-    try {
-      const portal = await createStripeBillingPortalSession(stripeAuth, {
-        customerId: best.subscription.stripeCustomerId,
-        returnUrl: body.returnUrl,
-        apiBase: resolveStripeApiBase(c.env),
-      })
-      return c.json({ url: portal.url })
-    } catch (err) {
-      if (err instanceof StripeApiError) {
-        const mapped = stripeErrorToHttp(err)
-        return c.json(mapped.body, mapped.status)
-      }
-      throw err
-    }
+    const portalBase = c.env.PORTAL_URL.replace(/\/+$/, '')
+    const link = await createMagicLink(db, best.subscription.buyerEmail)
+    return c.json({ url: `${portalBase}/portal?code=${link.code}` })
   },
 )
 

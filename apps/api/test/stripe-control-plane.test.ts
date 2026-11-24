@@ -584,24 +584,38 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
         }),
       })
 
-    // 1. Active subscription without stripeCustomerId -> 409!
-    expect((await attemptCheckout({ externalUserId: 'ext_sub_1' })).status).toBe(409)
-    // Also matched by case-insensitive email alone.
-    expect((await attemptCheckout({ email: 'subuser@example.com' })).status).toBe(409)
+    // 1. Active subscription -> returns one-click Extport Buyer Portal magic link (even without stripeCustomerId).
+    const dupByUserId = await attemptCheckout({ externalUserId: 'ext_sub_1' })
+    expect(dupByUserId.status).toBe(200)
+    const dupBody1 = (await dupByUserId.json()) as { action: string; url: string; reason: string }
+    expect(dupBody1.action).toBe('portal')
+    expect(dupBody1.reason).toBe('already_subscribed')
+    expect(dupBody1.url).toMatch(/^https?:\/\/.*\/portal\?code=/)
 
-    // 2. With stripeCustomerId -> creates one-click Billing Portal session with returnUrl = cancelUrl.
+    // Also matched by case-insensitive email alone.
+    const dupByEmail = await attemptCheckout({ email: 'subuser@example.com' })
+    expect(dupByEmail.status).toBe(200)
+    const dupBody2 = (await dupByEmail.json()) as { action: string; url: string; reason: string }
+    expect(dupBody2.action).toBe('portal')
+    expect(dupBody2.reason).toBe('already_subscribed')
+    expect(dupBody2.url).toMatch(/^https?:\/\/.*\/portal\?code=/)
+
+    // 2. With stripeCustomerId -> still routes to Extport Buyer Portal with a valid magic-link code.
     await db.update(subscriptions).set({ stripeCustomerId: 'cus_sub_1' }).where(eq(subscriptions.id, sub.id))
     const oneClickPortal = await attemptCheckout({ externalUserId: 'ext_sub_1' })
     expect(oneClickPortal.status).toBe(200)
-    expect(await oneClickPortal.json()).toEqual({
-      action: 'portal',
-      url: 'https://billing.stripe.com/p/session/bps_dg_1',
-      reason: 'already_subscribed',
+    const oneClickBody = (await oneClickPortal.json()) as { action: string; url: string; reason: string }
+    expect(oneClickBody.action).toBe('portal')
+    expect(oneClickBody.reason).toBe('already_subscribed')
+    const portalCode = new URL(oneClickBody.url).searchParams.get('code')
+    expect(portalCode).toBeTruthy()
+    const verifyRes = await request('/api/v1/portal/verify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: portalCode }),
     })
-    const portalCall = calls[calls.length - 1]!
-    expect(portalCall.url).toBe('https://api.stripe.com/v1/billing_portal/sessions')
-    expect(portalCall.params.get('customer')).toBe('cus_sub_1')
-    expect(portalCall.params.get('return_url')).toBe('https://example.com/pricing')
+    expect(verifyRes.status).toBe(200)
+    expect(((await verifyRes.json()) as { email: string }).email).toBe('SubUser@Example.com')
 
     // 3. Duplicate guard also blocks trialing, past_due, and canceled-in-period subscriptions.
     for (const patch of [
@@ -628,15 +642,9 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
     expect(checkoutCall.params.get('customer')).toBe('cus_sub_1')
   })
 
-  it('POST /api/v1/subscriptions/portal picks best matching customer and enforces tenant isolation', async () => {
+  it('POST /api/v1/subscriptions/portal returns Extport Buyer Portal magic-link URL and enforces tenant isolation', async () => {
     const a = await setupControlPlaneTenant({ apiKey: 'rk_test_portal_a' })
     const b = await setupControlPlaneTenant({ apiKey: 'rk_test_portal_b' })
-    const calls = mockStripeFetch((path) => {
-      if (path === '/billing_portal/sessions') {
-        return { body: { id: 'bps_p_1', url: 'https://billing.stripe.com/p/session/bps_p_1' } }
-      }
-      throw new Error(`Unexpected path: ${path}`)
-    })
 
     const planRes = await request('/api/v1/plans', {
       method: 'POST',
@@ -655,12 +663,12 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
       tenantId: a.tenantId,
       extensionId: a.extension.id,
       planId: plan.id,
-      buyerEmail: 'P@Example.com',
+      buyerEmail: 'old@example.com',
       externalUserId: 'u_portal',
       stripeCustomerId: 'cus_old',
       status: 'expired',
     })
-    const activeSub = await seedSubscription(a.db, {
+    await seedSubscription(a.db, {
       tenantId: a.tenantId,
       extensionId: a.extension.id,
       planId: plan.id,
@@ -670,8 +678,8 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
       status: 'active',
     })
 
-    // Active sub has no cus_... yet -> picks cus_old; once active gets cus_active -> prefers cus_active.
-    const resOld = await request('/api/v1/subscriptions/portal', {
+    // Picks active subscription's buyerEmail and mints a working single-use portal magic link.
+    const resByUserId = await request('/api/v1/subscriptions/portal', {
       method: 'POST',
       headers: { authorization: `Bearer ${a.apiKey}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -680,22 +688,28 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
         returnUrl: 'https://app.example.com/account',
       }),
     })
-    expect(resOld.status).toBe(200)
-    expect(calls[0]!.params.get('customer')).toBe('cus_old')
+    expect(resByUserId.status).toBe(200)
+    const { url: portalUrl1 } = (await resByUserId.json()) as { url: string }
+    const code1 = new URL(portalUrl1).searchParams.get('code')
+    expect(code1).toBeTruthy()
+    const verify1 = await request('/api/v1/portal/verify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: code1 }),
+    })
+    expect(verify1.status).toBe(200)
+    expect(((await verify1.json()) as { email: string }).email).toBe('P@Example.com')
 
-    await a.db.update(subscriptions).set({ stripeCustomerId: 'cus_active' }).where(eq(subscriptions.id, activeSub.id))
-    const resActive = await request('/api/v1/subscriptions/portal', {
+    // Also works without returnUrl and when matched by case-insensitive email.
+    const resByEmail = await request('/api/v1/subscriptions/portal', {
       method: 'POST',
       headers: { authorization: `Bearer ${a.apiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        email: 'p@example.com',
-        returnUrl: 'https://app.example.com/account',
-      }),
+      body: JSON.stringify({ email: 'p@example.com' }),
     })
-    expect(resActive.status).toBe(200)
-    expect(await resActive.json()).toEqual({ url: 'https://billing.stripe.com/p/session/bps_p_1' })
-    expect(calls[1]!.params.get('customer')).toBe('cus_active')
-    expect(calls[1]!.params.get('return_url')).toBe('https://app.example.com/account')
+    expect(resByEmail.status).toBe(200)
+    const { url: portalUrl2 } = (await resByEmail.json()) as { url: string }
+    expect(new URL(portalUrl2).pathname).toBe('/portal')
+    expect(new URL(portalUrl2).searchParams.get('code')).toBeTruthy()
 
     // Missing identifier -> 400; unknown user -> 404; cross-tenant -> 404.
     expect(
@@ -729,6 +743,129 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
         })
       ).status,
     ).toBe(404)
+  })
+
+  it('supports disabling plans (active=false): blocks checkout/buy/change-plan, hides Change plan in portal, and defaults checkout successUrl', async () => {
+    const { db, tenantId, sessionCookie, apiKey, extension } = await setupControlPlaneTenant({
+      apiKey: 'rk_test_plan_disable',
+    })
+    const calls = mockStripeFetch((path) => {
+      if (path === '/products') return { body: { id: 'prod_pd' } }
+      if (path === '/prices') return { body: { id: `price_pd_${Math.random().toString(36).slice(2, 7)}` } }
+      if (path === '/checkout/sessions') {
+        return { body: { id: 'cs_pd_1', url: 'https://checkout.stripe.com/c/pay/cs_pd_1' } }
+      }
+      throw new Error(`Unexpected path: ${path}`)
+    })
+
+    const monthlyRes = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extension.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        billingInterval: 'month',
+        amount: 499,
+      }),
+    })
+    const { plan: monthlyPlan } = (await monthlyRes.json()) as { plan: Plan }
+    expect(monthlyPlan.active).toBe(true)
+
+    const yearlyRes = await request('/api/v1/plans', {
+      method: 'POST',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extension.id,
+        tier: 'pro',
+        entitlementType: 'recurring',
+        billingInterval: 'year',
+        amount: 4999,
+      }),
+    })
+    const { plan: yearlyPlan } = (await yearlyRes.json()) as { plan: Plan }
+
+    // Disable yearly plan.
+    const disableRes = await request(`/api/v1/plans/${yearlyPlan.id}`, {
+      method: 'PATCH',
+      headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ active: false }),
+    })
+    expect(disableRes.status).toBe(200)
+    expect(((await disableRes.json()) as { plan: Plan }).plan.active).toBe(false)
+
+    // Public buy link & API checkout for disabled yearly plan -> 400.
+    expect((await request(`/api/v1/portal/buy/${yearlyPlan.id}`)).status).toBe(400)
+    expect(
+      (
+        await request('/api/v1/subscriptions/checkout', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ extensionId: extension.id, planId: yearlyPlan.id }),
+        })
+      ).status,
+    ).toBe(400)
+    expect(
+      (
+        await request('/api/v1/subscriptions/checkout', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ extensionId: extension.id, tier: 'pro', interval: 'yearly' }),
+        })
+      ).status,
+    ).toBe(400)
+
+    // Omitting interval + successUrl resolves to the sole active monthly plan and defaults successUrl to Extport success page.
+    const defaultCheckoutRes = await request('/api/v1/subscriptions/checkout', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ extensionId: extension.id, email: 'new@example.com' }),
+    })
+    expect(defaultCheckoutRes.status).toBe(200)
+    const lastCheckoutCall = calls[calls.length - 1]!
+    expect(lastCheckoutCall.params.get('line_items[0][price]')).toBe(monthlyPlan.stripePriceId)
+    expect(lastCheckoutCall.params.get('success_url')).toContain('/purchase/success?session_id={CHECKOUT_SESSION_ID}')
+
+    // Seed an active monthly subscriber and sign into Buyer Portal via /subscriptions/portal.
+    const sub = await seedSubscription(db, {
+      tenantId,
+      extensionId: extension.id,
+      planId: monthlyPlan.id,
+      buyerEmail: 'monthly-only@example.com',
+      externalUserId: 'usr_mo',
+      stripeCustomerId: 'cus_mo',
+      status: 'active',
+    })
+    const portalLinkRes = await request('/api/v1/subscriptions/portal', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ extensionId: extension.id, externalUserId: 'usr_mo' }),
+    })
+    const { url: portalUrl } = (await portalLinkRes.json()) as { url: string }
+    const verifyRes = await request('/api/v1/portal/verify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: new URL(portalUrl).searchParams.get('code') }),
+    })
+    const buyerCookie = verifyRes.headers.get('set-cookie')!.split(';')[0]!
+
+    // Disabled yearly plan is excluded from availablePlans and canChangePlan is false.
+    const listRes = await request('/api/v1/portal/licenses', { headers: { cookie: buyerCookie } })
+    expect(listRes.status).toBe(200)
+    const listBody = (await listRes.json()) as {
+      subscriptions: Array<{ id: string; canChangePlan: boolean; availablePlans: Array<{ id: string }> }>
+    }
+    const subItem = listBody.subscriptions.find((s) => s.id === sub.id)!
+    expect(subItem.canChangePlan).toBe(false)
+    expect(subItem.availablePlans.map((p) => p.id)).toEqual([monthlyPlan.id])
+
+    // Direct change-plan POST to disabled yearly plan is rejected with 400.
+    const changeRes = await request(`/api/v1/portal/subscriptions/${sub.id}/change-plan`, {
+      method: 'POST',
+      headers: { cookie: buyerCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ planId: yearlyPlan.id }),
+    })
+    expect(changeRes.status).toBe(400)
   })
 
   it('GET /api/v1/subscriptions lists with filters & keyset pagination, and GET /entitlements picks best subscription', async () => {
@@ -977,7 +1114,7 @@ describe('/api/v1/subscriptions — list, entitlements, checkout guard, and port
       }),
     })
     expect(portalRes.status).toBe(200)
-    expect(((await portalRes.json()) as { url: string }).url).toBe('https://billing.stripe.com/dis')
+    expect(((await portalRes.json()) as { url: string }).url).toMatch(/\/portal\?code=/)
   })
 
   it('supports public GET /api/v1/portal/buy/:planId and subscription lookup + billing portal in buyer portal', async () => {

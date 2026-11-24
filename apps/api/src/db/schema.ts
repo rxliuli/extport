@@ -387,6 +387,12 @@ export const plans = sqliteTable(
       .default('usd')
       .$defaultFn(() => 'usd'),
     amount: integer('amount').notNull(),
+    // Soft-disable toggle: inactive plans remain readable for existing
+    // subscribers/licenses, but are hidden from new checkouts and Change plan.
+    active: integer('active', { mode: 'boolean' })
+      .notNull()
+      .default(true)
+      .$defaultFn(() => true),
     stripeProductId: text('stripe_product_id'),
     stripePriceId: text('stripe_price_id'),
     ...timestamps,

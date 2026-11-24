@@ -93,6 +93,9 @@ route.get(
     if (!row.extension.licensingEnabled) {
       return c.json({ error: 'licensing is disabled for this extension' }, 400)
     }
+    if (!row.plan.active) {
+      return c.json({ error: 'this plan is currently disabled' }, 400)
+    }
     if (!row.plan.stripePriceId) {
       return c.json({ error: 'no Stripe price configured for this plan' }, 400)
     }
@@ -401,7 +404,7 @@ route.get(
       subscriptions: subRows.map(({ subscription, plan, extension, tenantSettings }) => {
         const currency = plan.currency.toLowerCase()
         const availablePlans = (recurringPlansByExtension.get(subscription.extensionId) ?? [])
-          .filter((p) => p.currency.toLowerCase() === currency)
+          .filter((p) => p.currency.toLowerCase() === currency && (p.active || p.id === subscription.planId))
           .sort((a, b) => a.amount - b.amount || a.billingInterval.localeCompare(b.billingInterval))
           .map((p) => ({
             id: p.id,
@@ -673,6 +676,9 @@ route.post(
     if (!targetPlan) return c.json({ error: 'target plan not found' }, 404)
     if (targetPlan.entitlementType !== 'recurring') {
       return c.json({ error: 'target plan must be a recurring subscription plan' }, 400)
+    }
+    if (targetPlan.id !== sub.planId && !targetPlan.active) {
+      return c.json({ error: 'target plan is currently disabled' }, 400)
     }
     if (!targetPlan.stripePriceId) {
       return c.json({ error: 'target plan has no Stripe price configured' }, 400)

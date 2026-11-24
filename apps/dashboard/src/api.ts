@@ -156,6 +156,7 @@ export interface Plan {
   maxActivations: number
   currency: string
   amount: number
+  active: boolean
   stripeProductId: string | null
   stripePriceId: string | null
   /** ISO date string (Date -> JSON) */
