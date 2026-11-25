@@ -299,6 +299,71 @@ describe('runReconciliation — a queued version the store already reports live'
     expect(calls.some((c) => c.url.endsWith(':upload') || c.url.endsWith(':publish'))).toBe(false)
     expect(sent).toHaveLength(0)
   })
+
+  it('skips an orphaned queued row when an online row for the same version already exists', async () => {
+    // Real incident (Pangu Spacing firefox v0.0.1, 2026-11-24/25): both an
+    // online baseline row and a queued row existed for v0.0.1. Because the
+    // online row already existed, !alreadyRecordedOnline was false and the
+    // queued row was resubmitted every 30 minutes into AMO 409s until the
+    // account hit 429.
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      artifacts: [{ version: '0.0.1' }],
+      versions: [
+        { version: '0.0.1', status: 'queued' },
+        { version: '0.0.1', status: 'online' },
+      ],
+    })
+    const { fetch, calls } = routedFetch(
+      chromeRoutes({
+        fetchStatus: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '0.0.1' }] },
+        },
+      }),
+    )
+    globalThis.fetch = fetch
+    const { notifier, sent } = recordingNotifier()
+
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
+    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 0, skipped: 0 })
+
+    const rows = await versionsFor(db, extensionId)
+    expect(rows).toHaveLength(2)
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ version: '0.0.1', status: 'skipped', statusDetail: 'already live on store' }),
+        expect.objectContaining({ version: '0.0.1', status: 'online' }),
+      ]),
+    )
+    expect(calls.some((c) => c.url.endsWith(':upload') || c.url.endsWith(':publish'))).toBe(false)
+    expect(sent).toHaveLength(0)
+  })
+
+  it('skips a queued row when the store is already live on a newer version', async () => {
+    const { db, tenantId, extensionId } = await setupChromeScenario({
+      artifacts: [{ version: '1.0.0' }],
+      versions: [{ version: '1.0.0', status: 'queued' }],
+    })
+    const { fetch, calls } = routedFetch(
+      chromeRoutes({
+        fetchStatus: {
+          publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.1.0' }] },
+        },
+      }),
+    )
+    globalThis.fetch = fetch
+    const { notifier, sent } = recordingNotifier()
+
+    const summary = await runReconciliation(env, db, { tenantId }, notifier)
+    expect(summary).toEqual({ processed: 1, submitted: 0, blocked: 0, errors: 0, skipped: 0 })
+
+    const rows = await versionsFor(db, extensionId)
+    expect(rows).toMatchObject([
+      { version: '1.0.0', status: 'skipped', statusDetail: 'superseded by live v1.1.0' },
+      { version: '1.1.0', status: 'online' },
+    ])
+    expect(calls.some((c) => c.url.endsWith(':upload') || c.url.endsWith(':publish'))).toBe(false)
+    expect(sent).toHaveLength(0)
+  })
 })
 
 describe('runReconciliation — routine sweep leaves settled targets alone', () => {

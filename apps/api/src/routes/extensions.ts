@@ -1,4 +1,4 @@
-import { decryptJson, newId, PLAN_LIMITS, STORES, type Store } from '@extport/shared'
+import { compareVersions, decryptJson, newId, PLAN_LIMITS, STORES, type Store } from '@extport/shared'
 import { getAdapter } from '@extport/store-adapters'
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
@@ -612,29 +612,71 @@ route.post(
     for (const { platform, live, inReview } of observed) {
       const dbPlatform = (platform ?? null) as (typeof existingRows)[number]['platform']
       const platformRows = existingRows.filter((v) => (v.platform ?? null) === (platform ?? null))
-      if (live && !platformRows.some((v) => v.status === 'online' && v.version === live)) {
-        await db.insert(deploymentVersions).values({
-          id: newId('deploymentVersion'),
-          tenantId: tenant.id,
-          extensionId: extension.id,
-          store,
-          platform: dbPlatform,
-          version: live,
-          artifactId: null,
-          status: 'online',
-        })
+      let promotedId: string | null = null
+      if (live) {
+        if (!platformRows.some((v) => v.status === 'online' && v.version === live)) {
+          const matching =
+            platformRows.find((v) => v.status === 'in_review' && v.version === live) ??
+            platformRows.find((v) => v.status === 'queued' && v.version === live)
+          if (matching) {
+            await db
+              .update(deploymentVersions)
+              .set({ status: 'online', statusDetail: null })
+              .where(eq(deploymentVersions.id, matching.id))
+            promotedId = matching.id
+          } else {
+            await db.insert(deploymentVersions).values({
+              id: newId('deploymentVersion'),
+              tenantId: tenant.id,
+              extensionId: extension.id,
+              store,
+              platform: dbPlatform,
+              version: live,
+              artifactId: null,
+              status: 'online',
+            })
+          }
+        }
+        // Any remaining queued row at or behind the live version (e.g. pushed
+        // before this target was added, or left behind from a removed target)
+        // must be retired rather than left to resubmit against a live version.
+        for (const stale of platformRows.filter(
+          (v) => v.status === 'queued' && v.id !== promotedId && compareVersions(v.version, live) <= 0,
+        )) {
+          await db
+            .update(deploymentVersions)
+            .set({
+              status: 'skipped',
+              statusDetail: stale.version === live ? 'already live on store' : `superseded by live v${live}`,
+            })
+            .where(eq(deploymentVersions.id, stale.id))
+        }
       }
-      if (inReview && !platformRows.some((v) => v.status === 'in_review' && v.version === inReview)) {
-        await db.insert(deploymentVersions).values({
-          id: newId('deploymentVersion'),
-          tenantId: tenant.id,
-          extensionId: extension.id,
-          store,
-          platform: dbPlatform,
-          version: inReview,
-          artifactId: null,
-          status: 'in_review',
-        })
+      if (
+        inReview &&
+        inReview !== live &&
+        !platformRows.some((v) => (v.status === 'in_review' || v.status === 'online') && v.version === inReview)
+      ) {
+        const matchingQueued = platformRows.find(
+          (v) => v.status === 'queued' && v.id !== promotedId && v.version === inReview,
+        )
+        if (matchingQueued) {
+          await db
+            .update(deploymentVersions)
+            .set({ status: 'in_review', statusDetail: null })
+            .where(eq(deploymentVersions.id, matchingQueued.id))
+        } else {
+          await db.insert(deploymentVersions).values({
+            id: newId('deploymentVersion'),
+            tenantId: tenant.id,
+            extensionId: extension.id,
+            store,
+            platform: dbPlatform,
+            version: inReview,
+            artifactId: null,
+            status: 'in_review',
+          })
+        }
       }
     }
 

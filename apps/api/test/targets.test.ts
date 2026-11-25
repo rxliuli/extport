@@ -246,6 +246,93 @@ describe('publish targets', () => {
       .where(and(eq(deploymentVersions.extensionId, extension.id), eq(deploymentVersions.store, 'firefox')))
     expect(rows).toMatchObject([{ version: '3.0.0', status: 'online' }])
   })
+
+  it('promotes an existing queued row to online instead of duplicating when the store is already live on that version', async () => {
+    const { db, tenantId, sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const credential = await createCredential(sessionCookie, 'firefox', { jwtIssuer: 'user:1:2', jwtSecret: 'sekrit' })
+
+    // Simulate a queued row already present for v0.0.1 before the target is
+    // added (e.g. target removed while queued, then manually published on AMO
+    // and re-added — Pangu Spacing v0.0.1 incident).
+    await db.insert(deploymentVersions).values({
+      id: newId('deploymentVersion'),
+      tenantId,
+      extensionId: extension.id,
+      store: 'firefox',
+      platform: null,
+      version: '0.0.1',
+      artifactId: null,
+      status: 'queued',
+    })
+
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/versions/')) return Promise.resolve(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+      return Promise.resolve(new Response(JSON.stringify({ current_version: { version: '0.0.1' } }), { status: 200 }))
+    }) as typeof fetch
+    try {
+      const res = await request(`/api/v1/extensions/${extension.id}/targets`, {
+        method: 'POST',
+        headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ store: 'firefox', storeItemId: 'pangu-spacing-unofficial', credentialId: credential.id }),
+      })
+      expect(res.status).toBe(201)
+    } finally {
+      globalThis.fetch = realFetch
+    }
+
+    const rows = await db
+      .select()
+      .from(deploymentVersions)
+      .where(and(eq(deploymentVersions.extensionId, extension.id), eq(deploymentVersions.store, 'firefox')))
+    expect(rows).toMatchObject([{ version: '0.0.1', status: 'online' }])
+  })
+
+  it('skips an older queued row when the store baseline is already live on a newer version', async () => {
+    const { db, tenantId, sessionCookie } = await seedTenantWithUser()
+    const extension = await createExtension(sessionCookie)
+    const credential = await createCredential(sessionCookie, 'firefox', { jwtIssuer: 'user:1:2', jwtSecret: 'sekrit' })
+
+    await db.insert(deploymentVersions).values({
+      id: newId('deploymentVersion'),
+      tenantId,
+      extensionId: extension.id,
+      store: 'firefox',
+      platform: null,
+      version: '0.0.1',
+      artifactId: null,
+      status: 'queued',
+    })
+
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/versions/')) return Promise.resolve(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+      return Promise.resolve(new Response(JSON.stringify({ current_version: { version: '0.0.2' } }), { status: 200 }))
+    }) as typeof fetch
+    try {
+      const res = await request(`/api/v1/extensions/${extension.id}/targets`, {
+        method: 'POST',
+        headers: { cookie: sessionCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ store: 'firefox', storeItemId: 'addon-newer', credentialId: credential.id }),
+      })
+      expect(res.status).toBe(201)
+    } finally {
+      globalThis.fetch = realFetch
+    }
+
+    const rows = await db
+      .select()
+      .from(deploymentVersions)
+      .where(and(eq(deploymentVersions.extensionId, extension.id), eq(deploymentVersions.store, 'firefox')))
+    expect(rows).toHaveLength(2)
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ version: '0.0.1', status: 'skipped', statusDetail: 'superseded by live v0.0.2' }),
+        expect.objectContaining({ version: '0.0.2', status: 'online' }),
+      ]),
+    )
+  })
 })
 
 describe('publish target platforms (Safari macOS/iOS narrowing)', () => {

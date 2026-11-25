@@ -433,6 +433,29 @@ async function reconcileLifecycle(
         })
       }
     }
+    // Any queued row at or behind the live version can never legitimately be
+    // submitted — even when an online row for liveVersion already existed
+    // (real incident: Pangu Spacing firefox v0.0.1, 2026-11-24/25: an orphaned
+    // queued row coexisted with an online baseline row for the same version,
+    // so the !alreadyRecordedOnline branch skipped it and every 30-min tick
+    // resubmitted v0.0.1 into AMO 409s until the account hit 429) or when a
+    // newer version was published directly on the store while an older one sat
+    // queued. Mark it skipped so the target settles instead of looping forever.
+    if (queued && compareVersions(queued.version, liveVersion) <= 0) {
+      const detail = queued.version === liveVersion ? 'already live on store' : `superseded by live v${liveVersion}`
+      await db
+        .update(deploymentVersions)
+        .set({ status: 'skipped', statusDetail: detail })
+        .where(eq(deploymentVersions.id, queued.id))
+      queued = null
+    }
+    if (inReview && alreadyRecordedOnline && inReview.version === liveVersion) {
+      await db
+        .update(deploymentVersions)
+        .set({ status: 'skipped', statusDetail: 'already live on store' })
+        .where(eq(deploymentVersions.id, inReview.id))
+      inReview = null
+    }
   }
   if (inReview && actual.reviewStatus === 'cancelled') {
     // Developer withdrew the submission directly in the store console
