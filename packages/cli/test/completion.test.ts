@@ -182,6 +182,14 @@ describe('nested subcommand completion', () => {
               output: { type: 'string' },
             },
           },
+          firefox: {
+            meta: { name: 'firefox', description: 'Port to Firefox' },
+            args: {
+              source: { type: 'positional' },
+              output: { type: 'string' },
+              run: { type: 'boolean' },
+            },
+          },
         },
       },
     },
@@ -198,24 +206,40 @@ describe('nested subcommand completion', () => {
           { name: 'output', options: undefined },
         ],
       },
+      {
+        name: 'firefox',
+        description: 'Port to Firefox',
+        flags: [
+          { name: 'output', options: undefined },
+          { name: 'run', options: undefined },
+        ],
+      },
     ])
 
     const bash = generateBashCompletion(nestedSchema)
-    expect(bash).toContain('port) COMPREPLY=( $(compgen -W "safari" -- "$cur") ); return ;;')
+    expect(bash).toContain('port) COMPREPLY=( $(compgen -W "safari firefox" -- "$cur") ); return ;;')
     expect(bash).toContain('port:safari:--platform) COMPREPLY=( $(compgen -W "macos ios" -- "$cur") ); return ;;')
     expect(bash).toContain('port:safari) COMPREPLY=( $(compgen -W "--platform --output" -- "$cur") ); return ;;')
+    expect(bash).toContain('port:firefox) COMPREPLY=( $(compgen -W "--output --run" -- "$cur") ); return ;;')
 
     const zsh = generateZshCompletion(nestedSchema)
-    expect(zsh).toContain("port) compadd -- 'safari'; return ;;")
+    expect(zsh).toContain("port) compadd -- 'safari' 'firefox'; return ;;")
     expect(zsh).toContain("port:safari:--platform) compadd -- 'macos' 'ios'; return ;;")
     expect(zsh).toContain("port:safari) compadd -- '--platform' '--output'; return ;;")
+    expect(zsh).toContain("port:firefox) compadd -- '--output' '--run'; return ;;")
 
     const fish = generateFishCompletion(nestedSchema)
     expect(fish).toContain(
-      "complete -c extport -n '__fish_seen_subcommand_from port; and not __fish_seen_subcommand_from safari' -a 'safari' -d 'Port to Safari'",
+      "complete -c extport -n '__fish_seen_subcommand_from port; and not __fish_seen_subcommand_from safari firefox' -a 'safari' -d 'Port to Safari'",
+    )
+    expect(fish).toContain(
+      "complete -c extport -n '__fish_seen_subcommand_from port; and not __fish_seen_subcommand_from safari firefox' -a 'firefox' -d 'Port to Firefox'",
     )
     expect(fish).toContain(
       "complete -c extport -n '__fish_seen_subcommand_from port; and __fish_seen_subcommand_from safari' -l platform -a 'macos ios'",
+    )
+    expect(fish).toContain(
+      "complete -c extport -n '__fish_seen_subcommand_from port; and __fish_seen_subcommand_from firefox' -l run",
     )
   })
 })

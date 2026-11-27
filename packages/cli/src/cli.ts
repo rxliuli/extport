@@ -38,6 +38,8 @@ import {
   promptText,
   requiredField,
 } from './prompts'
+import { resolveFirefoxPortOptions, type RawFirefoxPortArgs } from './firefox-port-args'
+import { runFirefoxPort } from './firefox-port'
 import { resolveSafariBuildOptions, safariDefaultsChanged, type RawSafariBuildArgs } from './safari-build-args'
 import { runSafariBuild } from './safari-build'
 import { resolveSafariInstallOptions, type RawSafariInstallArgs } from './safari-install-args'
@@ -280,6 +282,11 @@ async function runPortSafariCommand(raw: RawSafariInstallArgs): Promise<void> {
     promptSelectIdentity: promptSelectSigningIdentity,
     promptSelectDevice: promptSelectIosDevice,
   })
+}
+
+async function runPortFirefoxCommand(raw: RawFirefoxPortArgs): Promise<void> {
+  const options = resolveFirefoxPortOptions(raw)
+  await runFirefoxPort(options)
 }
 
 async function runLogin(flagApiUrl?: string): Promise<void> {
@@ -586,7 +593,7 @@ const main = defineCommand({
       meta: {
         name: 'port',
         description:
-          'Convert and locally install a Chrome extension for another browser (e.g. extport port safari <source>)',
+          'Convert and locally install/run a Chrome extension for another browser (e.g. extport port safari|firefox <source>)',
       },
       subCommands: {
         safari: defineCommand({
@@ -668,6 +675,69 @@ const main = defineCommand({
               debug: args.debug as boolean | undefined,
             })
           }),
+        }),
+        firefox: defineCommand({
+          meta: {
+            name: 'firefox',
+            description:
+              'Convert any MV3 Chrome extension (CWS URL/ID, .crx, .zip, or directory) to a Firefox MV3 .xpi (or unpacked directory) and optionally run it live in Firefox',
+          },
+          args: {
+            source: {
+              type: 'positional',
+              description: 'Chrome Web Store URL, 32-char extension ID, or local directory / .crx / .zip',
+              required: true,
+            },
+            output: {
+              type: 'string',
+              description:
+                'Export the converted .xpi (or unpacked directory with --unpacked) to this directory or file path (default: ./<slug>-firefox.xpi)',
+            },
+            unpacked: {
+              type: 'boolean',
+              description: 'Export an unpacked extension directory instead of packaging a .xpi archive',
+            },
+            'gecko-id': {
+              type: 'string',
+              description:
+                'Override browser_specific_settings.gecko.id (default: preserve existing or <id|slug>@port.extport.dev)',
+            },
+            'min-version': {
+              type: 'string',
+              description: 'Override browser_specific_settings.gecko.strict_min_version (default: 128.0)',
+            },
+            run: {
+              type: 'boolean',
+              description:
+                'Launch Firefox (or a Firefox-based browser) with the converted extension temporarily installed via RDP',
+            },
+            firefox: {
+              type: 'string',
+              description:
+                'Target Firefox executable path or channel alias (firefox, dev, nightly, esr, zen, waterfox, librewolf) — requires --run',
+            },
+            'keep-unpacked': {
+              type: 'string',
+              description: 'Copy the converted unpacked Firefox extension into this directory',
+            },
+            debug: {
+              type: 'boolean',
+              description: 'Print detailed manifest transformations and Firefox process output',
+            },
+          },
+          run: withCleanErrors((args) =>
+            runPortFirefoxCommand({
+              source: args.source as string | undefined,
+              output: args.output as string | undefined,
+              unpacked: args.unpacked as boolean | undefined,
+              geckoId: args['gecko-id'] as string | undefined,
+              minVersion: args['min-version'] as string | undefined,
+              run: args.run as boolean | undefined,
+              firefox: args.firefox as string | undefined,
+              keepUnpacked: args['keep-unpacked'] as string | undefined,
+              debug: args.debug as boolean | undefined,
+            }),
+          ),
         }),
       },
     }),

@@ -109,7 +109,10 @@ export default defineConfig({
         },
         {
           label: 'Tools',
-          items: [{ label: 'Port Chrome extensions to Safari', slug: 'port-safari' }],
+          items: [
+            { label: 'Port Chrome extensions to Safari', slug: 'port-safari' },
+            { label: 'Port Chrome extensions to Firefox', slug: 'port-firefox' },
+          ],
         },
         // References come last — the guide pages first, reference at the end.
         // The SDK client and the WXT build module are what tenants reach for
