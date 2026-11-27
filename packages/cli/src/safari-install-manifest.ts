@@ -32,6 +32,16 @@ const UNSUPPORTED_PERMISSIONS: ReadonlyArray<{ key: string; api: string; reason:
   { key: 'identity', api: 'chrome.identity', reason: 'OAuth / Google identity APIs are not supported in Safari' },
   { key: 'offscreen', api: 'chrome.offscreen', reason: 'Offscreen documents are not supported in Safari' },
   { key: 'sidePanel', api: 'chrome.sidePanel', reason: 'Side panel UI is not supported in Safari' },
+  { key: 'userScripts', api: 'chrome.userScripts', reason: 'User scripts API is not supported in Safari' },
+  {
+    key: 'webRequestBlocking',
+    api: 'chrome.webRequestBlocking',
+    reason: 'Blocking webRequest is not supported in Safari MV3',
+  },
+  { key: 'downloads', api: 'chrome.downloads', reason: 'Downloads API is not supported in Safari' },
+  { key: 'privacy', api: 'chrome.privacy', reason: 'Browser privacy settings API is not supported in Safari' },
+  { key: 'fontSettings', api: 'chrome.fontSettings', reason: 'Font settings API is not supported in Safari' },
+  { key: 'readingList', api: 'chrome.readingList', reason: 'Chrome Reading List API is not supported in Safari' },
   { key: 'debugger', api: 'chrome.debugger', reason: 'Chrome DevTools debugger protocol is not supported in Safari' },
   { key: 'tabGroups', api: 'chrome.tabGroups', reason: 'Chrome tab groups API is not supported in Safari' },
   { key: 'gcm', api: 'chrome.gcm', reason: 'Google Cloud Messaging is not supported in Safari' },
@@ -84,6 +94,12 @@ export function detectUnsupportedSafariApis(manifest: Record<string, unknown>): 
   }
   if (manifest.side_panel && typeof manifest.side_panel === 'object') {
     add('chrome.sidePanel', 'Side panel UI is not supported in Safari')
+  }
+  if (manifest.omnibox && typeof manifest.omnibox === 'object') {
+    add('chrome.omnibox', 'Omnibox keyword API is not supported in Safari')
+  }
+  if (manifest.sandbox && typeof manifest.sandbox === 'object') {
+    add('sandbox', 'Sandboxed extension pages are not supported in Safari')
   }
 
   return warnings

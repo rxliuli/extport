@@ -58,13 +58,23 @@ describe('buildDeterministicBundleId', () => {
 })
 
 describe('detectUnsupportedSafariApis', () => {
-  it('warns on identity, offscreen, and sidePanel (both permission and manifest key)', () => {
+  it('warns on identity, offscreen, sidePanel, userScripts, downloads, omnibox, and sandbox', () => {
     const warnings = detectUnsupportedSafariApis({
-      permissions: ['storage', 'identity', 'offscreen'],
+      permissions: ['storage', 'identity', 'offscreen', 'userScripts', 'downloads'],
       optional_permissions: ['sidePanel'],
       side_panel: { default_path: 'side.html' },
+      omnibox: { keyword: 'ext' },
+      sandbox: { pages: ['sandbox.html'] },
     })
-    expect(warnings.map((w) => w.api)).toEqual(['chrome.identity', 'chrome.offscreen', 'chrome.sidePanel'])
+    expect(warnings.map((w) => w.api)).toEqual([
+      'chrome.identity',
+      'chrome.offscreen',
+      'chrome.sidePanel',
+      'chrome.userScripts',
+      'chrome.downloads',
+      'chrome.omnibox',
+      'sandbox',
+    ])
   })
 
   it('returns empty for Safari-compatible permissions', () => {

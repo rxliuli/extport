@@ -102,6 +102,9 @@ export function formatXcodebuildFailureHint(output: string, platform: SafariPlat
   if (platform === 'ios' && /requires a provisioning profile|No profiles for/i.test(output)) {
     return 'Hint: connect your iPhone via USB, make sure you are signed in to Xcode Accounts, and retry — or pass --no-sign --output <path> to export an unsigned .ipa.'
   }
+  if (platform === 'ios' && /Couldn't load Info dictionary/i.test(output)) {
+    return 'Hint: an extension directory name (such as Contents/, Frameworks/, PlugIns/, or Resources/) collided with a reserved iOS bundle directory inside the .appex.'
+  }
   return undefined
 }
 
