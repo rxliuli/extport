@@ -17,5 +17,6 @@ export {
   setupPageHtml,
   setupPageScript,
   writeSetupPage,
+  type SetupPageHtmlOptions,
   type WriteSetupPageOptions,
 } from './safari-setup-page'

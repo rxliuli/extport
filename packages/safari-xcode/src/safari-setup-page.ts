@@ -21,18 +21,28 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (c) => ESCAPES[c]!)
 }
 
-export function setupPageHtml(projectName: string): string {
+export interface SetupPageHtmlOptions {
+  /** Pre-seed the platform class on `<body>` when the target bundle does not ship `Script.js` (e.g. `--ios-only`). */
+  initialPlatform?: 'ios' | 'mac'
+  /** Whether to reference `../Script.js` (default: true). */
+  includeScript?: boolean
+}
+
+export function setupPageHtml(projectName: string, options: SetupPageHtmlOptions = {}): string {
   const name = escapeHtml(projectName)
+  const includeScript = options.includeScript ?? true
+  const scriptTag = includeScript ? '\n    <script src="../Script.js" defer></script>' : ''
+  const bodyTag = options.initialPlatform ? `<body class="platform-${options.initialPlatform}">` : '<body>'
   return `<!DOCTYPE html>
 <html>
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'">
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-    <link rel="stylesheet" href="../Style.css">
-    <script src="../Script.js" defer></script>
+    <meta name="color-scheme" content="light dark">
+    <link rel="stylesheet" href="../Style.css">${scriptTag}
 </head>
-<body>
+${bodyTag}
     <header>
         <img src="../Icon.png" width="96" height="96" alt="${name} icon">
         <h1>${name}</h1>
@@ -134,6 +144,12 @@ header {
     flex-direction: column;
     align-items: center;
     gap: 8px;
+}
+
+header img {
+    border-radius: 22px;
+    background: #ffffff;
+    object-fit: contain;
 }
 
 h1 {
@@ -313,6 +329,7 @@ export async function resolveAppPaths(
 export interface WriteSetupPageOptions {
   projectName: string
   projectRoot: string
+  projectType?: 'macos' | 'ios' | 'both'
 }
 
 /** Returns false when the expected layout isn't there, so the caller can warn without failing the build. */
@@ -320,9 +337,18 @@ export async function writeSetupPage(options: WriteSetupPageOptions): Promise<bo
   const paths = await resolveAppPaths(options.projectRoot, options.projectName)
   if (!paths) return false
 
-  await fs.writeFile(path.join(paths.resources, 'Base.lproj', 'Main.html'), setupPageHtml(options.projectName))
+  // `safari-web-extension-converter --ios-only` does not generate or bundle
+  // `Script.js`, so seed `platform-ios` directly in HTML instead of waiting
+  // for a script that never runs.
+  const isIosOnly = options.projectType === 'ios'
+  await fs.writeFile(
+    path.join(paths.resources, 'Base.lproj', 'Main.html'),
+    setupPageHtml(options.projectName, isIosOnly ? { initialPlatform: 'ios', includeScript: false } : undefined),
+  )
   await fs.writeFile(path.join(paths.resources, 'Style.css'), setupPageCss())
-  await fs.writeFile(path.join(paths.resources, 'Script.js'), setupPageScript())
+  if (!isIosOnly) {
+    await fs.writeFile(path.join(paths.resources, 'Script.js'), setupPageScript())
+  }
 
   // iOS-only projects have no macOS storyboard, and iOS is full-screen anyway.
   if (await exists(paths.macStoryboard)) {

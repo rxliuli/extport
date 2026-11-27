@@ -1,8 +1,15 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { resizeMacWindow, resolveAppPaths, setupPageHtml, setupPageScript, writeSetupPage } from '../src/safari-setup-page'
+import {
+  resizeMacWindow,
+  resolveAppPaths,
+  setupPageCss,
+  setupPageHtml,
+  setupPageScript,
+  writeSetupPage,
+} from '../src/safari-setup-page'
 
 describe('setupPageHtml', () => {
   it('names the extension in both platforms’ instructions', () => {
@@ -20,12 +27,28 @@ describe('setupPageHtml', () => {
     expect(html).toContain('Tom &amp; Jerry &lt;script&gt;')
   })
 
-  it('keeps the CSP and the relative asset paths the converter expects', () => {
+  it('keeps the CSP, color-scheme meta, and relative asset paths the converter expects', () => {
     const html = setupPageHtml('X')
     expect(html).toContain(`content="default-src 'self'"`)
+    expect(html).toContain('<meta name="color-scheme" content="light dark">')
     expect(html).toContain('href="../Style.css"')
     expect(html).toContain('src="../Script.js"')
     expect(html).toContain('src="../Icon.png"')
+  })
+
+  it('seeds platform-ios and omits Script.js when requested for iOS-only bundles', () => {
+    const html = setupPageHtml('X', { initialPlatform: 'ios', includeScript: false })
+    expect(html).toContain('<body class="platform-ios">')
+    expect(html).not.toContain('Script.js')
+  })
+})
+
+describe('setupPageCss', () => {
+  it('gives the app icon a light rounded backing so dark monochrome icons remain visible in dark mode', () => {
+    const css = setupPageCss()
+    expect(css).toContain('color-scheme: light dark;')
+    expect(css).toContain('header img')
+    expect(css).toContain('background: #ffffff;')
   })
 })
 
@@ -33,7 +56,11 @@ describe('setupPageScript', () => {
   // The generated ViewController's call signature depends on the layout, so
   // the script sniffs instead of assuming one. Running the script also runs
   // its own trailing fallback, exactly as the page would.
-  const evaluate = (script: string, userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', maxTouchPoints = 0) => {
+  const evaluate = (
+    script: string,
+    userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+    maxTouchPoints = 0,
+  ) => {
     const classes = new Set<string>()
     const body = {
       classList: {
@@ -156,14 +183,22 @@ describe('resolveAppPaths / writeSetupPage', () => {
 
     expect(await writeSetupPage({ projectName: 'My Ext', projectRoot: root })).toBe(true)
 
-    expect(await readFile(join(root, 'Shared (App)', 'Resources', 'Base.lproj', 'Main.html'), 'utf-8')).toContain('<h1>My Ext</h1>')
+    expect(await readFile(join(root, 'Shared (App)', 'Resources', 'Base.lproj', 'Main.html'), 'utf-8')).toContain(
+      '<h1>My Ext</h1>',
+    )
     expect(await readFile(join(root, 'Shared (App)', 'Resources', 'Style.css'), 'utf-8')).toContain('.platform-ios')
     expect(await readFile(join(root, 'Shared (App)', 'Resources', 'Script.js'), 'utf-8')).toContain('function show(')
     expect(await readFile(storyboard, 'utf-8')).toContain('height="480"')
   })
 
-  it('skips the storyboard step for an iOS-only project', async () => {
-    await mkdir(join(root, 'Shared (App)', 'Resources', 'Base.lproj'), { recursive: true })
-    expect(await writeSetupPage({ projectName: 'My Ext', projectRoot: root })).toBe(true)
+  it('skips the storyboard step and Script.js for an iOS-only project', async () => {
+    await mkdir(join(root, 'My Ext', 'Resources', 'Base.lproj'), { recursive: true })
+    expect(await writeSetupPage({ projectName: 'My Ext', projectRoot: root, projectType: 'ios' })).toBe(true)
+
+    const html = await readFile(join(root, 'My Ext', 'Resources', 'Base.lproj', 'Main.html'), 'utf-8')
+    expect(html).toContain('<meta name="color-scheme" content="light dark">')
+    expect(html).toContain('<body class="platform-ios">')
+    expect(html).not.toContain('Script.js')
+    await expect(access(join(root, 'My Ext', 'Resources', 'Script.js'))).rejects.toThrow()
   })
 })

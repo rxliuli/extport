@@ -120,6 +120,7 @@ export async function convertExtensionToXcodeProject(
   const wrote = await writeSetupPage({
     projectName: located.projectName,
     projectRoot: located.projectDir,
+    projectType: opts.projectType,
   })
   if (!wrote) opts.log?.("couldn't find the host app's Resources directory — left the generated setup page in place")
 

@@ -7,6 +7,7 @@ import type { Exec, ExecResult } from './exec'
 import type { SafariPlatform } from './safari-build-args'
 import type { SafariInstallOptions } from './safari-install-args'
 import { discoverIosDevices, selectIosDevice, type IosDevice } from './safari-install-devices'
+import { patchExtensionForSafari } from './safari-install-compat'
 import { buildDeterministicBundleId, inspectExtensionManifest } from './safari-install-manifest'
 import {
   discoverSigningIdentities,
@@ -243,14 +244,28 @@ export async function runSafariInstall(
       log(`── device: ${targetDevice.name}${targetDevice.osVersion ? ` (iOS ${targetDevice.osVersion})` : ''} ──`)
     }
 
-    // 4. Convert extension → patched Xcode project
+    // 4. Stage a working copy (when given a local directory) and patch popup/options HTML for Safari
+    const relToWork = path.relative(workDir, resolved.unpackedDir)
+    const isInsideWorkDir = relToWork !== '' && !relToWork.startsWith('..') && !path.isAbsolute(relToWork)
+    let convertSourceDir = resolved.unpackedDir
+    if (!isInsideWorkDir) {
+      convertSourceDir = path.join(workDir, 'staged')
+      await copyBundleWithDitto(exec, resolved.unpackedDir, convertSourceDir)
+    }
+
+    const patchedPages = await patchExtensionForSafari(convertSourceDir, options.platform)
+    if (patchedPages.length > 0) {
+      log(`── patched Safari layout & color-scheme: ${patchedPages.join(', ')} ──`)
+    }
+
+    // 5. Convert extension → patched Xcode project
     const bundleId =
       options.bundleId ?? buildDeterministicBundleId({ cwsId: resolved.cwsId, appName: meta.appName, teamId })
     const xcodeOutputDir = path.join(workDir, 'xcode')
     await mkdir(xcodeOutputDir, { recursive: true })
     log(`── converting to Safari ${options.platform} Xcode project (${bundleId}) ──`)
     const converted: ConvertedXcodeProject = await convert({
-      sourceDir: resolved.unpackedDir,
+      sourceDir: convertSourceDir,
       outputDir: xcodeOutputDir,
       projectName: meta.appName,
       appName: meta.appName,
