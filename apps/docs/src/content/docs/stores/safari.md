@@ -48,7 +48,7 @@ In a WXT project with [`@extport/wxt`](/wxt/)'s `safari` block configured
 Team ID, issuer id, key id — is already in `extport.config.json`, so locally it's just:
 
 ```sh
-npx extport safari-build
+npx @extport/cli safari-build
 ```
 
 Outside that setup, pass them as flags: `--project-path ./ios --team-id ABCDE12345 --issuer-id … --key-id …`.

@@ -15,13 +15,13 @@ Requires **macOS** with **Xcode** installed.
 
 ```sh
 # Paste any Chrome Web Store URL (or 32-char extension ID) → installs to ~/Applications
-npx extport port safari https://chromewebstore.google.com/detail/new-tab-redirect/icpgjfneehieebagbmdbhnlpiopdcmna
+npx @extport/cli port safari https://chromewebstore.google.com/detail/new-tab-redirect/icpgjfneehieebagbmdbhnlpiopdcmna
 
 # Install directly onto a connected iPhone or iPad via devicectl
-npx extport port safari --platform ios https://chromewebstore.google.com/detail/new-tab-redirect/icpgjfneehieebagbmdbhnlpiopdcmna
+npx @extport/cli port safari --platform ios https://chromewebstore.google.com/detail/new-tab-redirect/icpgjfneehieebagbmdbhnlpiopdcmna
 
 # Export a .app (macOS) or .ipa (iOS) without installing
-npx extport port safari https://chromewebstore.google.com/detail/new-tab-redirect/icpgjfneehieebagbmdbhnlpiopdcmna --output ./out
+npx @extport/cli port safari https://chromewebstore.google.com/detail/new-tab-redirect/icpgjfneehieebagbmdbhnlpiopdcmna --output ./out
 ```
 
 After a macOS install, the host app opens automatically with a setup guide — turn the extension on under **Safari → Settings → Extensions**. On iOS, enable it under **Settings → Apps → Safari → Extensions**.

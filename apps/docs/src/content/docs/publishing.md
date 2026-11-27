@@ -65,11 +65,11 @@ Build your extension with WXT, log in once, and push:
 pnpm zip:firefox    # builds .output/{name}-{version}-firefox.zip and -sources.zip
 pnpm zip            # builds .output/{name}-{version}-chrome.zip (also used for Edge)
 
-npx extport login   # once per machine — stores a key locally (bound to this API origin)
-npx extport push    # WXT project: zips, source zip, version, and extension id all inferred
+npx @extport/cli login   # once per machine — stores a key locally (bound to this API origin)
+npx @extport/cli push    # WXT project: zips, source zip, version, and extension id all inferred
 ```
 
-With [`@extport/wxt`](/wxt/) configured, `npx extport push` infers everything automatically:
+With [`@extport/wxt`](/wxt/) configured, `npx @extport/cli push` infers everything automatically:
 
 - the extension id from `extport.config.json` (kept in sync by `@extport/wxt`),
 - each enabled store target's zip from `.output/{name}-{version}-{browser}.zip` (Edge falls back to the Chrome zip when no dedicated Edge zip exists),
@@ -79,7 +79,7 @@ With [`@extport/wxt`](/wxt/) configured, `npx extport push` infers everything au
 To push a single store while testing:
 
 ```sh
-npx extport push --store firefox
+npx @extport/cli push --store firefox
 ```
 
 :::note[Outside a WXT project?]
@@ -88,7 +88,7 @@ The version still reads from the zip's `manifest.json`, and `--extension` is onl
 `extport.config.json`:
 
 ```sh
-npx extport push path/to/my-extension-firefox.zip --store firefox --source-zip path/to/sources.zip
+npx @extport/cli push path/to/my-extension-firefox.zip --store firefox --source-zip path/to/sources.zip
 ```
 :::
 

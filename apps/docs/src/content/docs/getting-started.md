@@ -36,8 +36,8 @@ from a single config block.
 Let the scaffold wire up everything from scratch (run in a parent folder, not inside an existing project):
 
 ```sh
-npx extport login
-npx extport init
+npx @extport/cli login
+npx @extport/cli init
 ```
 
 `extport init` creates a WXT project pre-wired with [`@extport/wxt`](/wxt/), bound to a real extension record from
