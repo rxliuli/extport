@@ -58,6 +58,27 @@ Firefox enforces stricter Manifest V3 rules than Chrome and runs MV3 background 
 | `--keep-unpacked <dir>`     | Keep a copy of the converted unpacked directory alongside the `.xpi`                                                       |
 | `--debug`                   | Print detailed manifest transformations and Firefox process output                                                         |
 
+## Tested popular extensions
+
+Verified in real Mozilla Firefox 159.0 via `extport port firefox` and RDP (`--run`), with **0 manifest warnings** and `backgroundScriptStatus = RUNNING` across all 14 extensions:
+
+| Extension                      | CWS ID                             | Version tested   | Status   | Notes                                                                                                           |
+| ------------------------------ | ---------------------------------- | ---------------- | -------- | --------------------------------------------------------------------------------------------------------------- |
+| **uBlock Origin Lite**         | `ddkjiahejlhfcafbddmgiahcphecmpfh` | `2026.1124.1811` | Verified | 6 DNR rulesets + 258 dynamic rules + 4 scripts active; scores **91/100** on `adblock-tester.com` with 0 errors  |
+| **Dark Reader**                | `eimadpbcbfnmbkopoojfekhnkhdbieeh` | `4.9.135`        | Verified | Injects dynamic dark theme (`10` `<style class="darkreader">`) and popup renders cleanly; live CWS URL verified |
+| **Bitwarden Password Manager** | `nngceckbapebfimnlniiiahkandclblb` | `2026.11.0`      | Verified | Webpack 5 `importScripts` chunk loader auto-patched for Event Pages; full Angular popup renders cleanly         |
+| **Vimium**                     | `dbepggeogbaibhgnhhndojpepiihcmeb` | `2.4.2`          | Verified | Background and content scripts load with 0 errors                                                               |
+| **SponsorBlock for YouTube**   | `mnjggcdmjocbbbhaepdhchncahnbgone` | `6.1.6`          | Verified | Background loads with 0 errors                                                                                  |
+| **React Developer Tools**      | `fmkadmapgofadopljbjfkapdkoienihi` | `8.0.0`          | Verified | Registers all 5 content scripts with 0 errors                                                                   |
+| **SingleFile**                 | `mpiodijhokgodhhofbcjdecpffjipkle` | `1.41.1`         | Verified | Loads with 0 errors (`navigator.serviceWorker` Event Page stub + `side_panel` → `sidebar_action`)               |
+| **Immersive Translate**        | `bpoadfkcbjbfhfodiogcnhhhpibjhbnh` | `1.35.4`         | Verified | 1 DNR ruleset and popup load cleanly with 0 errors                                                              |
+| **Refined GitHub**             | `hlepfoohegkhhmjieoechaddaejaokhf` | `26.11.6`        | Verified | Loads with 0 errors; preserves existing `browser_specific_settings.gecko.id`                                    |
+| **Privacy Badger**             | `pkehgijcmpdhfbdbbnkijodmdjhbjlgp` | `2026.9.15.2`    | Verified | 4 DNR rulesets + 4,988 dynamic rules + popup load with 0 JS errors (`author` object normalized to string)       |
+| **Obsidian Web Clipper**       | `cnjifjpddelmedmihgijeibhnjfabmlf` | `1.8.5`          | Verified | Loads with 0 errors (`side_panel` → `sidebar_action` bridged)                                                   |
+| **OneTab**                     | `chphlpgkkbolifaimnlloiipkdnihall` | `2.24`           | Verified | Background and popup load cleanly with 0 errors                                                                 |
+| **Stylus**                     | `clngdbkpkpeebahjckkjfobafhncgmne` | `2.4.18`         | Verified | Loads with 0 errors; 1 dynamic DNR rule installed (`self.clients` + `responseHeaders` strip)                    |
+| **Tampermonkey**               | `dhdgffkkebhmkfjojejmpbldmpobfkfo` | `5.5.1`          | Verified | Loads with 0 errors (`userScripts` automatically moved to `optional_permissions`)                               |
+
 ## Publishing to Firefox Add-ons (AMO) instead?
 
 `extport port firefox` is for local personal conversion and testing. When you're ready to publish your own extension to AMO, see the [Firefox publishing guide](/stores/firefox/).

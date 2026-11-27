@@ -50,3 +50,24 @@ extport port firefox <source> [options]
 4. **Packaging & runner (`firefox-port-package.ts`, `firefox-port-runner.ts`)**:
    - `.xpi` built with `fflate.zipSync` using POSIX paths.
    - `--run` discovers Firefox / Dev Edition / Nightly / Zen / Waterfox / LibreWolf and uses a zero-dependency Node `net.Socket` Firefox RDP client (`getRoot` → `installTemporaryAddon` → `listAddons`).
+
+## Verified popular extensions (2026-11-28, Mozilla Firefox 159.0)
+
+All 14 extensions converted via `extport port firefox` installed cleanly into real Firefox 159.0 via RDP with `backgroundScriptStatus = RUNNING` and **0 manifest warnings**:
+
+| Extension             | CWS ID                             | Version          | Manifest warnings | Runtime result                                                                                          |
+| --------------------- | ---------------------------------- | ---------------- | ----------------- | ------------------------------------------------------------------------------------------------------- |
+| uBlock Origin Lite    | `ddkjiahejlhfcafbddmgiahcphecmpfh` | `2026.1124.1811` | 0                 | 0 errors; 6 DNR rulesets + 258 dynamic rules + 4 scripts; **91/100** on `adblock-tester.com`            |
+| Dark Reader           | `eimadpbcbfnmbkopoojfekhnkhdbieeh` | `4.9.135`        | 0                 | 0 errors; darkens page (`10` `<style class="darkreader">`) + popup (`346` nodes); live CWS URL verified |
+| Bitwarden             | `nngceckbapebfimnlniiiahkandclblb` | `2026.11.0`      | 0                 | Webpack 5 `importScripts` chunk loader patched; Angular popup renders (`164` nodes)                     |
+| Vimium                | `dbepggeogbaibhgnhhndojpepiihcmeb` | `2.4.2`          | 0                 | 0 errors                                                                                                |
+| SponsorBlock          | `mnjggcdmjocbbbhaepdhchncahnbgone` | `6.1.6`          | 0                 | 0 errors                                                                                                |
+| React Developer Tools | `fmkadmapgofadopljbjfkapdkoienihi` | `8.0.0`          | 0                 | 0 errors; 5 content scripts registered                                                                  |
+| SingleFile            | `mpiodijhokgodhhofbcjdecpffjipkle` | `1.41.1`         | 0                 | 0 errors (`navigator.serviceWorker` stub + `side_panel → sidebar_action`)                               |
+| Immersive Translate   | `bpoadfkcbjbfhfodiogcnhhhpibjhbnh` | `1.35.4`         | 0                 | 0 errors; 1 DNR ruleset + popup (`1228` nodes)                                                          |
+| Refined GitHub        | `hlepfoohegkhhmjieoechaddaejaokhf` | `26.11.6`        | 0                 | 0 errors; preserves existing Gecko ID                                                                   |
+| Privacy Badger        | `pkehgijcmpdhfbdbbnkijodmdjhbjlgp` | `2026.9.15.2`    | 0                 | 0 JS errors; 4 rulesets + 4,988 dynamic rules + popup (`113` nodes); `author` object normalized         |
+| Obsidian Web Clipper  | `cnjifjpddelmedmihgijeibhnjfabmlf` | `1.8.5`          | 0                 | 0 errors (`side_panel → sidebar_action` bridged)                                                        |
+| OneTab                | `chphlpgkkbolifaimnlloiipkdnihall` | `2.24`           | 0                 | 0 errors; popup renders (`18` nodes)                                                                    |
+| Stylus                | `clngdbkpkpeebahjckkjfobafhncgmne` | `2.4.18`         | 0                 | 0 errors; 1 dynamic DNR rule installed (`self.clients` + `responseHeaders` strip)                       |
+| Tampermonkey          | `dhdgffkkebhmkfjojejmpbldmpobfkfo` | `5.5.1`          | 0                 | 0 errors (`userScripts` moved to `optional_permissions`)                                                |

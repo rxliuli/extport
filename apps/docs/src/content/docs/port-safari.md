@@ -69,6 +69,27 @@ By default, bundle identifiers are derived deterministically (`dev.extport.<team
 | `--keep-project <dir>`    | Keep a copy of the generated self-contained `.xcodeproj`              |
 | `--debug`                 | Stream raw converter, `xcodebuild`, and `devicectl` output            |
 
+## Tested popular extensions
+
+Verified on macOS 27.2 (Xcode 27.2 / Safari 27.2 `WKWebExtension` runtime, including macOS `Apple Development` signing and iOS `.ipa` + 375 px sheet layout checks):
+
+| Extension                      | CWS ID                             | Version tested   | Status          | Notes                                                                                                                                                                               |
+| ------------------------------ | ---------------------------------- | ---------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **uBlock Origin Lite**         | `ddkjiahejlhfcafbddmgiahcphecmpfh` | `2026.1124.1811` | Verified        | 6 default DNR rulesets + 34 dynamic rules + 4 scripts active; blocks live ads on `adblock-tester.com`; macOS signed `.app` & iOS `.ipa` verified                                    |
+| **Dark Reader**                | `eimadpbcbfnmbkopoojfekhnkhdbieeh` | `4.9.135`        | Verified        | Injects dynamic dark theme styles & popup renders cleanly; macOS signed `.app` & iOS `.ipa` verified                                                                                |
+| **Vimium**                     | `dbepggeogbaibhgnhhndojpepiihcmeb` | `2.4.2`          | Verified        | Background, content script, and popup load with zero errors (via Safari `webNavigation` shim); iOS `.ipa` verified (`resources/` auto-relocated)                                    |
+| **React Developer Tools**      | `fmkadmapgofadopljbjfkapdkoienihi` | `8.0.0`          | Verified        | Registers all 5 `MAIN`/`ISOLATED` content scripts with zero errors (via `scripting.ExecutionWorld` shim)                                                                            |
+| **SponsorBlock for YouTube**   | `mnjggcdmjocbbbhaepdhchncahnbgone` | `6.1.6`          | Verified        | Background and popup load with zero errors                                                                                                                                          |
+| **Obsidian Web Clipper**       | `cnjifjpddelmedmihgijeibhnjfabmlf` | `1.8.5`          | Verified        | Background and popup load with zero errors (Chrome `sidePanel` unavailable in Safari)                                                                                               |
+| **Refined GitHub**             | `hlepfoohegkhhmjieoechaddaejaokhf` | `26.11.6`        | Verified        | Background loads with zero errors across `Apple Development`, `Developer ID`, ad-hoc, and iOS                                                                                       |
+| **OneTab**                     | `chphlpgkkbolifaimnlloiipkdnihall` | `2.24`           | Verified        | Background loads with zero errors (Chrome `omnibox` / `tabGroups` unavailable in Safari)                                                                                            |
+| **SingleFile**                 | `mpiodijhokgodhhofbcjdecpffjipkle` | `1.41.1`         | Verified        | Background loads with zero errors (Safari lacks `chrome.downloads` / `sidePanel`)                                                                                                   |
+| **Immersive Translate**        | `bpoadfkcbjbfhfodiogcnhhhpibjhbnh` | `1.35.4`         | Verified        | Background, DNR ruleset, and popup load cleanly                                                                                                                                     |
+| **Bitwarden Password Manager** | `nngceckbapebfimnlniiiahkandclblb` | `2026.11.0`      | Verified        | Background boots and full Angular popup renders under Safari                                                                                                                        |
+| **Stylus**                     | `clngdbkpkpeebahjckkjfobafhncgmne` | `2.4.18`         | Verified        | Background and popup boot cleanly (empty `_execute_action` command stripped; `permissions.contains`, `webNavigation`, `idle` shimmed)                                               |
+| **Privacy Badger**             | `pkehgijcmpdhfbdbbnkijodmdjhbjlgp` | `2026.9.15.2`    | Partial         | Background boots and all 4 static DNR rulesets load (`webRequest` `ws://` filter & `setBadgeTextColor` shimmed); some Chrome RE2 dynamic `regexFilter` rules are rejected by WebKit |
+| **Tampermonkey**               | `dhdgffkkebhmkfjojejmpbldmpobfkfo` | `5.5.1`          | Unsupported API | Builds, but MV3 userscript execution requires `chrome.userScripts`, which Safari does not implement (warned up front)                                                               |
+
 ## Publishing to the App Store instead?
 
 `extport port safari` is for local personal installation on your own devices. When you're ready to ship your own extension to the Mac App Store and iOS App Store, see the [Safari publishing guide](/stores/safari/) (`extport safari-build`).

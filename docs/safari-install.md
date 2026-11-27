@@ -1,10 +1,11 @@
 # Local browser porting (`extport port safari`) — design
 
-Status: **implemented and verified** on macOS (Xcode 27.2) against real Chrome
-Web Store MV3 extensions (Refined GitHub `hlepfoohegkhhmjieoechaddaejaokhf`
-across `Apple Development`, `Developer ID Application`, ad-hoc `--no-sign`,
-`--keep-project`, and iOS unsigned `.ipa`; plus New Tab Redirect installed onto
-a real Mac and a real iPhone via `devicectl`).
+Status: **implemented and verified** on macOS 27.2 (Xcode 27.2 / Safari 27.2)
+against 14 popular Chrome Web Store MV3 extensions (including uBlock Origin
+Lite, Dark Reader, Vimium, React Developer Tools, Bitwarden, SponsorBlock,
+SingleFile, Immersive Translate, Refined GitHub, Privacy Badger, Obsidian Web
+Clipper, OneTab, Stylus, and Tampermonkey) plus New Tab Redirect on a physical
+Mac and iPhone via `devicectl`.
 
 ## Goal
 
@@ -304,3 +305,24 @@ Unlike `safari-build` (which runs `archive` + `-exportArchive` with an ASC key),
      - macOS with `--no-sign --output` → verify ad-hoc `.app` builds cleanly.
      - iOS with `--no-sign --output` (and signed iOS build if a device/team is available) → verify `.ipa` layout (`Payload/<App>.app/PlugIns/*.appex`).
    - Confirm `@extport/wxt` and `@extport/cli` both pass `pnpm test`, `pnpm typecheck`, and `pnpm build`.
+
+## Verified popular extensions (2026-11-28, Safari 27.2 / Xcode 27.2)
+
+Verified against macOS 27.2 `WKWebExtension` runtime (plus macOS `Apple Development` / `Developer ID` / ad-hoc builds and iOS `.ipa` + 375 px layout checks):
+
+| Extension             | CWS ID                             | Version          | Status          | Runtime & build result                                                                                                                                                          |
+| --------------------- | ---------------------------------- | ---------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| uBlock Origin Lite    | `ddkjiahejlhfcafbddmgiahcphecmpfh` | `2026.1124.1811` | Verified        | 0 errors; 6 DNR rulesets + 34 dynamic rules + 4 scripts; blocks live ads on `adblock-tester.com` (badge `8`); signed `.app` & iOS `.ipa` (375 px) verified                      |
+| Dark Reader           | `eimadpbcbfnmbkopoojfekhnkhdbieeh` | `4.9.135`        | Verified        | 0 errors; turns light pages dark (`9` `<style class="darkreader">`); live CWS URL + signed `.app` + PlugInKit + iOS `.ipa` (375 px) verified                                    |
+| Bitwarden             | `nngceckbapebfimnlniiiahkandclblb` | `2026.11.0`      | Verified        | Background boots and full Angular popup renders under Safari UA                                                                                                                 |
+| Vimium                | `dbepggeogbaibhgnhhndojpepiihcmeb` | `2.4.2`          | Verified        | 0 errors (`webNavigation` event shim); signed `.app` & iOS `.ipa` (`resources/` auto-relocated, 375 px popup no overflow) verified                                              |
+| SponsorBlock          | `mnjggcdmjocbbbhaepdhchncahnbgone` | `6.1.6`          | Verified        | 0 errors; background & popup render cleanly                                                                                                                                     |
+| React Developer Tools | `fmkadmapgofadopljbjfkapdkoienihi` | `8.0.0`          | Verified        | 0 errors (`scripting.ExecutionWorld` shim); all 5 content scripts registered                                                                                                    |
+| SingleFile            | `mpiodijhokgodhhofbcjdecpffjipkle` | `1.41.1`         | Verified        | 0 errors; background boots cleanly (`chrome.downloads` / `sidePanel` unsupported in Safari)                                                                                     |
+| Immersive Translate   | `bpoadfkcbjbfhfodiogcnhhhpibjhbnh` | `1.35.4`         | Verified        | Background, DNR ruleset, and popup load cleanly                                                                                                                                 |
+| Refined GitHub        | `hlepfoohegkhhmjieoechaddaejaokhf` | `26.11.6`        | Verified        | 0 errors across `Apple Development`, `Developer ID`, ad-hoc, and iOS                                                                                                            |
+| Privacy Badger        | `pkehgijcmpdhfbdbbnkijodmdjhbjlgp` | `2026.9.15.2`    | Partial         | `webRequest` `ws://` filter, `On*Options` enums & `setBadgeTextColor` shimmed; all 4 static DNR rulesets active, some Chrome RE2 dynamic `regexFilter` rules rejected by WebKit |
+| Obsidian Web Clipper  | `cnjifjpddelmedmihgijeibhnjfabmlf` | `1.8.5`          | Verified        | 0 errors; background & popup render cleanly (`sidePanel` unsupported in Safari)                                                                                                 |
+| OneTab                | `chphlpgkkbolifaimnlloiipkdnihall` | `2.24`           | Verified        | 0 errors; background boots cleanly (`omnibox` / `tabGroups` unsupported in Safari)                                                                                              |
+| Stylus                | `clngdbkpkpeebahjckkjfobafhncgmne` | `2.4.18`         | Verified        | Background & popup boot cleanly (empty `_execute_action` stripped; `permissions.contains`, `webNavigation`, `idle` shimmed)                                                     |
+| Tampermonkey          | `dhdgffkkebhmkfjojejmpbldmpobfkfo` | `5.5.1`          | Unsupported API | Builds cleanly, but MV3 userscript execution requires `chrome.userScripts`, which Safari does not implement (warned up front)                                                   |
