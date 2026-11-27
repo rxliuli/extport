@@ -37,6 +37,25 @@ export default defineConfig({
 This injects the daily ping into your background script and adds Firefox's `data_collection_permissions` declaration to
 the manifest automatically — nothing to write in your own source.
 
+:::tip[Already using @wxt-dev/analytics?]
+extport is a built-in provider in WXT's official [`@wxt-dev/analytics`](https://wxt.dev/analytics.html#extport) module —
+useful if you already run PostHog or Umami alongside for custom events, or want to try extport Analytics without adding
+`@extport/wxt`:
+
+```ts
+// app.config.ts
+import { extport } from '@wxt-dev/analytics/providers/extport'
+
+export default defineAppConfig({
+  analytics: {
+    providers: [extport({ extensionId: 'ext_…' })],
+  },
+})
+```
+
+Pick one integration — don't enable `extport.analytics: true` in `wxt.config.ts` at the same time.
+:::
+
 :::note[Without WXT?]
 Add `"storage"` to your `manifest.json` permissions and call `attachAnalytics` from your background entrypoint:
 
@@ -47,9 +66,9 @@ attachAnalytics({ extensionId: 'ext_…' })
 ```
 :::
 
-Either way, the ping is on by default (mirroring how Firefox's own install-prompt toggle works — on, with an easy
-way to turn it off) and never throws: a network hiccup or a missing id just means no ping that day, never a broken
-extension.
+With `@extport/wxt` or `attachAnalytics`, the ping is on by default (mirroring how Firefox's own install-prompt toggle
+works — on, with an easy way to turn it off) and never throws: a network hiccup or a missing id just means no ping that
+day, never a broken extension.
 
 ## 2. Declare it to the stores
 
@@ -66,10 +85,11 @@ now there's a real (if minimal) answer. The exact fields the ping sends, and why
   this (a short template: random install id, version, language, IP used only for the country lookup and never
   stored, 90-day raw retention).
 
-**Firefox** — nothing to fill in by hand. The `technicalAndInteraction` data-collection declaration is added to
-your manifest automatically (by `@extport/wxt`, or your own `browser_specific_settings.gecko.data_collection_permissions`
-if you're wiring the SDK directly) — Firefox shows it in the install prompt and lets users manage it later under
-`about:addons`. Your listing still needs a privacy policy link.
+**Firefox** — nothing to fill in by hand if you use `@extport/wxt`: it adds the `technicalAndInteraction`
+data-collection declaration to your manifest automatically. If you're using `@wxt-dev/analytics/providers/extport` or
+wiring `@extport/sdk/analytics` directly, add `browser_specific_settings.gecko.data_collection_permissions` to your
+manifest yourself (the runtime consent check still happens automatically). Firefox shows the declaration in the
+install prompt and lets users manage it later under `about:addons`. Your listing still needs a privacy policy link.
 
 **App Store Connect** (Safari-shipping extensions) — under App Privacy:
 

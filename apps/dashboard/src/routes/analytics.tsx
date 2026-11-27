@@ -59,8 +59,34 @@ function AnalyticsPage() {
         <Skeleton className="h-64 w-full" />
       ) : totalRows.length === 0 ? (
         <EmptyBox title="No analytics yet">
-          Counting starts once a release ships <code>@extport/sdk/analytics</code> (or the{' '}
-          <code>@wxt-dev/analytics</code> provider) — one anonymous ping per install per day, nothing else.
+          Counting starts once a release enables analytics via{' '}
+          <a
+            href="https://docs.extport.dev/analytics/"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-4 hover:text-foreground"
+          >
+            <code>@extport/wxt</code>
+          </a>{' '}
+          (or{' '}
+          <a
+            href="https://docs.extport.dev/sdk/analytics/"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-4 hover:text-foreground"
+          >
+            <code>@extport/sdk/analytics</code>
+          </a>{' '}
+          /{' '}
+          <a
+            href="https://wxt.dev/analytics.html#extport"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-4 hover:text-foreground"
+          >
+            <code>@wxt-dev/analytics</code>
+          </a>
+          ) — one anonymous ping per install per day, nothing else.
         </EmptyBox>
       ) : (
         <>

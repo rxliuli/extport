@@ -579,8 +579,10 @@ extport ships a provider as a subpath export
   explicitly; that decision belongs to the tenant, never the library.
 - Distribution: Moderok entered the module's built-in provider list by
   upstream PR; `providers/extport.ts` followed the same path —
-  [wxt-dev/wxt#2578](https://github.com/wxt-dev/wxt/pull/2578), open
-  as of 2026-08-07, not yet merged.
+  [wxt-dev/wxt#2578](https://github.com/wxt-dev/wxt/pull/2578), merged
+  and published as `@wxt-dev/analytics/providers/extport`
+  ([docs](https://wxt.dev/analytics.html#extport)). `@extport/sdk/wxt-analytics`
+  remains as a compatibility export.
 
 ## Rollout
 

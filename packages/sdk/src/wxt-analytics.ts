@@ -1,10 +1,13 @@
 import { createAnalyticsPinger, type AnalyticsOptions } from './analytics'
 
 /**
- * @extport/sdk/wxt-analytics — the extport provider for @wxt-dev/analytics.
- * An adapter, not a foundation (docs/analytics-design.md § Integration): it
- * wraps the same ping client as @extport/sdk/analytics, so it shares that
- * storage and dedup — installing both integrations never double-reports.
+ * @extport/sdk/wxt-analytics — compatibility adapter for @wxt-dev/analytics.
+ *
+ * Prefer WXT's built-in `@wxt-dev/analytics/providers/extport` provider
+ * (https://wxt.dev/analytics.html#extport) for new integrations. This subpath
+ * stays exported for backwards compatibility with older `@wxt-dev/analytics`
+ * versions; it wraps the same ping client as `@extport/sdk/analytics` so
+ * storage and dedup stay shared (docs/analytics-design.md § Integration).
  *
  * Structurally typed, no dependency on the @wxt-dev/analytics package — a
  * provider is just a (analytics, config) => { page, track, identify } function.
@@ -40,6 +43,14 @@ function getRuntime(): WxtRuntimeLike | undefined {
 /** Internal lifecycle event name — routed through analytics.track so the wxt module's consent gate applies. */
 const PING_EVENT = '__extport_ping'
 
+/**
+ * Create an extport provider for `@wxt-dev/analytics`.
+ *
+ * @deprecated Prefer WXT's built-in
+ * [`@wxt-dev/analytics/providers/extport`](https://wxt.dev/analytics.html#extport)
+ * provider. Kept for backwards compatibility with older `@wxt-dev/analytics`
+ * releases.
+ */
 export function extport(
   options: AnalyticsOptions,
 ): (analytics: WxtAnalyticsLike, config: WxtConfigLike) => WxtProviderUploads {

@@ -100,7 +100,7 @@ import { attachAnalytics } from '@extport/sdk/analytics'
 attachAnalytics({ extensionId: 'ext_…' })
 ```
 
-Firefox's built-in data-collection consent (`technicalAndInteraction`) is respected automatically. A provider for [`@wxt-dev/analytics`](https://www.npmjs.com/package/@wxt-dev/analytics) ships as `@extport/sdk/wxt-analytics`.
+Firefox's built-in data-collection consent (`technicalAndInteraction`) is respected automatically. If you already use [`@wxt-dev/analytics`](https://wxt.dev/analytics.html#extport), extport is built in as `@wxt-dev/analytics/providers/extport`.
 
 Guide: [docs.extport.dev/analytics](https://docs.extport.dev/analytics/)
 
@@ -110,7 +110,7 @@ Guide: [docs.extport.dev/analytics](https://docs.extport.dev/analytics/)
 - `@extport/sdk/webext` — `webextTransport`, `attachBackground`
 - `@extport/sdk/react` — `usePlan`
 - `@extport/sdk/analytics` — `attachAnalytics`, `createAnalyticsPinger`
-- `@extport/sdk/wxt-analytics` — `extport` provider for `@wxt-dev/analytics`
+- `@extport/sdk/wxt-analytics` — compatibility adapter for older versions of `@wxt-dev/analytics` (prefer WXT's built-in `@wxt-dev/analytics/providers/extport`)
 
 ## License
 
