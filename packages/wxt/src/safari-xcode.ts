@@ -1,14 +1,7 @@
 import path from 'node:path'
-import {
-  applyBundleIds,
-  convertExtensionToXcodeProject,
-  parseProjectVersion,
-  readPbxObjects,
-  resolveBundleIds,
-  type SafariProjectType,
-} from '@extport/safari-xcode'
+import { convertExtensionToXcodeProject } from '@extport/safari-xcode'
 
-export { applyBundleIds, parseProjectVersion, readPbxObjects, resolveBundleIds, type SafariProjectType }
+export type SafariProjectType = 'macos' | 'ios' | 'both'
 
 export interface ConvertToXcodeProjectOptions {
   projectName: string
