@@ -15,13 +15,13 @@ Requires **macOS** with **Xcode** installed.
 
 ```sh
 # Paste any Chrome Web Store URL (or 32-char extension ID) → installs to ~/Applications
-npx extport port safari https://chromewebstore.google.com/detail/new-tab-redirect/icpgjfneehieebagbmdbhhnlpiopdcmna
+npx extport port safari https://chromewebstore.google.com/detail/new-tab-redirect/icpgjfneehieebagbmdbhnlpiopdcmna
 
 # Install directly onto a connected iPhone or iPad via devicectl
-npx extport port safari --platform ios https://chromewebstore.google.com/detail/new-tab-redirect/icpgjfneehieebagbmdbhhnlpiopdcmna
+npx extport port safari --platform ios https://chromewebstore.google.com/detail/new-tab-redirect/icpgjfneehieebagbmdbhnlpiopdcmna
 
 # Export a .app (macOS) or .ipa (iOS) without installing
-npx extport port safari https://chromewebstore.google.com/detail/new-tab-redirect/icpgjfneehieebagbmdbhhnlpiopdcmna --output ./out
+npx extport port safari https://chromewebstore.google.com/detail/new-tab-redirect/icpgjfneehieebagbmdbhnlpiopdcmna --output ./out
 ```
 
 After a macOS install, the host app opens automatically with a setup guide — turn the extension on under **Safari → Settings → Extensions**. On iOS, enable it under **Settings → Apps → Safari → Extensions**.
@@ -31,7 +31,7 @@ After a macOS install, the host app opens automatically with a setup guide — t
 Pass any of the following as `<source>`:
 
 - **Chrome Web Store URL** (`chromewebstore.google.com/detail/...` or legacy `chrome.google.com/webstore/detail/...`)
-- **32-character CWS extension ID** (e.g. `icpgjfneehieebagbmdbhhnlpiopdcmna`)
+- **32-character CWS extension ID** (e.g. `icpgjfneehieebagbmdbhnlpiopdcmna`)
 - **Local `.crx`, `.zip`, or unpacked extension folder**
 
 Everything runs **100% locally on your Mac** — nothing is uploaded to extport's servers.
