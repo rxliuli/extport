@@ -107,6 +107,10 @@ export default defineConfig({
           label: 'Analytics',
           items: [{ label: 'Installs, users, and versions', slug: 'analytics' }],
         },
+        {
+          label: 'Tools',
+          items: [{ label: 'Port Chrome extensions to Safari', slug: 'port-safari' }],
+        },
         // References come last — the guide pages first, reference at the end.
         // The SDK client and the WXT build module are what tenants reach for
         // daily; the raw REST API is only needed to bypass the CLI or wire up a

@@ -22,3 +22,5 @@ hero:
   with server-side entitlements, duplicate-guarded checkout, and a native buyer portal.
 - **[Analytics](/analytics/)** — one anonymous ping a day gets you installs, active users, and version adoption
   across every store, in one dashboard.
+- **[Port to Safari](/port-safari/)** — convert any Manifest V3 Chrome extension from the Chrome Web Store into a
+  locally signed Safari app for your own Mac or iPhone in one command, no login required.

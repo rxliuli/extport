@@ -4,7 +4,14 @@ import { defineCommand, runMain } from 'citty'
 import { readFile } from 'node:fs/promises'
 import process from 'node:process'
 import pkg from '../package.json' with { type: 'json' }
-import { buildPushUrl, resolvePushContext, resolvePushOptions, type PushDefaults, type PushOptions, type RawPushArgs } from './args'
+import {
+  buildPushUrl,
+  resolvePushContext,
+  resolvePushOptions,
+  type PushDefaults,
+  type PushOptions,
+  type RawPushArgs,
+} from './args'
 import {
   clearGlobalConfig,
   DEFAULT_API_URL,
@@ -24,9 +31,19 @@ import { detectShell, extractCompletionSchema, generateCompletion, type Shell } 
 import { exec } from './exec'
 import { fetchEnabledTargets } from './extensions-api'
 import { login } from './login'
-import { fillMissingPushDefaults, fillMissingSafariBuildDefaults, promptText, requiredField } from './prompts'
+import {
+  fillMissingPushDefaults,
+  fillMissingSafariBuildDefaults,
+  PromptCancelled,
+  promptText,
+  requiredField,
+} from './prompts'
 import { resolveSafariBuildOptions, safariDefaultsChanged, type RawSafariBuildArgs } from './safari-build-args'
 import { runSafariBuild } from './safari-build'
+import { resolveSafariInstallOptions, type RawSafariInstallArgs } from './safari-install-args'
+import { runSafariInstall } from './safari-install'
+import type { IosDevice } from './safari-install-devices'
+import type { SigningIdentity } from './safari-install-signing'
 import { inferPushDefaults } from './wxt-project'
 
 interface Me {
@@ -90,7 +107,12 @@ async function pushOnce(options: PushOptions): Promise<void> {
 
   const res = await fetch(buildPushUrl(options), { method: 'POST', headers: request.headers, body: request.body })
 
-  let json: { artifact?: { id: string; sha256: string | null }; deduplicated?: boolean; warning?: string; error?: string }
+  let json: {
+    artifact?: { id: string; sha256: string | null }
+    deduplicated?: boolean
+    warning?: string
+    error?: string
+  }
   try {
     json = (await res.json()) as typeof json
   } catch {
@@ -118,7 +140,9 @@ async function runPushAll(raw: RawPushArgs, defaults: PushDefaults): Promise<voi
   const { extension, apiUrl, apiKey } = resolvePushContext(raw, process.env, defaults)
   const targets = await fetchEnabledTargets(apiUrl, apiKey, extension)
   if (targets.length === 0) {
-    throw new Error(`no enabled store targets configured for "${extension}" — pass --store/--file explicitly, or add a target in the dashboard`)
+    throw new Error(
+      `no enabled store targets configured for "${extension}" — pass --store/--file explicitly, or add a target in the dashboard`,
+    )
   }
 
   console.log(`no --store given — pushing to every configured target: ${targets.map((t) => t.store).join(', ')}`)
@@ -141,10 +165,17 @@ async function runPush(raw: RawPushArgs): Promise<void> {
   warnIfProjectApiUrl(projectConfig)
   const targetApiUrl = resolveApiUrl({ flagApiUrl: raw.apiUrl, env: process.env, globalConfig })
   let effectiveRaw = raw
-  let defaults: PushDefaults = { extension: projectConfig.extension, apiKey: globalConfig.apiKey, apiUrl: globalConfig.apiUrl }
+  let defaults: PushDefaults = {
+    extension: projectConfig.extension,
+    apiKey: globalConfig.apiKey,
+    apiUrl: globalConfig.apiUrl,
+  }
   if (process.stdin.isTTY) {
     const matchedStoredKey = resolveStoredApiKey(globalConfig, targetApiUrl)
-    const filled = await fillMissingPushDefaults(raw, process.env, { extension: projectConfig.extension, apiKey: matchedStoredKey })
+    const filled = await fillMissingPushDefaults(raw, process.env, {
+      extension: projectConfig.extension,
+      apiKey: matchedStoredKey,
+    })
     defaults = { ...defaults, extension: filled.extension }
     if (!raw.apiKey && !process.env.EXTPORT_API_KEY && !matchedStoredKey && filled.apiKey) {
       effectiveRaw = { ...raw, apiKey: filled.apiKey }
@@ -194,6 +225,61 @@ async function runSafariBuildCommand(raw: RawSafariBuildArgs): Promise<void> {
     }
   }
   if (anyFailed) process.exit(1)
+}
+
+async function promptSelectSigningIdentity(
+  identities: SigningIdentity[],
+  platform: 'macos' | 'ios',
+): Promise<SigningIdentity | 'none'> {
+  const NONE = '__none__'
+  const choice = await select({
+    message: `Select a Keychain signing certificate for ${platform}:`,
+    options: [
+      ...identities.map((id) => ({
+        value: id.sha1,
+        label: id.name,
+        hint: id.teamId ? `Team ${id.teamId}` : id.sha1.slice(0, 8),
+      })),
+      {
+        value: NONE,
+        label: platform === 'macos' ? 'No signing (ad-hoc)' : 'No signing (unsigned .ipa)',
+        hint: platform === 'macos' ? 'requires Safari "Allow Unsigned Extensions"' : 'requires --output',
+      },
+    ],
+  })
+  if (isCancel(choice)) throw new PromptCancelled()
+  if (choice === NONE) return 'none'
+  return identities.find((id) => id.sha1 === choice)!
+}
+
+async function promptSelectIosDevice(devices: IosDevice[]): Promise<IosDevice> {
+  const choice = await select({
+    message: 'Select an iOS device to install onto:',
+    options: devices.map((device) => ({
+      value: device.identifier,
+      label: device.name,
+      hint: [
+        device.model,
+        device.osVersion ? `iOS ${device.osVersion}` : undefined,
+        device.connected ? 'connected' : 'paired',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    })),
+  })
+  if (isCancel(choice)) throw new PromptCancelled()
+  return devices.find((device) => device.identifier === choice)!
+}
+
+async function runPortSafariCommand(raw: RawSafariInstallArgs): Promise<void> {
+  if (process.platform !== 'darwin') {
+    throw new Error(`extport port safari requires macOS (Xcode tools are not available on ${process.platform})`)
+  }
+  const options = resolveSafariInstallOptions(raw)
+  await runSafariInstall(options, exec, {
+    promptSelectIdentity: promptSelectSigningIdentity,
+    promptSelectDevice: promptSelectIosDevice,
+  })
 }
 
 async function runLogin(flagApiUrl?: string): Promise<void> {
@@ -276,7 +362,9 @@ async function runInit(): Promise<void> {
 
   let record: { id: string; name: string }
   if (choice === CREATE) {
-    const name = (await promptText('Extension name:', { placeholder: 'My Extension', validate: requiredField('Name') })).trim()
+    const name = (
+      await promptText('Extension name:', { placeholder: 'My Extension', validate: requiredField('Name') })
+    ).trim()
     const s = spinner()
     s.start('Creating the extension…')
     try {
@@ -347,10 +435,12 @@ const apiUrlArg = { type: 'string', description: 'Platform URL (or env EXTPORT_A
 
 // citty's own error handling prints the raw Error object (full stack trace) —
 // this keeps the CLI's previous clean `error: <message>` + exit 1 UX.
-function withCleanErrors<A>(fn: (args: A) => Promise<void>): (ctx: { args: A }) => Promise<void> {
-  return async ({ args }) => {
+function withCleanErrors<A>(
+  fn: (args: A, rawArgs: string[]) => Promise<void>,
+): (ctx: { args: A; rawArgs: string[] }) => Promise<void> {
+  return async ({ args, rawArgs }) => {
     try {
-      await fn(args)
+      await fn(args, rawArgs)
     } catch (err) {
       console.error(`error: ${err instanceof Error ? err.message : String(err)}`)
       process.exit(1)
@@ -374,12 +464,20 @@ const main = defineCommand({
       meta: { name: 'whoami', description: 'Show which tenant the current credentials belong to' },
       args: {
         'api-url': apiUrlArg,
-        'api-key': { type: 'string', description: 'API key sk_live_… (or env EXTPORT_API_KEY, or run "extport login")' },
+        'api-key': {
+          type: 'string',
+          description: 'API key sk_live_… (or env EXTPORT_API_KEY, or run "extport login")',
+        },
       },
-      run: withCleanErrors((args) => runWhoami(args['api-url'] as string | undefined, args['api-key'] as string | undefined)),
+      run: withCleanErrors((args) =>
+        runWhoami(args['api-url'] as string | undefined, args['api-key'] as string | undefined),
+      ),
     }),
     init: defineCommand({
-      meta: { name: 'init', description: 'Create a new extension project — template scaffold bound to an extport extension from birth' },
+      meta: {
+        name: 'init',
+        description: 'Create a new extension project — template scaffold bound to an extport extension from birth',
+      },
       run: withCleanErrors(() => runInit()),
     }),
     push: defineCommand({
@@ -391,19 +489,35 @@ const main = defineCommand({
       args: {
         file: {
           type: 'positional',
-          description: "Path to the zip file — omit in a WXT project to use .output/{name}-{version}-{browser}.zip (or always, for --store safari)",
+          description:
+            'Path to the zip file — omit in a WXT project to use .output/{name}-{version}-{browser}.zip (or always, for --store safari)',
           required: false,
         },
-        extension: { type: 'string', description: 'Target extension id, ext_… (required — or extport.config.json\'s "extension")' },
-        version: { type: 'string', description: "Artifact version, 1-4 dot-separated integers (or inferred from the zip's manifest.json / package.json)" },
+        extension: {
+          type: 'string',
+          description: 'Target extension id, ext_… (required — or extport.config.json\'s "extension")',
+        },
+        version: {
+          type: 'string',
+          description:
+            "Artifact version, 1-4 dot-separated integers (or inferred from the zip's manifest.json / package.json)",
+        },
         store: {
           type: 'enum',
           options: ['chrome', 'firefox', 'edge', 'safari'],
-          description: 'With --file, omit for one universal zip pushed to every configured store. With neither --file nor --store, pushes every configured store individually',
+          description:
+            'With --file, omit for one universal zip pushed to every configured store. With neither --file nor --store, pushes every configured store individually',
         },
-        'source-zip': { type: 'string', description: "Source code zip for AMO review (--store firefox only; inferred from .output/{name}-{version}-sources.zip when present)" },
+        'source-zip': {
+          type: 'string',
+          description:
+            'Source code zip for AMO review (--store firefox only; inferred from .output/{name}-{version}-sources.zip when present)',
+        },
         'api-url': apiUrlArg,
-        'api-key': { type: 'string', description: 'API key sk_live_… (or env EXTPORT_API_KEY, or run "extport login")' },
+        'api-key': {
+          type: 'string',
+          description: 'API key sk_live_… (or env EXTPORT_API_KEY, or run "extport login")',
+        },
       },
       run: withCleanErrors((args) =>
         runPush({
@@ -418,19 +532,39 @@ const main = defineCommand({
       ),
     }),
     'safari-build': defineCommand({
-      meta: { name: 'safari-build', description: "Build, sign, and upload a Safari extension to App Store Connect — never submits for review, that's reconcile's job" },
+      meta: {
+        name: 'safari-build',
+        description:
+          "Build, sign, and upload a Safari extension to App Store Connect — never submits for review, that's reconcile's job",
+      },
       args: {
-        'project-path': { type: 'string', description: 'Directory containing the .xcodeproj (required — or extport.config.json\'s "safari.projectPath")' },
+        'project-path': {
+          type: 'string',
+          description:
+            'Directory containing the .xcodeproj (required — or extport.config.json\'s "safari.projectPath")',
+        },
         'team-id': { type: 'string', description: 'Apple Developer Team ID (required, or config)' },
         'issuer-id': { type: 'string', description: 'App Store Connect issuer id (or env ASC_ISSUER_ID, or config)' },
         'key-id': { type: 'string', description: 'App Store Connect key id (or env ASC_KEY_ID, or config)' },
         'key-path': {
           type: 'string',
-          description: ".p8 key file (or env ASC_KEY_PATH; defaults to Apple's own tooling search order: ./private_keys, ~/private_keys, ~/.private_keys, ~/.appstoreconnect/private_keys)",
+          description:
+            ".p8 key file (or env ASC_KEY_PATH; defaults to Apple's own tooling search order: ./private_keys, ~/private_keys, ~/.private_keys, ~/.appstoreconnect/private_keys)",
         },
-        platform: { type: 'enum', options: ['macos', 'ios'], description: 'Build only one platform (default: every platform the Xcode project ships)' },
-        version: { type: 'string', description: "Fail loudly if the built app's version doesn't match (safety net — extport never stamps it)" },
-        'macos-deployment-target': { type: 'string', default: '12.0', description: 'Minimum macOS version to build for' },
+        platform: {
+          type: 'enum',
+          options: ['macos', 'ios'],
+          description: 'Build only one platform (default: every platform the Xcode project ships)',
+        },
+        version: {
+          type: 'string',
+          description: "Fail loudly if the built app's version doesn't match (safety net — extport never stamps it)",
+        },
+        'macos-deployment-target': {
+          type: 'string',
+          default: '12.0',
+          description: 'Minimum macOS version to build for',
+        },
         debug: { type: 'boolean', description: "Stream xcodebuild's full raw output live instead of only on failure" },
       },
       run: withCleanErrors((args) =>
@@ -448,10 +582,106 @@ const main = defineCommand({
         }),
       ),
     }),
+    port: defineCommand({
+      meta: {
+        name: 'port',
+        description:
+          'Convert and locally install a Chrome extension for another browser (e.g. extport port safari <source>)',
+      },
+      subCommands: {
+        safari: defineCommand({
+          meta: {
+            name: 'safari',
+            description:
+              'Convert any MV3 Chrome extension (CWS URL/ID, .crx, .zip, or directory), sign with an optional local Keychain certificate, and install locally on macOS or iOS',
+          },
+          args: {
+            source: {
+              type: 'positional',
+              description: 'Chrome Web Store URL, 32-char extension ID, or local directory / .crx / .zip',
+              required: true,
+            },
+            platform: {
+              type: 'enum',
+              options: ['macos', 'ios'],
+              default: 'macos',
+              description: 'Target platform to build and install (default: macos)',
+            },
+            output: {
+              type: 'string',
+              description:
+                'Export the built .app (macOS) or .ipa (iOS) to this directory or path instead of installing',
+            },
+            sign: {
+              type: 'string',
+              description: 'Keychain signing identity name substring or SHA-1 (default: auto-discover from Keychain)',
+            },
+            'no-sign': {
+              type: 'boolean',
+              description:
+                'Skip Keychain lookup: ad-hoc sign on macOS, or export an unsigned .ipa on iOS (requires --output)',
+            },
+            'team-id': {
+              type: 'string',
+              description: 'Override the Apple Developer Team ID extracted from the certificate',
+            },
+            'bundle-id': {
+              type: 'string',
+              description: 'Override the deterministic bundle identifier (default: dev.extport.<team|local>.<id|slug>)',
+            },
+            device: {
+              type: 'string',
+              description: 'Target physical iOS device name, UDID, or identifier (--platform ios only)',
+            },
+            'keep-project': {
+              type: 'string',
+              description: 'Copy the generated self-contained Xcode project into this directory',
+            },
+            'macos-deployment-target': {
+              type: 'string',
+              default: '12.0',
+              description: 'Minimum macOS version to build for',
+            },
+            debug: {
+              type: 'boolean',
+              description: 'Stream converter, xcodebuild, and devicectl output live',
+            },
+          },
+          run: withCleanErrors((args, rawArgs) => {
+            // citty/mri parses `--no-sign` as `{ sign: false }` and omits `args['no-sign']`,
+            // even when `--sign <id>` was also passed. Inspect `rawArgs` so both single
+            // `--no-sign` and `--sign + --no-sign` conflict detection work reliably.
+            const hasExplicitSign = rawArgs.some((a) => a === '--sign' || a.startsWith('--sign='))
+            const hasNoSign = Boolean(args['no-sign']) || args.sign === false || rawArgs.includes('--no-sign')
+            const sign = typeof args.sign === 'string' ? args.sign : hasExplicitSign ? '(explicit)' : undefined
+            return runPortSafariCommand({
+              source: args.source as string | undefined,
+              platform: (args.platform as unknown as 'macos' | 'ios' | undefined) ?? 'macos',
+              output: args.output as string | undefined,
+              sign,
+              noSign: hasNoSign,
+              teamId: args['team-id'] as string | undefined,
+              bundleId: args['bundle-id'] as string | undefined,
+              device: args.device as string | undefined,
+              keepProject: args['keep-project'] as string | undefined,
+              macosDeploymentTarget: args['macos-deployment-target'] as unknown as string,
+              debug: args.debug as boolean | undefined,
+            })
+          }),
+        }),
+      },
+    }),
     completion: defineCommand({
-      meta: { name: 'completion', description: 'Print a shell completion script — e.g. eval "$(extport completion zsh)"' },
+      meta: {
+        name: 'completion',
+        description: 'Print a shell completion script — e.g. eval "$(extport completion zsh)"',
+      },
       args: {
-        shell: { type: 'positional', description: 'bash, zsh, or fish — omit to auto-detect the running shell', required: false },
+        shell: {
+          type: 'positional',
+          description: 'bash, zsh, or fish — omit to auto-detect the running shell',
+          required: false,
+        },
       },
       run: withCleanErrors((args) => runCompletionCommand(args.shell as string | undefined)),
     }),

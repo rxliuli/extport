@@ -12,6 +12,10 @@ export interface ExecOptions {
    * extport's own progress lines; always still captured and returned
    * regardless, so a caller can print it after the fact (e.g. on failure). */
   stream?: boolean
+  /** Optional stdin payload written to the child process before closing stdin. */
+  input?: string
+  /** Optional working directory for the child process. */
+  cwd?: string
 }
 
 export type Exec = (cmd: string, args: string[], options?: ExecOptions) => Promise<ExecResult>
@@ -23,18 +27,22 @@ export type Exec = (cmd: string, args: string[], options?: ExecOptions) => Promi
  */
 export const exec: Exec = (cmd, args, options = {}) => {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const hasInput = options.input !== undefined
+    const child = spawn(cmd, args, { stdio: [hasInput ? 'pipe' : 'ignore', 'pipe', 'pipe'], cwd: options.cwd })
     let stdout = ''
     let stderr = ''
-    child.stdout.on('data', (chunk: Buffer) => {
+    child.stdout!.on('data', (chunk: Buffer) => {
       stdout += chunk
       if (options.stream) process.stdout.write(chunk)
     })
-    child.stderr.on('data', (chunk: Buffer) => {
+    child.stderr!.on('data', (chunk: Buffer) => {
       stderr += chunk
       if (options.stream) process.stderr.write(chunk)
     })
     child.on('error', reject)
     child.on('close', (code) => resolve({ stdout, stderr, status: code ?? 1 }))
+    if (hasInput) {
+      child.stdin!.end(options.input)
+    }
   })
 }

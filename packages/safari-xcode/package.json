@@ -1,0 +1,25 @@
+{
+  "name": "@extport/safari-xcode",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Internal MIT workspace package for converting Safari Web Extensions into patched Xcode projects",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsdown": "^0.22.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

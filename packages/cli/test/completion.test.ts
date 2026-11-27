@@ -107,7 +107,11 @@ const schema: CompletionSchema = {
   name: 'extport',
   subcommands: [
     { name: 'logout', flags: [] },
-    { name: 'push', description: 'Upload', flags: [{ name: 'store', options: ['chrome', 'firefox'] }, { name: 'api-key' }] },
+    {
+      name: 'push',
+      description: 'Upload',
+      flags: [{ name: 'store', options: ['chrome', 'firefox'] }, { name: 'api-key' }],
+    },
   ],
 }
 
@@ -160,5 +164,58 @@ describe('generateFishCompletion', () => {
   it('escapes single quotes in descriptions', () => {
     const withQuote: CompletionSchema = { name: 'x', subcommands: [{ name: 'a', description: "it's fine", flags: [] }] }
     expect(generateFishCompletion(withQuote)).toContain(`-d 'it'\\''s fine'`)
+  })
+})
+
+describe('nested subcommand completion', () => {
+  const nestedCmd: CommandDef = {
+    meta: { name: 'extport' },
+    subCommands: {
+      port: {
+        meta: { name: 'port', description: 'Port an extension' },
+        subCommands: {
+          safari: {
+            meta: { name: 'safari', description: 'Port to Safari' },
+            args: {
+              source: { type: 'positional' },
+              platform: { type: 'enum', options: ['macos', 'ios'] },
+              output: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+  }
+
+  it('extracts nested subcommands and emits bash/zsh/fish completions for them', () => {
+    const nestedSchema = extractCompletionSchema(nestedCmd)
+    expect(nestedSchema.subcommands[0]?.subcommands).toEqual([
+      {
+        name: 'safari',
+        description: 'Port to Safari',
+        flags: [
+          { name: 'platform', options: ['macos', 'ios'] },
+          { name: 'output', options: undefined },
+        ],
+      },
+    ])
+
+    const bash = generateBashCompletion(nestedSchema)
+    expect(bash).toContain('port) COMPREPLY=( $(compgen -W "safari" -- "$cur") ); return ;;')
+    expect(bash).toContain('port:safari:--platform) COMPREPLY=( $(compgen -W "macos ios" -- "$cur") ); return ;;')
+    expect(bash).toContain('port:safari) COMPREPLY=( $(compgen -W "--platform --output" -- "$cur") ); return ;;')
+
+    const zsh = generateZshCompletion(nestedSchema)
+    expect(zsh).toContain("port) compadd -- 'safari'; return ;;")
+    expect(zsh).toContain("port:safari:--platform) compadd -- 'macos' 'ios'; return ;;")
+    expect(zsh).toContain("port:safari) compadd -- '--platform' '--output'; return ;;")
+
+    const fish = generateFishCompletion(nestedSchema)
+    expect(fish).toContain(
+      "complete -c extport -n '__fish_seen_subcommand_from port; and not __fish_seen_subcommand_from safari' -a 'safari' -d 'Port to Safari'",
+    )
+    expect(fish).toContain(
+      "complete -c extport -n '__fish_seen_subcommand_from port; and __fish_seen_subcommand_from safari' -l platform -a 'macos ios'",
+    )
   })
 })

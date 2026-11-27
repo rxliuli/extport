@@ -7,15 +7,20 @@ Safari is the odd one out: there's no zip upload through extport at all. The bui
 and uploaded straight to App Store Connect from your own machine (or CI runner) via `extport safari-build` — extport
 only tracks version/review status afterward.
 
+:::tip[Just want to run a Chrome extension in Safari locally?]
+If you want to convert any Manifest V3 Chrome extension and install it directly onto your own Mac or iPhone — without
+App Store Connect or an extport account — try [`extport port safari`](/port-safari/).
+:::
+
 ## Credential fields
 
 Under **Settings → Store credentials → Safari**, extport asks for:
 
-| Field | Where it comes from |
-| --- | --- |
-| Issuer ID | [App Store Connect → Users and Access → Integrations → App Store Connect API](https://appstoreconnect.apple.com/access/integrations/api) → shown above the key list as "Issuer ID" |
-| Key ID | Same page → your key's "KEY ID" column |
-| .p8 Private Key | Downloaded once when the key is created — App Store Connect never lets you re-download it |
+| Field           | Where it comes from                                                                                                                                                                |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Issuer ID       | [App Store Connect → Users and Access → Integrations → App Store Connect API](https://appstoreconnect.apple.com/access/integrations/api) → shown above the key list as "Issuer ID" |
+| Key ID          | Same page → your key's "KEY ID" column                                                                                                                                             |
+| .p8 Private Key | Downloaded once when the key is created — App Store Connect never lets you re-download it                                                                                          |
 
 ![The App Store Connect API page under Users and Access → Integrations, showing Issuer ID and the Active keys table with its Access column](../../../assets/screenshots/safari-asc-api-keys.png)
 
@@ -99,7 +104,7 @@ creating one is a three-step dance between that page and the Keychain Access app
 3. **Install and export as `.p12`.** Double-click the downloaded `.cer` to add it to your keychain, then in
    Keychain Access under **My Certificates**, right-click the new "Apple Distribution: …" entry →
    **Export…** → file format **Personal Information Exchange (.p12)** — it will ask you to set an export
-   password. (The `.p12` bundles the certificate *with its private key*, which only exists in the keychain that
+   password. (The `.p12` bundles the certificate _with its private key_, which only exists in the keychain that
    generated the CSR — that's why the export has to happen on the same Mac.)
 
 Then encode it and store both halves as repo secrets:
