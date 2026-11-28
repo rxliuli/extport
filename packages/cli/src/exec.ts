@@ -16,6 +16,8 @@ export interface ExecOptions {
   input?: string
   /** Optional working directory for the child process. */
   cwd?: string
+  /** Optional environment variables for the child process. */
+  env?: NodeJS.ProcessEnv
 }
 
 export type Exec = (cmd: string, args: string[], options?: ExecOptions) => Promise<ExecResult>
@@ -28,7 +30,11 @@ export type Exec = (cmd: string, args: string[], options?: ExecOptions) => Promi
 export const exec: Exec = (cmd, args, options = {}) => {
   return new Promise((resolve, reject) => {
     const hasInput = options.input !== undefined
-    const child = spawn(cmd, args, { stdio: [hasInput ? 'pipe' : 'ignore', 'pipe', 'pipe'], cwd: options.cwd })
+    const child = spawn(cmd, args, {
+      stdio: [hasInput ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+      cwd: options.cwd,
+      env: options.env,
+    })
     let stdout = ''
     let stderr = ''
     child.stdout!.on('data', (chunk: Buffer) => {

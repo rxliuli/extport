@@ -45,7 +45,9 @@ import { runSafariBuild } from './safari-build'
 import { resolveSafariInstallOptions, type RawSafariInstallArgs } from './safari-install-args'
 import { runSafariInstall } from './safari-install'
 import type { IosDevice } from './safari-install-devices'
+import { preflightXcode } from './safari-install-preflight'
 import type { SigningIdentity } from './safari-install-signing'
+import { runUpgrade } from './upgrade'
 import { inferPushDefaults } from './wxt-project'
 
 interface Me {
@@ -278,10 +280,15 @@ async function runPortSafariCommand(raw: RawSafariInstallArgs): Promise<void> {
     throw new Error(`extport port safari requires macOS (Xcode tools are not available on ${process.platform})`)
   }
   const options = resolveSafariInstallOptions(raw)
+  await preflightXcode(exec)
   await runSafariInstall(options, exec, {
     promptSelectIdentity: promptSelectSigningIdentity,
     promptSelectDevice: promptSelectIosDevice,
   })
+}
+
+async function runUpgradeCommand(force?: boolean): Promise<void> {
+  await runUpgrade({ currentVersion: pkg.version, force: Boolean(force) }, { exec })
 }
 
 async function runPortFirefoxCommand(raw: RawFirefoxPortArgs): Promise<void> {
@@ -754,6 +761,19 @@ const main = defineCommand({
         },
       },
       run: withCleanErrors((args) => runCompletionCommand(args.shell as string | undefined)),
+    }),
+    upgrade: defineCommand({
+      meta: {
+        name: 'upgrade',
+        description: 'Upgrade standalone macOS installs to the latest @extport/cli version',
+      },
+      args: {
+        force: {
+          type: 'boolean',
+          description: 'Reinstall even if already on the latest version',
+        },
+      },
+      run: withCleanErrors((args) => runUpgradeCommand(args.force as boolean | undefined)),
     }),
   },
 })

@@ -3,25 +3,74 @@ title: Port Chrome extensions to Firefox
 description: Convert any Manifest V3 Chrome extension into a Firefox-compatible .xpi (or run it live in Firefox) — no extport account or manual manifest editing required.
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
 Have a Chrome extension you want to use in Firefox, Firefox Developer Edition, Nightly, Zen, Waterfox, or LibreWolf? `extport port firefox` downloads the extension straight from the Chrome Web Store (or reads a local `.crx`, `.zip`, or folder), rewrites Chrome-only Manifest V3 fields for Gecko, injects a lightweight runtime compatibility shim, and exports a ready-to-load `.xpi` — or launches Firefox with the extension already loaded via `--run`.
 
 Everything runs **100% locally** on macOS, Linux, and Windows — no extport login required.
 
 ## Quick start
 
-```sh
-# Paste any Chrome Web Store URL (or 32-char extension ID) → writes ./<slug>-firefox.xpi
-npx @extport/cli port firefox https://chromewebstore.google.com/detail/dark-reader/eimadpbcbfnmbkopoojfekhnkhdbieeh
+<Tabs>
+  <TabItem label="macOS Installer (No Node.js required)">
+    Install `extport` once on macOS (bundles its own private Node.js runtime under `~/.extport`):
 
-# Convert and launch Firefox immediately with the extension loaded (temporary add-on via RDP)
-npx @extport/cli port firefox --run https://chromewebstore.google.com/detail/ublock-origin-lite/ddkjiahejlhfcafbddmgiahcphecmpfh
+    ```sh
+    curl -fsSL https://extport.dev/install.sh | sh
+    ```
 
-# Target a specific Firefox channel or browser binary
-npx @extport/cli port firefox --run --firefox zen https://chromewebstore.google.com/detail/vimium/dbepggeogbaibhgnhhndojpepiihcmeb
+    Open a new terminal tab (`⌘T`) — or run `exec zsh` — then paste any Chrome Web Store URL (or 32-char extension ID) to write `./<slug>-firefox.xpi`:
 
-# Export an unpacked Firefox extension directory instead of a .xpi
-npx @extport/cli port firefox --unpacked --output ./out/dark-reader https://chromewebstore.google.com/detail/dark-reader/eimadpbcbfnmbkopoojfekhnkhdbieeh
-```
+    ```sh
+    extport port firefox https://chromewebstore.google.com/detail/dark-reader/eimadpbcbfnmbkopoojfekhnkhdbieeh
+    ```
+
+    Convert and launch Firefox immediately with the extension loaded (temporary add-on via RDP):
+
+    ```sh
+    extport port firefox --run https://chromewebstore.google.com/detail/ublock-origin-lite/ddkjiahejlhfcafbddmgiahcphecmpfh
+    ```
+
+    Target a specific Firefox channel or browser binary:
+
+    ```sh
+    extport port firefox --run --firefox zen https://chromewebstore.google.com/detail/vimium/dbepggeogbaibhgnhhndojpepiihcmeb
+    ```
+
+    Export an unpacked Firefox extension directory instead of a `.xpi`:
+
+    ```sh
+    extport port firefox --unpacked --output ./out/dark-reader https://chromewebstore.google.com/detail/dark-reader/eimadpbcbfnmbkopoojfekhnkhdbieeh
+    ```
+
+  </TabItem>
+  <TabItem label="npx (macOS / Linux / Windows)">
+    Requires Node.js 20.12 or later. Paste any Chrome Web Store URL (or 32-char extension ID) to write `./<slug>-firefox.xpi`:
+
+    ```sh
+    npx @extport/cli port firefox https://chromewebstore.google.com/detail/dark-reader/eimadpbcbfnmbkopoojfekhnkhdbieeh
+    ```
+
+    Convert and launch Firefox immediately with the extension loaded (temporary add-on via RDP):
+
+    ```sh
+    npx @extport/cli port firefox --run https://chromewebstore.google.com/detail/ublock-origin-lite/ddkjiahejlhfcafbddmgiahcphecmpfh
+    ```
+
+    Target a specific Firefox channel or browser binary:
+
+    ```sh
+    npx @extport/cli port firefox --run --firefox zen https://chromewebstore.google.com/detail/vimium/dbepggeogbaibhgnhhndojpepiihcmeb
+    ```
+
+    Export an unpacked Firefox extension directory instead of a `.xpi`:
+
+    ```sh
+    npx @extport/cli port firefox --unpacked --output ./out/dark-reader https://chromewebstore.google.com/detail/dark-reader/eimadpbcbfnmbkopoojfekhnkhdbieeh
+    ```
+
+  </TabItem>
+</Tabs>
 
 ## Supported inputs
 
@@ -41,9 +90,10 @@ Firefox enforces stricter Manifest V3 rules than Chrome and runs MV3 background 
 - **Runtime compatibility shim**: bridges `chrome.sidePanel` → `browser.sidebarAction`, provides `scripting.ExecutionWorld`, `self.clients`, and `navigator.serviceWorker` Event Page shims, strips unsupported `declarativeNetRequest` `responseHeaders` conditions, and makes `permissions.contains()` return `false` cleanly for stripped Chrome-only permissions.
 
 :::note[Installing `.xpi` files in Firefox]
+
 - **Any Firefox (including Release)**: run with `--run` (loads automatically via Firefox Remote Debugging Protocol), or open `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** and select the `.xpi` or unpacked `manifest.json`.
 - **Permanent unsigned install** (Firefox Developer Edition, Nightly, ESR, Zen, Waterfox, LibreWolf): set `xpinstall.signatures.required = false` in `about:config` and drag the `.xpi` into the browser.
-:::
+  :::
 
 ## Common flags
 
