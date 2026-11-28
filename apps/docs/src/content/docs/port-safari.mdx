@@ -81,6 +81,8 @@ Requires **macOS** with **Xcode** installed from the [Mac App Store](https://app
 
 After a macOS install, the host app opens automatically with a setup guide — turn the extension on under **Safari → Settings → Extensions**. On iOS, enable it under **Settings → Apps → Safari → Extensions**.
 
+![Safari Extensions settings with New Tab Redirect installed and enabled](../../assets/screenshots/port-safari-extensions.png)
+
 ## Supported inputs
 
 Pass any of the following as `<source>`:
@@ -101,11 +103,44 @@ Just like Xcode, `extport port safari` scans your Mac's ambient Keychain automat
 
 - **One matching certificate** (`Apple Development` or `Developer ID Application`) → selected automatically, with the real Apple Developer Team ID extracted from the certificate's `OU` field.
 - **Multiple certificates** → prompts you interactively to pick one (or pass `--sign <name|sha1>` to skip the prompt).
-- **No certificate / `--no-sign`** → falls back to ad-hoc signing on macOS (enable **Safari → Settings → Advanced → Show features for web developers**, check **Safari → Settings → Developer → Allow unsigned extensions**, then enable the extension under **Safari → Settings → Extensions**; signing into Xcode with a free Apple Account eliminates the per-restart reset). On iOS, `--no-sign --output ./out` exports an unsigned `.ipa` for sideloading.
+- **No certificate / `--no-sign`** → falls back to ad-hoc signing on macOS (requires enabling unsigned extensions in Safari after each restart). On iOS, `--no-sign --output ./out` exports an unsigned `.ipa` for sideloading.
 
-:::tip[Free Apple Account works]
-You don't need a paid $99/year Apple Developer membership to install on your own Mac or iPhone — signing in to **Xcode → Settings → Apple Accounts** with a free Apple Account (then clicking **Manage Certificates… → `+` → Apple Development** if no certificate is listed yet) creates a local `Apple Development` certificate in Keychain. On iOS, free-account installs expire after 7 days and use 2 of your 3 App ID slots (host app + `.appex`).
+### Recommended: one-time free Apple Account setup
+
+You don't need a paid $99/year Apple Developer membership to avoid Safari's unsigned-extension prompts. Signing in to Xcode once with a **free Apple Account** creates a local `Apple Development` certificate (valid for **1 year**, with **no 7-day expiry on macOS**). Once created, `extport port safari` signs automatically — Safari trusts the extension permanently even with **Show features for web developers** turned off, and you never need to open Xcode again.
+
+1. Open **Xcode → Settings → Apple Accounts** and click **Sign In…** with any free Apple Account.
+
+   ![Xcode Apple Accounts settings showing the Sign In button](../../assets/screenshots/port-safari-xcode-sign-in.jpg)
+
+2. Click into your **Personal Team** and select **Manage Certificates…**.
+
+   ![Xcode Personal Team settings showing the Manage Certificates button](../../assets/screenshots/port-safari-xcode-personal-team.jpg)
+
+3. Click **`+`** in the bottom-left corner and choose **Apple Development** to mint your local certificate, then click **Done** and close Xcode.
+
+   ![Xcode Signing certificates dialog showing a newly created Apple Development certificate and the bottom-left plus button](../../assets/screenshots/port-safari-xcode-certificates.jpg)
+
+:::note[iOS free-account limits]
+On **macOS**, a free Personal Team build has no embedded provisioning profile, no 7-day expiration, and needs no Safari Developer toggle. On **iOS**, Apple limits free accounts to 7-day installs and 3 active App IDs per 7 days (each Safari extension uses 2: host app + `.appex`).
 :::
+
+<details>
+<summary>Skipping Xcode sign-in? How to enable unsigned (ad-hoc) extensions in Safari</summary>
+
+If you run `extport port safari` without any certificate in Keychain (or with `--no-sign`), the macOS app is ad-hoc signed. To enable it in Safari:
+
+1. Open **Safari → Settings → Advanced** and check **Show features for web developers**.
+
+   ![Safari Advanced settings with Show features for web developers checked](../../assets/screenshots/port-safari-advanced.jpg)
+
+2. Open **Safari → Settings → Developer** and check **Allow unsigned extensions**. Safari resets this checkbox whenever you quit and reopen the browser.
+
+   ![Safari Developer settings with Allow unsigned extensions checked](../../assets/screenshots/port-safari-developer.jpg)
+
+3. Open **Safari → Settings → Extensions** and check the box next to your extension.
+
+</details>
 
 ## In-place updates
 
