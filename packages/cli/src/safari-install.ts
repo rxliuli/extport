@@ -91,16 +91,16 @@ export function resolveExportPath(output: string, appName: string, ext: '.app' |
 
 export function formatXcodebuildFailureHint(output: string, platform: SafariPlatform): string | undefined {
   if (/No Accounts|Add a new account|Account.*not signed in/i.test(output)) {
-    return 'Hint: open Xcode → Settings → Accounts and sign in with your Apple ID (a free Apple ID works).'
+    return 'Hint: open Xcode → Settings → Apple Accounts and sign in with your Apple Account (a free Apple Account works).'
   }
   if (/There are no devices registered|No devices are registered/i.test(output)) {
     return 'Hint: connect your iPhone/iPad via USB and trust this Mac (or register it in Xcode → Window → Devices and Simulators) before building for iOS.'
   }
   if (/maximum number of App IDs|Your development team has reached the maximum number/i.test(output)) {
-    return 'Hint: free Apple IDs allow at most 3 active App IDs per 7 days, and each Safari extension uses 2 (host app + .appex). Wait for old App IDs to expire or use a paid Apple Developer account.'
+    return 'Hint: free Apple Accounts allow at most 3 active App IDs per 7 days, and each Safari extension uses 2 (host app + .appex). Wait for old App IDs to expire or use a paid Apple Developer account.'
   }
   if (platform === 'ios' && /requires a provisioning profile|No profiles for/i.test(output)) {
-    return 'Hint: connect your iPhone via USB, make sure you are signed in to Xcode Accounts, and retry — or pass --no-sign --output <path> to export an unsigned .ipa.'
+    return 'Hint: connect your iPhone via USB, make sure you are signed in to Xcode → Settings → Apple Accounts, and retry — or pass --no-sign --output <path> to export an unsigned .ipa.'
   }
   if (platform === 'ios' && /Couldn't load Info dictionary/i.test(output)) {
     return 'Hint: an extension directory name (such as Contents/, Frameworks/, PlugIns/, or Resources/) collided with a reserved iOS bundle directory inside the .appex.'
@@ -334,7 +334,7 @@ export async function runSafariInstall(
         log(`✅ Exported macOS app to ${destApp}`)
         if (signing.mode === 'adhoc') {
           log(
-            'Note: ad-hoc signed — enable Safari → Develop → Allow Unsigned Extensions to load it (or sign in to Xcode with a free Apple ID to sign locally).',
+            'Note: ad-hoc signed — enable Safari → Settings → Advanced → Show features for web developers, then Safari → Settings → Developer → Allow unsigned extensions (or sign in to Xcode → Settings → Apple Accounts with a free Apple Account to sign locally).',
           )
         }
         return {
@@ -385,7 +385,7 @@ export async function runSafariInstall(
       log('Next: enable the extension in Safari → Settings → Extensions.')
       if (signing.mode === 'adhoc') {
         log(
-          'Note: ad-hoc signed — check Safari → Develop → Allow Unsigned Extensions (resets on Safari restart). Signing in to Xcode with a free Apple ID avoids this.',
+          'Note: ad-hoc signed — enable Safari → Settings → Advanced → Show features for web developers, then check Safari → Settings → Developer → Allow unsigned extensions (resets on Safari restart). Signing in to Xcode → Settings → Apple Accounts avoids this.',
         )
       }
       return {

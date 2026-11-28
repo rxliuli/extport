@@ -166,7 +166,7 @@ export async function selectSigningIdentity(opts: SelectSigningOptions): Promise
       return { mode: 'unsigned', reason: 'fallback' }
     }
     throw new Error(
-      'no Apple Development certificate found in Keychain for iOS device install — sign in to Xcode (Settings → Accounts) with an Apple ID, or pass --no-sign --output <path> to export an unsigned .ipa',
+      'no Apple Development certificate found in Keychain for iOS device install — sign in to Xcode (Settings → Apple Accounts) with an Apple Account, or pass --no-sign --output <path> to export an unsigned .ipa',
     )
   }
 

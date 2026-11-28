@@ -156,7 +156,7 @@ describe('resolveExportPath & failure hints', () => {
 
   it('returns actionable hints for common Xcode signing errors', () => {
     expect(formatXcodebuildFailureHint('error: No Accounts: Add a new account in Accounts settings.', 'ios')).toContain(
-      'Xcode → Settings → Accounts',
+      'Xcode → Settings → Apple Accounts',
     )
     expect(formatXcodebuildFailureHint('error: There are no devices registered in your account.', 'ios')).toContain(
       'connect your iPhone',

@@ -22,7 +22,7 @@ Have a Chrome extension you want to use in Safari on your own Mac or iPhone? `ex
 
 ## Quick start
 
-Requires **macOS** with **Xcode** installed from the [Mac App Store](https://apps.apple.com/app/xcode/id497799835) (open Xcode once after installing to finish setup — signing in with a free Apple ID under **Xcode → Settings → Accounts** lets Safari trust your extensions without enabling unsigned extensions).
+Requires **macOS** with **Xcode** installed from the [Mac App Store](https://apps.apple.com/app/xcode/id497799835) (open Xcode once after installing to finish setup — signing in with a free Apple Account under **Xcode → Settings → Apple Accounts** lets Safari trust your extensions without enabling unsigned extensions).
 
 <Tabs>
   <TabItem label="macOS Installer (Recommended)">
@@ -101,10 +101,10 @@ Just like Xcode, `extport port safari` scans your Mac's ambient Keychain automat
 
 - **One matching certificate** (`Apple Development` or `Developer ID Application`) → selected automatically, with the real Apple Developer Team ID extracted from the certificate's `OU` field.
 - **Multiple certificates** → prompts you interactively to pick one (or pass `--sign <name|sha1>` to skip the prompt).
-- **No certificate / `--no-sign`** → falls back to ad-hoc signing on macOS (enable **Safari → Settings → Advanced → Show features for web developers**, then check **Safari → Develop → Allow Unsigned Extensions** to load it; signing into Xcode with a free Apple ID eliminates the per-restart reset). On iOS, `--no-sign --output ./out` exports an unsigned `.ipa` for sideloading.
+- **No certificate / `--no-sign`** → falls back to ad-hoc signing on macOS (enable **Safari → Settings → Advanced → Show features for web developers**, check **Safari → Settings → Developer → Allow unsigned extensions**, then enable the extension under **Safari → Settings → Extensions**; signing into Xcode with a free Apple Account eliminates the per-restart reset). On iOS, `--no-sign --output ./out` exports an unsigned `.ipa` for sideloading.
 
-:::tip[Free Apple ID works]
-You don't need a paid $99/year Apple Developer membership to install on your own Mac or iPhone — signing in to **Xcode → Settings → Accounts** with a free Apple ID creates a local `Apple Development` certificate that Safari trusts without the unsigned-extensions toggle. On iOS, free-account installs expire after 7 days and use 2 of your 3 App ID slots (host app + `.appex`).
+:::tip[Free Apple Account works]
+You don't need a paid $99/year Apple Developer membership to install on your own Mac or iPhone — signing in to **Xcode → Settings → Apple Accounts** with a free Apple Account (then clicking **Manage Certificates… → `+` → Apple Development** if no certificate is listed yet) creates a local `Apple Development` certificate in Keychain. On iOS, free-account installs expire after 7 days and use 2 of your 3 App ID slots (host app + `.appex`).
 :::
 
 ## In-place updates

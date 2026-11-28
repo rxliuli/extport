@@ -247,7 +247,7 @@ async function promptSelectSigningIdentity(
       {
         value: NONE,
         label: platform === 'macos' ? 'No signing (ad-hoc)' : 'No signing (unsigned .ipa)',
-        hint: platform === 'macos' ? 'requires Safari "Allow Unsigned Extensions"' : 'requires --output',
+        hint: platform === 'macos' ? 'requires Safari "Allow unsigned extensions"' : 'requires --output',
       },
     ],
   })

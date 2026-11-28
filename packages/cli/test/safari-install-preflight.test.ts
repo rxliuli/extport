@@ -68,7 +68,7 @@ describe('preflightXcode', () => {
     })
 
     await expect(preflightXcode(exec, { existsSync: () => true })).rejects.toThrow(
-      /xcodebuild -license accept && xcodebuild -runFirstLaunch/,
+      /sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch/,
     )
   })
 

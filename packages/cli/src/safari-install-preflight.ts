@@ -60,8 +60,8 @@ export async function preflightXcode(exec: Exec, deps: XcodePreflightDeps = {}):
     throw new Error(
       'Xcode has not finished its first-launch setup (or the Xcode license has not been accepted).\n' +
         'Open Xcode once from Applications to finish setup — or run:\n' +
-        '  sudo xcodebuild -license accept && xcodebuild -runFirstLaunch\n' +
-        'Tip: signing in to Xcode → Settings → Accounts with a free Apple ID lets Safari trust your extensions without enabling "Allow Unsigned Extensions".',
+        '  sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch\n' +
+        'Tip: signing in to Xcode → Settings → Apple Accounts with a free Apple Account lets Safari trust your extensions without enabling "Allow unsigned extensions".',
     )
   }
 
